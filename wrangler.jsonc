@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "iphone-ai-flue-agent",
+  "compatibility_date": "2026-09-20",
+  "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
+  "vars": {
+    "MODEL": "cloudflare/@cf/zai-org/glm-5.2",
+    "AI_GATEWAY_ID": "flue-techdoc",
+    "JEV_MODEL": "typesafe/jev",
+    "JEV_SKIP_CACHE": "true"
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "CHAT_SESSIONS",
+      "id": "8bfe929b07e5431fb15a0e185c4d3054"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FlueIphoneAssistantAgent"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true }
+  }
+}

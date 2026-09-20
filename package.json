@@ -1,0 +1,30 @@
+{
+  "name": "iphone-ai-flue-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && npm run build",
+    "deploy": "npm run check && wrangler deploy --config dist/iphone_ai_flue_agent/wrangler.json",
+    "types": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "@flue/runtime": "^2.1.0",
+    "hono": "^4.13.0",
+    "valibot": "^1.4.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.50.0",
+    "@flue/cli": "^2.1.0",
+    "@flue/vite": "^2.1.0",
+    "@types/node": "^22.10.10",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.135.0"
+  }
+}
