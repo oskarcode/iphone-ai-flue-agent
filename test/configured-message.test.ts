@@ -12,11 +12,12 @@ describe('configured messages', () => {
   });
 
   it('carries optional context for Jev without changing the visible prompt', () => {
-    const encoded = encodeConfiguredMessage('What is my favorite?', 'chat', 'user: My favorite is TypeScript.');
+    const encoded = encodeConfiguredMessage('What is my favorite?', 'chat', 'user: My favorite is TypeScript.', 'direct_answer');
     expect(decodeConfiguredMessage(encoded)).toEqual({
       mode: 'chat',
       prompt: 'What is my favorite?',
       routingContext: 'user: My favorite is TypeScript.',
+      route: 'direct_answer',
     });
   });
 });

@@ -35,23 +35,27 @@ export function IphoneAssistant(_props: AgentProps) {
     if (!configured) return;
 
     const routingStartedAt = Date.now();
-    writeRouting({ state: 'running', mode: configured.mode });
+    if (!configured.route) writeRouting({ state: 'running', mode: configured.mode });
     let route: JevRoute;
     let fallback = false;
-    try {
-      route = await classifyWithJev(configured.prompt, configured.mode, signal, configured.routingContext);
-    } catch (error) {
-      fallback = true;
-      route = configured.mode === 'correct' ? 'correct' : 'direct_answer';
-      console.error(JSON.stringify({
-        message: 'Jev routing failed; using the safe local fallback',
-        error: error instanceof Error ? error.message : String(error),
-      }));
+    if (configured.route) {
+      route = configured.route;
+    } else {
+      try {
+        route = await classifyWithJev(configured.prompt, configured.mode, signal, configured.routingContext);
+      } catch (error) {
+        fallback = true;
+        route = configured.mode === 'correct' ? 'correct' : 'direct_answer';
+        console.error(JSON.stringify({
+          message: 'Jev routing failed; using the safe local fallback',
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
     }
 
     if (configured.mode === 'correct') route = 'correct';
     const durationMs = Date.now() - routingStartedAt;
-    writeRouting({ state: 'complete', mode: configured.mode, route, fallback, durationMs });
+    if (!configured.route) writeRouting({ state: 'complete', mode: configured.mode, route, fallback, durationMs });
     append({
       kind: 'signal',
       type: 'routing-decision',

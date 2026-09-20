@@ -4,8 +4,10 @@ import { cloudflareBindingProvider } from '@flue/runtime/cloudflare/workers-ai';
 import { Hono, type Context } from 'hono';
 import { IphoneAssistant } from './agents/iphone-assistant.ts';
 import { renderChatPage } from './chat-page.ts';
+import { projectConversationChunk } from './lib/chat-events.ts';
 import { encodeConfiguredMessage, type AssistantMode } from './lib/configured-message.ts';
 import { correctedTextFromAgent } from './lib/output.ts';
+import { classifyWithJev } from './tools/jev-router.ts';
 
 type Bindings = {
   AI: Ai;
@@ -48,6 +50,13 @@ type AssistantResult = {
   route?: string;
 };
 
+function routeFromReplyData(data: Record<string, unknown[]>): string | undefined {
+  const latestRouting = data.routing?.at(-1);
+  return latestRouting && typeof latestRouting === 'object' && 'route' in latestRouting
+    ? String(latestRouting.route)
+    : undefined;
+}
+
 async function runAgent(
   prompt: string,
   mode: AssistantMode,
@@ -58,12 +67,7 @@ async function runAgent(
   const receipt = await agent.dispatch(encodeConfiguredMessage(prompt, mode, routingContext));
   const reply = await agent.read(receipt);
   if (!reply.text.trim()) throw new Error('The Flue agent returned an empty response.');
-  const routingWrites = reply.data.routing;
-  const latestRouting = Array.isArray(routingWrites) ? routingWrites.at(-1) : undefined;
-  const route = latestRouting && typeof latestRouting === 'object' && 'route' in latestRouting
-    ? String(latestRouting.route)
-    : undefined;
-  return { text: reply.text, route };
+  return { text: reply.text, route: routeFromReplyData(reply.data) };
 }
 
 async function runTextRoute(c: Context<AppEnv>, mode: 'correct' | 'explain') {
@@ -134,6 +138,103 @@ app.get('/chat/session/:id', async (c) => {
   if (text === null) return c.json({ error: 'Chat session expired or was already used' }, 404);
   await c.env.CHAT_SESSIONS.delete(key);
   return c.json({ text });
+});
+
+app.post('/chat/stream', async (c) => {
+  const body = await c.req.json<{ conversation_id?: unknown; messages?: unknown }>().catch(() => null);
+  const messages = validateChatMessages(body?.messages);
+  const conversationId = typeof body?.conversation_id === 'string' ? body.conversation_id : '';
+  if (!messages || !CONVERSATION_ID_PATTERN.test(conversationId)) {
+    return c.json({ error: 'Send a conversation_id and chat history ending with a user message' }, 400);
+  }
+
+  const encoder = new TextEncoder();
+  const readAbort = new AbortController();
+  c.req.raw.signal.addEventListener('abort', () => readAbort.abort(), { once: true });
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let closed = false;
+      const send = (event: string, data: unknown) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          closed = true;
+          readAbort.abort();
+        }
+      };
+      const close = () => {
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            // The browser may have already cancelled the stream.
+          }
+        }
+      };
+
+      void (async () => {
+        send('status', { type: 'accepted' });
+        try {
+          const routingContext = messages.slice(-6).map((message) => `${message.role}: ${message.content}`).join('\n');
+          send('progress', { type: 'classification', state: 'running' });
+          const classificationStartedAt = Date.now();
+          let route: 'direct_answer' | 'read_url' | 'web_search' | 'clarification';
+          let fallback = false;
+          try {
+            const classifiedRoute = await classifyWithJev(messages.at(-1)!.content, 'chat', readAbort.signal, routingContext);
+            route = classifiedRoute === 'correct' ? 'direct_answer' : classifiedRoute;
+          } catch (error) {
+            fallback = true;
+            route = 'direct_answer';
+            console.error(JSON.stringify({ message: 'Jev streaming route failed; using direct answer', error: error instanceof Error ? error.message : String(error) }));
+          }
+          send('progress', { type: 'classification', state: 'complete', route, fallback, durationMs: Date.now() - classificationStartedAt });
+          const agent = init(IphoneAssistant, { id: conversationId });
+          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, 'chat', routingContext, route));
+          send('status', { type: 'queued', submissionId: receipt.submissionId });
+          const toolNames = new Map<string, string>();
+          const reply = await agent.read(receipt, {
+            signal: readAbort.signal,
+            onEvent(chunk) {
+              if (chunk.type === 'tool-input') toolNames.set(chunk.toolCallId, chunk.toolName);
+              const projected = projectConversationChunk(chunk);
+              if (!projected) return;
+              if (projected.type === 'tool' && projected.state !== 'running') {
+                projected.name = toolNames.get(projected.name) || projected.name;
+              }
+              send('progress', projected);
+            },
+          });
+          send('done', {
+            text: reply.text,
+            route: routeFromReplyData(reply.data) || route,
+            metadata: reply.metadata,
+            conversationId,
+          });
+        } catch (error) {
+          if (!readAbort.signal.aborted) {
+            console.error(JSON.stringify({ message: 'Flue streaming chat failed', error: error instanceof Error ? error.message : String(error) }));
+            send('error', { error: 'Assistant request failed' });
+          }
+        } finally {
+          close();
+        }
+      })();
+    },
+    cancel() {
+      readAbort.abort();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 });
 
 app.post('/chat/api', async (c) => {
