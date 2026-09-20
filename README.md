@@ -21,7 +21,7 @@ One Flue IphoneAssistant agent
         +-- web_search, optionally followed by read_url
 ```
 
-The model is `@cf/zai-org/glm-5.2`. Jev selects `correct`, `direct_answer`, `read_url`, `web_search`, or `clarification` before the first model turn.
+The model is `@cf/zai-org/glm-5.2`. Jev selects `correct`, `direct_answer`, `read_url`, `web_search`, or `clarification` before the first model turn. Model and Jev requests use the dedicated `iphone-flue-shortcut` AI Gateway.
 
 ## Routes
 
