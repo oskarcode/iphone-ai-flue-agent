@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iPhone AI Flue Agent Learning Guide</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eee9dc;
+      --paper: #fffdf6;
+      --ink: #17201d;
+      --muted: #66716b;
+      --line: #c9c9bb;
+      --strong-line: #8c948b;
+      --navy: #173252;
+      --teal: #087c76;
+      --teal-soft: #ddf2eb;
+      --amber: #9a5b00;
+      --amber-soft: #fff0ce;
+      --red: #9d2b23;
+      --red-soft: #ffe7e3;
+      --code: #18211e;
+      --code-ink: #eaf4ed;
+      --shadow: 0 18px 55px rgba(23, 50, 82, .10);
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #101613;
+      --paper: #17201c;
+      --ink: #eef3ec;
+      --muted: #a8b1aa;
+      --line: #35413b;
+      --strong-line: #69766f;
+      --navy: #9fc3f2;
+      --teal: #59d3c8;
+      --teal-soft: #173b34;
+      --amber: #ffc36b;
+      --amber-soft: #412f15;
+      --red: #ff9b91;
+      --red-soft: #48231f;
+      --code: #0c110f;
+      --code-ink: #edf6ef;
+      --shadow: none;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 25%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
+        linear-gradient(color-mix(in srgb, var(--line) 25%, transparent) 1px, transparent 1px) 0 0 / 24px 24px,
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--teal); }
+    code, pre, .eyebrow, .flow, .file { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .shell { width: min(1180px, calc(100% - 24px)); margin: 18px auto 64px; background: var(--paper); border: 1px solid var(--strong-line); box-shadow: var(--shadow); }
+    .hero { padding: clamp(28px, 6vw, 68px); border-bottom: 3px solid var(--navy); background: linear-gradient(135deg, var(--paper), var(--teal-soft)); }
+    .eyebrow { color: var(--teal); font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { max-width: 850px; margin: 10px 0 12px; color: var(--navy); font-size: clamp(2rem, 6vw, 4.7rem); line-height: .98; letter-spacing: -.05em; }
+    .hero p { max-width: 760px; margin: 0; color: var(--muted); font-size: 1.08rem; }
+    .toolbar { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(16px); }
+    #search { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--paper); color: var(--ink); font: inherit; }
+    button { min-height: 42px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--paper); color: var(--ink); cursor: pointer; font: inherit; font-weight: 700; }
+    nav { display: flex; gap: 6px; overflow-x: auto; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--paper); }
+    nav a { flex: 0 0 auto; padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-decoration: none; font-size: .78rem; }
+    main { padding: 0 clamp(16px, 5vw, 58px) 58px; }
+    section { scroll-margin-top: 112px; padding: 46px 0 18px; border-bottom: 1px dashed var(--line); }
+    section[hidden] { display: none; }
+    h2 { margin: 0 0 20px; color: var(--navy); font-size: clamp(1.55rem, 4vw, 2.5rem); line-height: 1.1; letter-spacing: -.035em; }
+    h3 { margin: 24px 0 8px; color: var(--navy); }
+    p { max-width: 78ch; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+    .card { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--paper) 90%, var(--teal-soft)); }
+    .card strong { display: block; margin-bottom: 5px; color: var(--navy); }
+    .callout { margin: 16px 0; padding: 14px 16px; border-left: 5px solid var(--teal); background: var(--teal-soft); }
+    .callout.warning { border-color: var(--amber); background: var(--amber-soft); }
+    .callout.danger { border-color: var(--red); background: var(--red-soft); }
+    .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 12px 0; padding: 14px; border: 1px solid var(--line); background: var(--bg); font-size: .85rem; }
+    .flow span { padding: 5px 8px; border: 1px solid var(--strong-line); border-radius: 4px; background: var(--paper); }
+    .flow b { color: var(--teal); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; min-width: 680px; font-size: .9rem; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: var(--teal-soft); color: var(--navy); }
+    tr:last-child td { border-bottom: 0; }
+    .file { color: var(--teal); font-size: .84rem; }
+    .code-wrap { position: relative; margin: 14px 0; }
+    pre { margin: 0; padding: 16px; overflow: auto; border-radius: 8px; background: var(--code); color: var(--code-ink); font-size: .83rem; line-height: 1.55; white-space: pre-wrap; }
+    .copy { position: absolute; top: 8px; right: 8px; min-height: 30px; padding: 3px 8px; border-color: #5b6862; background: #28322e; color: #eef5ef; font-size: .72rem; }
+    .checklist { padding-left: 1.2rem; }
+    .checklist li { margin: .45rem 0; }
+    details { margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+    summary { padding: 10px 12px; cursor: pointer; color: var(--navy); font-weight: 800; }
+    details > div { padding: 0 12px 12px; }
+    footer { padding: 24px; color: var(--muted); text-align: center; font-size: .82rem; }
+    @media (max-width: 720px) { .shell { width: 100%; margin: 0; border-inline: 0; } .toolbar { grid-template-columns: 1fr; } nav { top: 84px; } }
+    @media print { body { background: white; } .shell { width: 100%; margin: 0; border: 0; box-shadow: none; } .toolbar, nav, .copy { display: none; } section { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="hero">
+    <div class="eyebrow">Architecture-first maintainer handoff · 2026-09-20</div>
+    <h1>iPhone AI Flue Agent</h1>
+    <p>A practical map from iPhone Shortcut input to Jev routing, durable Flue execution, Cloudflare bindings, retrieval tools, and streamed browser output.</p>
+  </header>
+
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="Filter sections, files, routes, symbols, or flows…" aria-label="Filter guide">
+    <button id="theme-toggle" type="button">Dark mode</button>
+  </div>
+  <nav aria-label="Guide sections">
+    <a href="#start-here">Start</a><a href="#quick-start">Run</a><a href="#local-agent">Agent</a>
+    <a href="#flows">Flows</a><a href="#developer-map">Files</a><a href="#architecture">Architecture</a>
+    <a href="#typescript-python">TS → Python</a><a href="#debugging">Debug</a><a href="#labs">Labs</a>
+  </nav>
+
+  <main>
+    <section id="start-here" data-search="start overview rules quick flow deploy evidence">
+      <h2>1. Start Here</h2>
+      <p>This is a small public Cloudflare Worker demo. Hono handles HTTP, Jev chooses one route, and a SQLite-backed Flue Durable Object conversation runs GLM-5.2 with optional retrieval tools.</p>
+      <div class="grid">
+        <div class="card"><strong>Primary edit point</strong><span class="file">src/app.ts</span><br>Routes, validation, KV handoff, SSE.</div>
+        <div class="card"><strong>Agent behavior</strong><span class="file">src/agents/iphone-assistant.ts</span><br>Model, tools, routing signal, retries.</div>
+        <div class="card"><strong>Browser UI</strong><span class="file">src/chat-page.ts</span><br>Self-contained HTML, state, SSE parser.</div>
+        <div class="card"><strong>Cloudflare topology</strong><span class="file">wrangler.jsonc</span><br>Bindings, models, migration, telemetry.</div>
+      </div>
+      <h3>At a glance</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>User/API rule</th><th>What happens</th><th>Primary proof</th></tr></thead>
+        <tbody>
+          <tr><td>One-shot text</td><td>Validate → Flue dispatch → agent-start Jev → JSON</td><td><span class="file">src/app.ts: runAgent()</span></td></tr>
+          <tr><td>Browser handoff</td><td>KV stores text for ten minutes; browser reads then deletes it</td><td><span class="file">src/app.ts: createChatSession()</span></td></tr>
+          <tr><td>Live chat</td><td>Early classification and sanitized Flue events stream over SSE</td><td><span class="file">POST /chat/stream</span></td></tr>
+          <tr><td>Current information</td><td>Agent uses one web_research call for optional page reading and broader search</td><td><span class="file">src/tools/web-research.ts</span></td></tr>
+        </tbody>
+      </table></div>
+      <div class="flow"><span>Shortcut/browser</span><b>→</b><span>Hono Worker</span><b>→</b><span>Flue Durable Object + Jev</span><b>→</b><span>GLM + tools</span><b>→</b><span>JSON or SSE</span></div>
+      <div class="callout warning"><strong>Public demo boundary:</strong> there is no Access or API authentication. Any caller can trigger billable AI and Browser Run work. Add authentication/rate limits before broader distribution.</div>
+      <div class="callout danger"><strong>Needs verification before production hardening:</strong> URL validation does not independently resolve DNS or re-check redirect destinations. KV read/delete is not an atomic consume operation.</div>
+      <p><a href="#local-agent">Jump to the Local Learning Agent</a> when you want to ask follow-up questions against this guide and repository.</p>
+    </section>
+
+    <section id="quick-start" data-search="developer quick start install test build deploy curl commands">
+      <h2>2. Developer Quick Start</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Goal</th><th>Command</th><th>Signal</th></tr></thead>
+        <tbody>
+          <tr><td>Install</td><td><code>npm install</code></td><td><code>node_modules/</code> restored from lockfile</td></tr>
+          <tr><td>Run locally</td><td><code>npm run dev</code></td><td>Vite starts the Worker; AI and Browser bindings are remote</td></tr>
+          <tr><td>Verify all</td><td><code>npm run check</code></td><td>TypeScript, 23 tests, and production build pass</td></tr>
+          <tr><td>Deploy</td><td><code>npm run deploy</code></td><td>Check passes before Wrangler deploys generated output</td></tr>
+        </tbody>
+      </table></div>
+      <div class="code-wrap"><pre><code>npm install
+npm run check
+npm run dev</code></pre></div>
+      <p>Local AI and Browser Run calls use real account services and may incur usage. The project has no offline model stub.</p>
+    </section>
+
+    <section id="local-agent" data-search="local learning agent guide chat run command shared runtime">
+      <h2>3. Local Learning Agent</h2>
+      <p>The shared read-only runtime serves this file on <code>127.0.0.1</code> and injects an “Ask guide agent” drawer without modifying the HTML.</p>
+      <div class="code-wrap"><pre><code>cd "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent"
+.venv/bin/python run_guide_agent.py "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html" --project-root "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent"</code></pre></div>
+      <p>Metadata lives at <span class="file">docs/learning-agent/guide-agent.json</span>. The runtime can search/read this guide and repository but cannot write project files.</p>
+    </section>
+
+    <section id="flows" data-search="request flow blocks ask explain handoff stream session">
+      <h2>4. Request Flow Blocks</h2>
+      <h3>Universal Shortcut</h3>
+      <div class="flow"><span>POST /v1/ask</span><b>→</b><span>readTextBody</span><b>→</b><span>Flue dispatch</span><b>→</b><span>agent-start Jev</span><b>→</b><span>model turn</span><b>→</b><span>{ answer, route }</span></div>
+      <h3>Explanation Shortcut</h3>
+      <div class="flow"><span>POST /v1/explain</span><b>→</b><span>mode=explain</span><b>→</b><span>Jev route</span><b>→</b><span>model/tools</span><b>→</b><span>{ explanation }</span></div>
+      <h3>Browser handoff</h3>
+      <div class="flow"><span>POST /handoff</span><b>→</b><span>KV put + TTL</span><b>→</b><span>open /chat?session=ID</span><b>→</b><span>KV get/delete</span><b>→</b><span>sendMessage</span></div>
+      <h3>Live answer</h3>
+      <div class="flow"><span>POST /chat/stream</span><b>→</b><span>Jev classification</span><b>→</b><span>Flue dispatch/read</span><b>→</b><span>projectConversationChunk</span><b>→</b><span>SSE tokens</span></div>
+    </section>
+
+    <section id="developer-map" data-search="developer map files responsibility called by risk">
+      <h2>5. Developer Map</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>File</th><th>Responsibility</th><th>Called by / calls</th><th>Change risk</th></tr></thead>
+        <tbody>
+          <tr><td class="file">src/app.ts</td><td>Worker entrypoint and contracts</td><td>Cloudflare fetch → Hono → Flue/KV</td><td>High: every client contract</td></tr>
+          <tr><td class="file">src/agents/iphone-assistant.ts</td><td>Durable agent policy</td><td>Flue runtime → Jev/model/tools</td><td>High: all answer behavior</td></tr>
+          <tr><td class="file">src/chat-page.ts</td><td>HTML/CSS/browser JS</td><td>GET /chat → /chat/session + /chat/stream</td><td>Medium: browser only</td></tr>
+          <tr><td class="file">src/tools/jev-router.ts</td><td>Intent classification</td><td>Worker/agent → AI binding</td><td>High: route correctness</td></tr>
+          <tr><td class="file">src/tools/web-research.ts</td><td>Optional page reading and current web evidence</td><td>Agent → Browser Run/DuckDuckGo/Wikipedia</td><td>High: network security and provider fragility</td></tr>
+          <tr><td class="file">wrangler.jsonc</td><td>Cloudflare topology</td><td>Vite/Wrangler deploy</td><td>High: state and bindings</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="safe-change" data-search="safe change checklist verify before changing">
+      <h2>6. Safe Change Checklist</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Before changing</th><th>Why</th><th>Verify afterward</th></tr></thead>
+        <tbody>
+          <tr><td>Identify affected public response field</td><td>Shortcuts depend on exact keys</td><td>Run tests and curl that route</td></tr>
+          <tr><td>Check whether history/state is reused</td><td>Conversation ID maps to durable Flue state</td><td>Test a follow-up browser turn</td></tr>
+          <tr><td>Preserve event sanitization</td><td>Raw reasoning/tool payloads are private</td><td><code>test/chat-events.test.ts</code></td></tr>
+          <tr><td>Review bindings before renaming</td><td>Generated code and deployed resources depend on names</td><td><code>npm run types &amp;&amp; npm run check</code></td></tr>
+          <tr><td>Re-check URL trust boundary</td><td>Network tools can become SSRF paths</td><td>Add rejection tests before broadening URLs</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="troubleshooting" data-search="troubleshooting errors symptom likely cause first check">
+      <h2>7. Troubleshooting Matrix</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Symptom</th><th>Likely cause</th><th>First check</th></tr></thead>
+        <tbody>
+          <tr><td>400 response</td><td>Missing/large text, bad history, invalid ID</td><td><code>readTextBody</code> and <code>validateChatMessages</code></td></tr>
+          <tr><td>502 response</td><td>Flue/model dependency failed</td><td>Workers Logs for structured error message</td></tr>
+          <tr><td>Wrong execution route</td><td>Jev criteria/context mismatch</td><td><code>QUESTIONS</code>, gateway log, returned route</td></tr>
+          <tr><td>URL tool error</td><td>URL rejected or Browser Run failed</td><td><code>validatePublicUrl</code>, Browser Run metrics</td></tr>
+          <tr><td>Research retries/fails</td><td>Browser Run or both search providers unavailable/slow</td><td><code>webResearch.run</code> and tool timeline</td></tr>
+          <tr><td>No browser tokens</td><td>SSE parsing, projection, or disconnect</td><td>Network tab for <code>/chat/stream</code></td></tr>
+          <tr><td>Handoff expired</td><td>TTL elapsed or key already deleted</td><td><code>CHAT_SESSIONS</code> and session ID age</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="deployment" data-search="current deployment production url version environment deploy">
+      <h2>8. Current Deployment Notes</h2>
+      <ul>
+        <li>Production Worker: <a href="https://iphone-ai-flue-agent.oskarmansanqu.workers.dev">iphone-ai-flue-agent.oskarmansanqu.workers.dev</a>.</li>
+        <li>Live health, chat UI, one early Jev classification, token streaming, and final route were verified on 2026-09-20.</li>
+        <li>AI Gateway ID: <code>iphone-flue-shortcut</code>; model: <code>cloudflare/@cf/zai-org/glm-5.2</code>.</li>
+        <li>This cleanup changed comments/docs and expanded equivalent browser code. Run <code>npm run deploy</code> to publish the cleaned source build.</li>
+      </ul>
+    </section>
+
+    <section id="source-evidence" data-search="source evidence claim proof confidence">
+      <h2>9. Source Evidence</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Claim</th><th>Evidence</th><th>Confidence</th></tr></thead>
+        <tbody>
+          <tr><td>Flue conversations are durable SQLite objects</td><td><span class="file">wrangler.jsonc: migrations</span> + <span class="file">IphoneAssistant.agentName</span></td><td>Confirmed</td></tr>
+          <tr><td>Routing occurs before generation</td><td><span class="file">useAgentStart()</span> and <span class="file">POST /chat/stream</span></td><td>Confirmed</td></tr>
+          <tr><td>Raw reasoning is not streamed</td><td><span class="file">projectConversationChunk()</span> + test</td><td>Confirmed</td></tr>
+          <tr><td>Browser rendering uses no API token</td><td>BROWSER binding + Cloudflare Quick Actions docs</td><td>Confirmed</td></tr>
+          <tr><td>Handoff is strictly single-consumer under concurrency</td><td>Separate KV get/delete operations</td><td>Not guaranteed</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="architecture" data-search="architecture diagram actors sequence blueprint">
+      <h2>10. Architecture</h2>
+      <p>Open the <a href="diagrams/index.html">interactive Blueprint diagram</a> for two source-backed sequence diagrams: one-shot Shortcut execution and browser handoff/streaming chat.</p>
+      <div class="flow"><span>User clients</span><b>→</b><span>Cloudflare Worker</span><b>→</b><span>Jev + Flue DO</span><b>→</b><span>Workers AI</span><b>↔</b><span>Browser Run/public web</span></div>
+      <p>The Worker is stateless per request except for two external state systems: short-lived handoff text in KV and conversation execution/state owned by Flue's Durable Object.</p>
+    </section>
+
+    <section id="infrastructure" data-search="infrastructure bindings kv ai browser durable object gateway observability">
+      <h2>11. Infrastructure</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Unit/binding</th><th>Purpose</th><th>Configuration</th><th>Operational note</th></tr></thead>
+        <tbody>
+          <tr><td>Worker</td><td>HTTP ingress and HTML</td><td><code>name</code>, compatibility flags</td><td>Public endpoints</td></tr>
+          <tr><td><code>AI</code></td><td>Jev and GLM inference</td><td>Remote AI binding + gateway ID</td><td>Real account usage in local dev</td></tr>
+          <tr><td><code>BROWSER</code></td><td>Page-to-Markdown Quick Action</td><td>Remote Browser binding</td><td>Requires modern compatibility date</td></tr>
+          <tr><td><code>CHAT_SESSIONS</code></td><td>Ten-minute text handoff</td><td>Workers KV namespace</td><td>Eventually consistent; get/delete not atomic</td></tr>
+          <tr><td><code>FlueIphoneAssistantAgent</code></td><td>Durable conversation execution/state</td><td>SQLite DO migration</td><td>Do not remove migration history</td></tr>
+          <tr><td>Observability</td><td>Logs and traces</td><td>100% head sampling</td><td>Appropriate for low-volume demo</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="traffic" data-search="traffic catalog routes transport state output">
+      <h2>12. Traffic Flows</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Trigger</th><th>Transport</th><th>Handler</th><th>Effect/output</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /health</code></td><td>HTTP JSON</td><td>Hono inline handler</td><td>Liveness identity</td></tr>
+          <tr><td><code>POST /v1/ask</code></td><td>HTTP JSON</td><td><code>runAgent</code></td><td>New random Flue conversation; answer</td></tr>
+          <tr><td><code>POST /v1/explain</code></td><td>HTTP JSON</td><td><code>runExplainRoute</code></td><td>Explanation/retrieval answer</td></tr>
+          <tr><td><code>POST /handoff</code></td><td>HTTP JSON</td><td><code>createChatSession</code></td><td>KV write; browser URL</td></tr>
+          <tr><td><code>GET /chat/session/:id</code></td><td>HTTP JSON</td><td>Hono route</td><td>KV read/delete</td></tr>
+          <tr><td><code>POST /chat/stream</code></td><td>SSE</td><td>Hono route</td><td>Durable turn; live events</td></tr>
+          <tr><td><code>POST /chat/api</code></td><td>HTTP JSON</td><td><code>runAgent</code></td><td>Durable non-streaming turn</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="frontend-backend" data-search="frontend backend browser SSE DOM fetch stream">
+      <h2>13. Frontend to Backend</h2>
+      <p><span class="file">renderChatPage()</span> returns all HTML, CSS, and JavaScript from the Worker. There is no React project, asset pipeline, or browser package dependency.</p>
+      <div class="flow"><span>sendMessage()</span><b>→</b><span>fetch /chat/stream</span><b>→</b><span>consumeEvents()</span><b>→</b><span>handleChatEvent()</span><b>→</b><span>render()</span></div>
+      <p>Model output is rendered with <code>textContent</code> and constructed DOM nodes. The limited Markdown parser never assigns model text to <code>innerHTML</code>.</p>
+    </section>
+
+    <section id="backend-state" data-search="backend state kv durable object conversation TTL retry">
+      <h2>14. Backend and State</h2>
+      <div class="grid">
+        <div class="card"><strong>One-shot state</strong>A random conversation ID is generated for every Shortcut request.</div>
+        <div class="card"><strong>Browser state</strong>The browser retains one random ID, so follow-up turns reach the same Flue conversation.</div>
+        <div class="card"><strong>Handoff state</strong>KV stores only the initial selected text with a 600-second TTL.</div>
+        <div class="card"><strong>Retry policy</strong>Flue is configured for up to four attempts and a three-minute timeout.</div>
+      </div>
+      <p>Jev failures fall back locally to a direct answer. Tool failures remain visible to the model; the prompt forbids claiming retrieval succeeded when it did not.</p>
+    </section>
+
+    <section id="repository-map" data-search="repository map directory files generated tests docs config">
+      <h2>15. Repository Map</h2>
+      <div class="code-wrap"><pre><code>src/
+  app.ts                    Worker entrypoint, routes, SSE, KV
+  agents/iphone-assistant.ts Durable Flue agent definition
+  tools/                    Jev and combined web research
+  lib/                      Message envelope and event projection
+  chat-page.ts              Self-contained browser UI
+  prompts.ts                Shared model instructions
+test/                       Pure unit and generated-page checks
+  SHORTCUT_GUIDE.md         iPhone setup and rollback
+  iphone-ai-...guide.html   This learning guide
+  diagrams/                 Blueprint source and rendered diagram
+  learning-agent/           Shared runtime metadata
+wrangler.jsonc              Cloudflare resources and environment
+package.json                Commands and dependency manifest</code></pre></div>
+      <p><code>dist/</code>, <code>.wrangler/</code>, <code>node_modules/</code>, and <code>worker-configuration.d.ts</code> are generated/downloaded and ignored.</p>
+    </section>
+
+    <section id="typescript-python" data-search="typescript python django mapping async promise import export null undefined optional chaining callbacks">
+      <h2>16. TypeScript for Python</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Repository concept</th><th>TypeScript meaning</th><th>Python/Django analogue</th><th>Important difference</th></tr></thead>
+        <tbody>
+          <tr><td><code>type ChatMessage</code></td><td>Compile-time object shape</td><td><code>TypedDict</code> intent</td><td>It does not validate incoming JSON at runtime</td></tr>
+          <tr><td><code>async function</code> / <code>Promise&lt;T&gt;</code></td><td>Awaitable asynchronous work</td><td><code>async def</code> / coroutine result</td><td>Workers uses Web platform request/stream APIs</td></tr>
+          <tr><td><code>import</code> / <code>export</code></td><td>ES modules</td><td>Python imports/public module names</td><td>File extensions are explicit in source imports here</td></tr>
+          <tr><td><code>null</code> / <code>undefined</code></td><td>Empty value / absent value</td><td><code>None</code></td><td>JavaScript distinguishes the two</td></tr>
+          <tr><td><code>?.</code></td><td>Safe optional access</td><td><code>getattr(x, name, None)</code></td><td>Stops only on null/undefined</td></tr>
+          <tr><td><code>??</code></td><td>Fallback for null/undefined</td><td><code>x if x is not None else y</code></td><td>Unlike <code>or</code>, preserves 0/false/empty string</td></tr>
+          <tr><td><code>map/filter/find</code></td><td>Array callbacks</td><td>Comprehensions / <code>next</code></td><td>Callbacks close over surrounding variables</td></tr>
+          <tr><td>Object destructuring</td><td>Extract properties by name</td><td>Dictionary access/unpacking</td><td>Names bind from object properties, not position</td></tr>
+          <tr><td>Valibot schema</td><td>Runtime validation</td><td>Pydantic model/field validators</td><td>Used only for model-generated tool inputs here</td></tr>
+          <tr><td>Hono route</td><td>HTTP decorator/registry</td><td>FastAPI decorator or Django URL + view</td><td>Returns Web <code>Response</code> objects</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="walkthrough" data-search="code walkthrough bootstrap ingress orchestration state integration errors">
+      <h2>17. Code Walkthrough</h2>
+      <ol>
+        <li><strong>Bootstrap:</strong> <code>src/app.ts</code> reads Worker bindings and configures Flue's Workers AI provider once per isolate.</li>
+        <li><strong>Ingress:</strong> Hono validates text or chat history before any billable work.</li>
+        <li><strong>Routing:</strong> <code>classifyWithJev()</code> sends declarative route criteria through the AI binding and gateway.</li>
+        <li><strong>Orchestration:</strong> <code>IphoneAssistant()</code> attaches the route signal, model, tools, and metadata hooks.</li>
+        <li><strong>State:</strong> Flue owns durable conversation state; KV owns only temporary handoff text.</li>
+        <li><strong>Integrations:</strong> One research tool can return bounded Browser Run Markdown and up to five normalized search results.</li>
+        <li><strong>Output:</strong> one-shot routes await a complete answer; streaming chat sanitizes and forwards incremental events.</li>
+        <li><strong>Errors:</strong> structured <code>console.error(JSON.stringify(...))</code> records dependency failures without returning internals to clients.</li>
+      </ol>
+    </section>
+
+    <section id="debugging" data-search="logs debugging tracing gateway browser metrics tests observability">
+      <h2>18. Logs and Debugging</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stage</th><th>Signal</th><th>Where to inspect</th></tr></thead>
+        <tbody>
+          <tr><td>HTTP request</td><td>Status, duration, Worker invocation trace</td><td>Workers Logs and traces</td></tr>
+          <tr><td>Jev/model</td><td>Latency, errors, tokens, cost</td><td>AI Gateway <code>iphone-flue-shortcut</code></td></tr>
+          <tr><td>Agent turn</td><td>Flue route data and response metadata</td><td>Browser activity panel; Worker trace</td></tr>
+          <tr><td>Browser Run</td><td>Quick Action count/browser time</td><td>Browser Run dashboard; response header support</td></tr>
+          <tr><td>Public search</td><td>Tool start/error/complete</td><td>Browser SSE timeline and Worker logs</td></tr>
+          <tr><td>Regression</td><td>17 unit tests + build</td><td><code>npm run check</code></td></tr>
+        </tbody>
+      </table></div>
+      <div class="callout"><strong>Smallest useful first check:</strong> reproduce with the exact route, then correlate the client response with Worker logs, the AI Gateway request, and the SSE activity row.</div>
+    </section>
+
+    <section id="labs" data-search="labs quiz exercises study path debugging drill answers">
+      <h2>19. Labs and Quiz</h2>
+      <h3>30–60–90 minute study path</h3>
+      <div class="grid">
+        <div class="card"><strong>30 minutes</strong>Read README, open the diagram, trace <code>POST /v1/ask</code>.</div>
+        <div class="card"><strong>60 minutes</strong>Trace handoff + SSE and map each browser function to its Worker route.</div>
+        <div class="card"><strong>90 minutes</strong>Run tests, add one parser edge case, and inspect the production trace/gateway entry.</div>
+      </div>
+      <h3>Safe labs</h3>
+      <ol>
+        <li>Add a test proving <code>validatePublicUrl()</code> rejects another literal private range. Expected signal: <code>npm test</code> remains green.</li>
+        <li>Change one human-facing route label in <code>src/chat-page.ts</code>. Expected signal: <code>npm run check</code> passes and local UI shows the new label.</li>
+        <li>Debug drill: force DuckDuckGo to fail locally in a temporary branch and prove Wikipedia becomes the provider. Do not deploy the forced failure.</li>
+      </ol>
+      <h3>Explain-back quiz</h3>
+      <details><summary>Why are both TypeScript types and runtime validation present?</summary><div>Types protect the developer at build time; public JSON and model tool calls are still unknown at runtime and must be checked.</div></details>
+      <details><summary>What is the difference between KV and the Flue Durable Object here?</summary><div>KV transfers one short-lived handoff payload. The Durable Object owns durable per-conversation agent execution/state.</div></details>
+      <details><summary>Where would you look if private reasoning appeared in the UI?</summary><div><code>projectConversationChunk()</code>, its tests, and the <code>/chat/stream</code> projection call site.</div></details>
+      <details><summary>Why is <code>src/chat-page.ts</code> not React?</summary><div>The UI is intentionally small and is returned as one HTML string by the Worker, avoiding a second frontend build and dependency tree.</div></details>
+    </section>
+
+    <section id="evidence" data-search="evidence verification commands outcomes references official docs">
+      <h2>20. Evidence</h2>
+      <h3>Executed verification</h3>
+      <ul class="checklist">
+        <li><code>npm run check</code>: passed TypeScript, 6 test files / 17 tests, and Vite production build after code cleanup.</li>
+        <li><code>validate_master.py</code>: passed two Blueprint scenarios after the final label fix.</li>
+        <li><code>render_html.py</code>: generated <span class="file">docs/diagrams/index.html</span>.</li>
+        <li>Live SSE smoke test before cleanup: one classification, token deltas, and final route verified.</li>
+      </ul>
+      <h3>Authoritative platform references</h3>
+      <ul>
+        <li><a href="https://developers.cloudflare.com/browser-run/quick-actions/">Browser Run Quick Actions</a>: Worker binding, compatibility date, remote local mode.</li>
+        <li><a href="https://developers.cloudflare.com/ai-gateway/usage/worker-binding-methods/">AI Gateway Worker binding methods</a>: <code>env.AI</code> and gateway usage.</li>
+        <li><a href="https://developers.cloudflare.com/workers/observability/traces/">Workers traces</a>: automatic fetch, binding, RPC, and handler spans.</li>
+        <li><a href="https://developers.cloudflare.com/kv/api/delete-key-value-pairs/">Workers KV delete</a>: binding deletion API used by handoff cleanup.</li>
+      </ul>
+      <p>Repository evidence is primary for application behavior. Platform references support binding and observability explanations, not claims about this app's custom logic.</p>
+    </section>
+  </main>
+
+  <script type="application/json" id="learning-guide-agent-metadata">
+  {
+    "title": "iPhone AI Flue Agent Learning Guide",
+    "scope": "Complete iphone-ai-flue-agent Cloudflare Worker repository",
+    "projectRoot": "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent",
+    "importantFiles": ["src/app.ts", "src/agents/iphone-assistant.ts", "src/chat-page.ts", "src/tools/jev-router.ts", "wrangler.jsonc"],
+    "importantSymbols": ["POST /v1/ask", "POST /handoff", "POST /chat/stream", "IphoneAssistant", "classifyWithJev", "projectConversationChunk"]
+  }
+  </script>
+
+  <footer>Self-contained maintainer guide · No external assets, analytics, or runtime network calls.</footer>
+</div>
+
+<script>
+  const root = document.documentElement;
+  const search = document.querySelector('#search');
+  const themeToggle = document.querySelector('#theme-toggle');
+  const sections = Array.from(document.querySelectorAll('main section'));
+
+  themeToggle.addEventListener('click', () => {
+    const dark = root.dataset.theme !== 'dark';
+    root.dataset.theme = dark ? 'dark' : 'light';
+    themeToggle.textContent = dark ? 'Light mode' : 'Dark mode';
+  });
+
+  search.addEventListener('input', () => {
+    const query = search.value.trim().toLowerCase();
+    for (const section of sections) {
+      const searchable = (section.dataset.search + ' ' + section.textContent).toLowerCase();
+      section.hidden = Boolean(query) && !searchable.includes(query);
+    }
+  });
+
+  for (const pre of document.querySelectorAll('pre')) {
+    const wrapper = pre.parentElement;
+    if (!wrapper.classList.contains('code-wrap')) continue;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'copy';
+    button.textContent = 'Copy';
+    button.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(pre.innerText);
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = 'Copy'; }, 1200);
+    });
+    wrapper.append(button);
+  }
+</script>
+</body>
+</html>

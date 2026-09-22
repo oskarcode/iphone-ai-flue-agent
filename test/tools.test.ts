@@ -1,6 +1,6 @@
+// Vitest assertions exercise retrieval input safety and provider response parsing without network calls.
 import { describe, expect, it } from 'vitest';
-import { validatePublicUrl } from '../src/tools/read-url.ts';
-import { parseDuckDuckGoResults } from '../src/tools/web-search.ts';
+import { parseDuckDuckGoResults, validatePublicUrl } from '../src/tools/web-research.ts';
 
 describe('retrieval tools', () => {
   it('accepts a public HTTPS URL', () => {

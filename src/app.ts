@@ -1,19 +1,25 @@
+// Cloudflare supplies environment bindings; Flue supplies durable agent dispatch and Workers AI integration.
 import { env as workerEnv } from 'cloudflare:workers';
 import { init, setProvider } from '@flue/runtime';
 import { cloudflareBindingProvider } from '@flue/runtime/cloudflare/workers-ai';
+
+// Hono is the Worker HTTP router, comparable to Django urls.py plus small view functions.
 import { Hono, type Context } from 'hono';
+
+// Application modules own the agent, browser UI, event projection, request envelope, and Jev routing.
 import { IphoneAssistant } from './agents/iphone-assistant.ts';
 import { renderChatPage } from './chat-page.ts';
 import { projectConversationChunk } from './lib/chat-events.ts';
 import { encodeConfiguredMessage, type AssistantMode } from './lib/configured-message.ts';
-import { correctedTextFromAgent } from './lib/output.ts';
 import { classifyWithJev } from './tools/jev-router.ts';
 
+// These are the bindings accessed directly by the HTTP application layer.
 type Bindings = {
   AI: Ai;
   CHAT_SESSIONS: KVNamespace;
 };
 
+// Flue's model provider is configured once when the Worker isolate starts, not once per request.
 const bindings = workerEnv as unknown as Bindings;
 setProvider(cloudflareBindingProvider({
   binding: bindings.AI,
@@ -21,16 +27,29 @@ setProvider(cloudflareBindingProvider({
   streamIdleTimeoutMs: 3 * 60 * 1000,
 }));
 
+// Hono uses AppEnv to type c.env, while ChatMessage defines the browser's accepted history shape.
 type AppEnv = { Bindings: Bindings };
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 const app = new Hono<AppEnv>();
+
+// Request limits bound model cost, memory use, and one-time handoff lifetime.
 const CHAT_SESSION_TTL_SECONDS = 600;
 const CHAT_SESSION_KEY_PREFIX = 'chat-session:';
 const MAX_TEXT_LENGTH = 30_000;
 const MAX_CHAT_MESSAGES = 20;
 const CONVERSATION_ID_PATTERN = /^[a-zA-Z0-9_-]{8,100}$/;
 
+/**
+ * Input:
+ * - Every HTTP request and Hono's next middleware function.
+ *
+ * Output:
+ * - The original route response with additional browser security headers.
+ *
+ * What this function does:
+ * - Applies the same response-hardening headers to every route.
+ */
 app.use('*', async (c, next) => {
   await next();
   c.header('X-Content-Type-Options', 'nosniff');
@@ -38,6 +57,16 @@ app.use('*', async (c, next) => {
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 });
 
+/**
+ * Input:
+ * - A Hono request context whose JSON body should contain text.
+ *
+ * Output:
+ * - Trimmed text within the size limit, or null for invalid input.
+ *
+ * What this function does:
+ * - Centralizes the public text-body contract used by Shortcut routes and handoff creation.
+ */
 async function readTextBody(c: Context<AppEnv>): Promise<string | null> {
   const body = await c.req.json<{ text?: unknown }>().catch(() => null);
   if (typeof body?.text !== 'string') return null;
@@ -45,11 +74,22 @@ async function readTextBody(c: Context<AppEnv>): Promise<string | null> {
   return text && text.length <= MAX_TEXT_LENGTH ? text : null;
 }
 
+// Internal callers need the answer and, when available, the Jev route recorded by Flue.
 type AssistantResult = {
   text: string;
   route?: string;
 };
 
+/**
+ * Input:
+ * - Flue's named data writes collected for one response.
+ *
+ * Output:
+ * - The most recent recorded route, or undefined when no routing data was written.
+ *
+ * What this function does:
+ * - Hides Flue's data-part lookup details from route handlers.
+ */
 function routeFromReplyData(data: Record<string, unknown[]>): string | undefined {
   const latestRouting = data.routing?.at(-1);
   return latestRouting && typeof latestRouting === 'object' && 'route' in latestRouting
@@ -57,6 +97,17 @@ function routeFromReplyData(data: Record<string, unknown[]>): string | undefined
     : undefined;
 }
 
+/**
+ * Input:
+ * - A user prompt, compatibility mode, optional conversation ID, and optional recent history.
+ *
+ * Output:
+ * - The completed agent text and selected route.
+ *
+ * What this function does:
+ * - Dispatches one configured message to the durable Flue agent and waits for completion.
+ * - Creates a random conversation for one-shot requests and reuses browser conversation IDs.
+ */
 async function runAgent(
   prompt: string,
   mode: AssistantMode,
@@ -70,20 +121,38 @@ async function runAgent(
   return { text: reply.text, route: routeFromReplyData(reply.data) };
 }
 
-async function runTextRoute(c: Context<AppEnv>, mode: 'correct' | 'explain') {
+/**
+ * Input:
+ * - A Hono request context containing text to explain.
+ *
+ * Output:
+ * - The Shortcut-compatible explanation field, or a 400/502 error response.
+ *
+ * What this function does:
+ * - Validates and runs the dedicated explanation Shortcut request.
+ */
+async function runExplainRoute(c: Context<AppEnv>) {
   const text = await readTextBody(c);
   if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
   try {
-    const result = await runAgent(text, mode);
-    return mode === 'correct'
-      ? c.json({ corrected_text: correctedTextFromAgent(result.text) })
-      : c.json({ explanation: result.text });
+    const result = await runAgent(text, 'explain');
+    return c.json({ explanation: result.text });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue agent request failed', error: error instanceof Error ? error.message : String(error) }));
     return c.json({ error: 'Assistant request failed' }, 502);
   }
 }
 
+/**
+ * Input:
+ * - Unknown JSON supplied as browser chat history.
+ *
+ * Output:
+ * - A bounded array ending in a user message, or null when invalid.
+ *
+ * What this function does:
+ * - Runtime-validates untrusted roles, message content, count, and aggregate length.
+ */
 function validateChatMessages(value: unknown): ChatMessage[] | null {
   if (!Array.isArray(value) || !value.length || value.length > MAX_CHAT_MESSAGES) return null;
   let totalLength = 0;
@@ -100,9 +169,20 @@ function validateChatMessages(value: unknown): ChatMessage[] | null {
   return messages.at(-1)?.role === 'user' ? messages : null;
 }
 
+// Small routes provide liveness and the dedicated explanation Shortcut contract.
 app.get('/health', (c) => c.json({ status: 'ok', framework: 'flue', router: 'jev' }));
-app.post('/v1/correct', (c) => runTextRoute(c, 'correct'));
-app.post('/v1/explain', (c) => runTextRoute(c, 'explain'));
+app.post('/v1/explain', runExplainRoute);
+
+/**
+ * Input:
+ * - POST /v1/ask with a bounded text field.
+ *
+ * Output:
+ * - A complete answer and selected route, or a validation/dependency error.
+ *
+ * What this function does:
+ * - Provides the universal one-shot Shortcut endpoint.
+ */
 app.post('/v1/ask', async (c) => {
   const text = await readTextBody(c);
   if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
@@ -115,6 +195,17 @@ app.post('/v1/ask', async (c) => {
   }
 });
 
+/**
+ * Input:
+ * - POST /handoff or /v1/chat-session with selected text.
+ *
+ * Output:
+ * - A browser URL containing a short-lived random session ID.
+ *
+ * What this function does:
+ * - Stores selected text in KV for ten minutes so the browser can pick it up.
+ * - Returns only the opaque URL; it never embeds the selected text in the URL.
+ */
 async function createChatSession(c: Context<AppEnv>) {
   const text = await readTextBody(c);
   if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
@@ -126,10 +217,22 @@ async function createChatSession(c: Context<AppEnv>) {
   return c.json({ chat_url: chatUrl.toString(), expires_in_seconds: CHAT_SESSION_TTL_SECONDS });
 }
 
+// Handoff aliases support both the current Shortcut and the explicit versioned route.
 app.post('/handoff', createChatSession);
 app.post('/v1/chat-session', createChatSession);
 app.get('/chat', (c) => c.html(renderChatPage()));
 
+/**
+ * Input:
+ * - GET /chat/session/:id using the handoff ID from the browser URL.
+ *
+ * Output:
+ * - The selected text once, or a validation/expired-session error.
+ *
+ * What this function does:
+ * - Reads then deletes the KV value before returning it to the browser.
+ * - Provides best-effort one-time use; KV does not make the get/delete pair atomic.
+ */
 app.get('/chat/session/:id', async (c) => {
   const id = c.req.param('id');
   if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid chat session' }, 400);
@@ -140,10 +243,23 @@ app.get('/chat/session/:id', async (c) => {
   return c.json({ text });
 });
 
+/**
+ * Input:
+ * - POST /chat/stream with a conversation ID, bounded browser history, and optional explain mode for copied handoff text.
+ *
+ * Output:
+ * - An SSE stream containing classification, tool, safe planning, token, and completion events.
+ *
+ * What this function does:
+ * - Runs Jev before dispatch so classification appears first in the live timeline.
+ * - Reads Flue events, removes private payloads, and streams only the public event vocabulary.
+ * - Cancels downstream work when the browser disconnects.
+ */
 app.post('/chat/stream', async (c) => {
-  const body = await c.req.json<{ conversation_id?: unknown; messages?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ conversation_id?: unknown; messages?: unknown; mode?: unknown }>().catch(() => null);
   const messages = validateChatMessages(body?.messages);
   const conversationId = typeof body?.conversation_id === 'string' ? body.conversation_id : '';
+  const mode: AssistantMode = body?.mode === 'explain' ? 'explain' : 'chat';
   if (!messages || !CONVERSATION_ID_PATTERN.test(conversationId)) {
     return c.json({ error: 'Send a conversation_id and chat history ending with a user message' }, 400);
   }
@@ -152,8 +268,29 @@ app.post('/chat/stream', async (c) => {
   const readAbort = new AbortController();
   c.req.raw.signal.addEventListener('abort', () => readAbort.abort(), { once: true });
   const stream = new ReadableStream<Uint8Array>({
+    /**
+     * Input:
+     * - The browser stream controller created by the Web Streams API.
+     *
+     * Output:
+     * - SSE frames enqueued until the agent completes, errors, or is cancelled.
+     *
+     * What this function does:
+     * - Owns the complete asynchronous classification and Flue read lifecycle.
+     */
     start(controller) {
       let closed = false;
+
+      /**
+       * Input:
+       * - An SSE event name and JSON-serializable payload.
+       *
+       * Output:
+       * - One encoded SSE frame when the browser connection remains open.
+       *
+       * What this function does:
+       * - Converts enqueue failures into cancellation instead of an unhandled exception.
+       */
       const send = (event: string, data: unknown) => {
         if (closed) return;
         try {
@@ -163,6 +300,17 @@ app.post('/chat/stream', async (c) => {
           readAbort.abort();
         }
       };
+
+      /**
+       * Input:
+       * - No arguments; it closes the controller owned by this request.
+       *
+       * Output:
+       * - A closed stream, with repeated or post-cancellation closes ignored.
+       *
+       * What this function does:
+       * - Makes cleanup idempotent across success, failure, and browser cancellation.
+       */
       const close = () => {
         if (!closed) {
           closed = true;
@@ -174,17 +322,26 @@ app.post('/chat/stream', async (c) => {
         }
       };
 
-      void (async () => {
+      /**
+       * Input:
+       * - Validated chat history and helpers captured from the route scope.
+       *
+       * Output:
+       * - A complete sequence of SSE events for one user turn.
+       *
+       * What this function does:
+       * - Classifies once, dispatches to Flue, and projects runtime events for the browser.
+       */
+      const runStream = async () => {
         send('status', { type: 'accepted' });
         try {
           const routingContext = messages.slice(-6).map((message) => `${message.role}: ${message.content}`).join('\n');
           send('progress', { type: 'classification', state: 'running' });
           const classificationStartedAt = Date.now();
-          let route: 'direct_answer' | 'read_url' | 'web_search' | 'clarification';
+          let route: 'direct_answer' | 'web_research' | 'clarification';
           let fallback = false;
           try {
-            const classifiedRoute = await classifyWithJev(messages.at(-1)!.content, 'chat', readAbort.signal, routingContext);
-            route = classifiedRoute === 'correct' ? 'direct_answer' : classifiedRoute;
+            route = await classifyWithJev(messages.at(-1)!.content, mode, readAbort.signal, routingContext);
           } catch (error) {
             fallback = true;
             route = 'direct_answer';
@@ -192,11 +349,22 @@ app.post('/chat/stream', async (c) => {
           }
           send('progress', { type: 'classification', state: 'complete', route, fallback, durationMs: Date.now() - classificationStartedAt });
           const agent = init(IphoneAssistant, { id: conversationId });
-          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, 'chat', routingContext, route));
+          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, mode, routingContext, route));
           send('status', { type: 'queued', submissionId: receipt.submissionId });
           const toolNames = new Map<string, string>();
           const reply = await agent.read(receipt, {
             signal: readAbort.signal,
+            /**
+             * Input:
+             * - One raw event emitted while Flue executes the conversation turn.
+             *
+             * Output:
+             * - At most one sanitized progress event sent to the browser.
+             *
+             * What this function does:
+             * - Correlates tool completion IDs with their human-readable tool names.
+             * - Drops events that projectConversationChunk does not explicitly allow.
+             */
             onEvent(chunk) {
               if (chunk.type === 'tool-input') toolNames.set(chunk.toolCallId, chunk.toolName);
               const projected = projectConversationChunk(chunk);
@@ -221,8 +389,20 @@ app.post('/chat/stream', async (c) => {
         } finally {
           close();
         }
-      })();
+      };
+
+      void runStream();
     },
+    /**
+     * Input:
+     * - A cancellation notification from the browser stream consumer.
+     *
+     * Output:
+     * - The shared abort signal is cancelled.
+     *
+     * What this function does:
+     * - Stops Jev, Flue reads, and compatible downstream fetches after disconnect.
+     */
     cancel() {
       readAbort.abort();
     },
@@ -237,6 +417,16 @@ app.post('/chat/stream', async (c) => {
   });
 });
 
+/**
+ * Input:
+ * - POST /chat/api with a conversation ID and bounded browser history.
+ *
+ * Output:
+ * - A non-streaming complete explanation response.
+ *
+ * What this function does:
+ * - Preserves the earlier JSON chat contract for non-streaming clients.
+ */
 app.post('/chat/api', async (c) => {
   const body = await c.req.json<{ conversation_id?: unknown; messages?: unknown }>().catch(() => null);
   const messages = validateChatMessages(body?.messages);

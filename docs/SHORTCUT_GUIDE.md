@@ -67,7 +67,7 @@ You can now submit ordinary text, a complete URL, or a current-information quest
 4. Keep **Get Dictionary Value** with key `chat_url`.
 5. Keep **Open URLs** using that value.
 
-The handoff URL expires after ten minutes and can be consumed once. The browser conversation then continues in one durable Flue session.
+The handoff URL expires after ten minutes. The Worker deletes its KV value after the browser reads it, which provides best-effort one-time use for normal Shortcut workflows. The browser conversation then continues in one durable Flue session.
 
 ## Rollback
 
@@ -78,3 +78,6 @@ https://iphoneai.oskarcode.com
 ```
 
 No change is made to the existing Worker while testing this project.
+
+
+cd "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent" && .venv/bin/python run_guide_agent.py "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html" --project-root "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent"

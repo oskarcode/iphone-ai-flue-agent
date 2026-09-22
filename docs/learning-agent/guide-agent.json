@@ -1,0 +1,26 @@
+{
+  "title": "iPhone AI Flue Agent Learning Guide",
+  "scope": "Complete iphone-ai-flue-agent Cloudflare Worker repository",
+  "guideHtml": "docs/iphone-ai-flue-agent-learning-guide.html",
+  "projectRoot": "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent",
+  "sharedRuntime": "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent",
+  "importantFiles": [
+    "src/app.ts",
+    "src/agents/iphone-assistant.ts",
+    "src/chat-page.ts",
+    "src/tools/jev-router.ts",
+    "src/tools/web-research.ts",
+    "wrangler.jsonc"
+  ],
+  "importantSymbols": [
+    "POST /v1/ask",
+    "POST /handoff",
+    "POST /chat/stream",
+    "IphoneAssistant",
+    "classifyWithJev",
+    "projectConversationChunk",
+    "webResearch",
+    "validatePublicUrl"
+  ],
+  "runCommand": "cd \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent\" && .venv/bin/python run_guide_agent.py \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html\" --project-root \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent\""
+}

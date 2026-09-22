@@ -1,37 +1,69 @@
-export type JevRoute = 'correct' | 'direct_answer' | 'read_url' | 'web_search' | 'clarification';
+// Jev is called through the Cloudflare AI binding, while this module owns the app-specific route contract.
+export type JevRoute = 'direct_answer' | 'web_research' | 'clarification';
 
 type JsonRecord = Record<string, unknown>;
 
+// Jev evaluates this declarative question against the request state and returns one choice.
 const QUESTIONS = {
   route: {
     type: 'choice',
     instructions: 'Choose the single best execution path for this iPhone assistant request.',
     criteria: {
-      correct: 'Correct spelling and grammar only. Always choose this when requested_mode is correct.',
-      direct_answer: 'Answer or explain using the model without external information. Choose this for conversational follow-ups when requested_mode is chat because the Flue agent has prior conversation context.',
-      read_url: 'The request contains a specific URL whose page must be read before answering.',
-      web_search: 'The request needs current, recent, live, or externally verified information.',
+      direct_answer: 'Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from existing Flue context.',
+      web_research: 'The request contains a URL to read or needs current, recent, live, broader web context, or external verification. The research tool can read a page, search the web, or do both in one call.',
       clarification: 'The request is too ambiguous to answer safely or usefully, and it is not a conversational follow-up with available Flue history.',
     },
   },
 } as const;
 
+/**
+ * Input:
+ * - Any value returned by Workers AI.
+ *
+ * Output:
+ * - True when the value is a non-array object.
+ *
+ * What this function does:
+ * - Safely narrows Jev's unknown response before nested property access.
+ */
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Input:
+ * - The unknown JSON result returned by the Jev model.
+ *
+ * Output:
+ * - One validated application route.
+ *
+ * What this function does:
+ * - Accepts the nested response envelopes Jev may return.
+ * - Rejects missing or unknown route choices before they reach the agent.
+ */
 export function parseJevRoute(value: unknown): JevRoute {
   if (!isRecord(value)) throw new Error('Jev returned a non-object response.');
   const firstEnvelope = isRecord(value.result) ? value.result : value;
   const result = isRecord(firstEnvelope.result) ? firstEnvelope.result : firstEnvelope;
   const answers = isRecord(result.answers) ? result.answers : null;
   const route = answers && isRecord(answers.route) ? answers.route.choice : undefined;
-  if (!['correct', 'direct_answer', 'read_url', 'web_search', 'clarification'].includes(String(route))) {
+  if (!['direct_answer', 'web_research', 'clarification'].includes(String(route))) {
     throw new Error('Jev returned an invalid route.');
   }
   return route as JevRoute;
 }
 
+/**
+ * Input:
+ * - The current prompt, requested compatibility mode, abort signal, and optional recent chat context.
+ *
+ * Output:
+ * - The route Jev selected for the Flue agent.
+ *
+ * What this function does:
+ * - Calls Jev through the Worker AI binding and dedicated AI Gateway.
+ * - Disables gateway caching by default so routing reflects the current request.
+ */
 export async function classifyWithJev(
   prompt: string,
   requestedMode: string,

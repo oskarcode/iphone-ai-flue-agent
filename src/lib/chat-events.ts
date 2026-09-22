@@ -1,5 +1,7 @@
+// Flue event payloads cross a package boundary, so they are narrowed from unknown at runtime.
 type JsonRecord = Record<string, unknown>;
 
+// This public union is the small, safe event vocabulary understood by the browser UI.
 export type PublicChatEvent =
   | { type: 'classification'; state: 'running' | 'complete'; route?: string; durationMs?: number; fallback?: boolean }
   | { type: 'planning' }
@@ -7,10 +9,32 @@ export type PublicChatEvent =
   | { type: 'tool'; state: 'running' | 'complete' | 'error'; name: string; durationMs?: number }
   | { type: 'response'; state: 'running' | 'complete' };
 
+/**
+ * Input:
+ * - Any value received from a runtime event.
+ *
+ * Output:
+ * - True when the value is a non-array object that can be inspected safely.
+ *
+ * What this function does:
+ * - Narrows unknown package data before property access.
+ */
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Input:
+ * - One raw Flue conversation event.
+ *
+ * Output:
+ * - A browser-safe progress event, or null for internal events the UI should ignore.
+ *
+ * What this function does:
+ * - Projects routing, token, tool, and response lifecycle events into a stable public contract.
+ * - Replaces private model reasoning with a generic planning indicator.
+ * - Never forwards tool inputs, tool outputs, or raw chain-of-thought text.
+ */
 export function projectConversationChunk(value: unknown): PublicChatEvent | null {
   if (!isRecord(value) || typeof value.type !== 'string') return null;
 

@@ -1,14 +1,17 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "iphone-ai-flue-agent",
+  // Browser Run Quick Actions require 2026-03-24 or later; this project uses its current deploy date.
   "compatibility_date": "2026-09-20",
   "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
+  // Non-secret model and gateway selectors are visible to the Worker through process.env.
   "vars": {
     "MODEL": "cloudflare/@cf/zai-org/glm-5.2",
     "AI_GATEWAY_ID": "iphone-flue-shortcut",
     "JEV_MODEL": "typesafe/jev",
     "JEV_SKIP_CACHE": "true"
   },
+  // Remote bindings make local development call the account's real AI and Browser Run services.
   "ai": {
     "binding": "AI",
     "remote": true
@@ -17,18 +20,21 @@
     "binding": "BROWSER",
     "remote": true
   },
+  // KV stores ten-minute browser handoff payloads; it does not store the durable Flue conversation.
   "kv_namespaces": [
     {
       "binding": "CHAT_SESSIONS",
       "id": "8bfe929b07e5431fb15a0e185c4d3054"
     }
   ],
+  // Flue's generated agent class uses SQLite-backed Durable Object storage.
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["FlueIphoneAssistantAgent"]
     }
   ],
+  // Full sampling is appropriate for this low-volume demo and aids handoff debugging.
   "observability": {
     "enabled": true,
     "logs": { "head_sampling_rate": 1 },
