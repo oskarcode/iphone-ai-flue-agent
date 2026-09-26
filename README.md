@@ -5,7 +5,6 @@
 - Runtime: Cloudflare Worker with Hono and a Flue SQLite-backed Durable Object agent.
 - Main entrypoint: `src/app.ts` default Hono export.
 - Primary user flows: one Shortcut calls `POST /v1/ask` for routed assistance; another calls stateless `POST /v1/correct` for grammar correction.
-- Authoritative learning guide: [Detailed learning guide](docs/iphone-ai-flue-agent-learning-guide.html).
 
 ## What You Actually Maintain
 
@@ -25,15 +24,6 @@ Do not maintain generated or downloaded folders such as `dist/`, `.wrangler/`, a
 - Uses Jev to select `direct_answer`, `web_research`, or `clarification` before generation.
 - Runs answers through one durable Flue agent backed by GLM-5.2 and AI Gateway.
 - Supports short-lived Shortcut-to-browser handoff and live SSE chat progress.
-
-## Learning Guide
-
-- [Authoritative project and learning documentation](docs/iphone-ai-flue-agent-learning-guide.html)
-- [Interactive architecture diagram](docs/diagrams/index.html)
-- [iPhone Shortcut migration guide](docs/SHORTCUT_GUIDE.md)
-- Local guide agent: `cd "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent" && .venv/bin/python run_guide_agent.py "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html" --project-root "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent"`
-
-README owns setup and launch commands. The HTML guide owns detailed architecture, flows, contracts, infrastructure mapping, state, and source walkthroughs.
 
 ## Architecture At A Glance
 
@@ -76,7 +66,6 @@ README owns setup and launch commands. The HTML guide owns detailed architecture
 - Browser chat: `GET /chat`, `GET /chat/session/:id`, and `POST /chat/stream`.
 - Non-streaming chat: `POST /chat/api`.
 - Liveness: `GET /health`.
-- Complete contracts and caller coverage: [learning guide](docs/iphone-ai-flue-agent-learning-guide.html#end-to-end-flows).
 
 ## Quick Start
 
