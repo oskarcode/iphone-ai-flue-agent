@@ -7,8 +7,22 @@ describe('retrieval tools', () => {
     expect(validatePublicUrl('https://developers.cloudflare.com/workers/').hostname).toBe('developers.cloudflare.com');
   });
 
-  it.each(['http://localhost/test', 'http://127.0.0.1/test', 'http://10.1.2.3/test', 'ftp://example.com/file'])('rejects unsafe URL %s', (url) => {
+  it.each([
+    'http://localhost/test',
+    'http://127.0.0.1/test',
+    'http://10.1.2.3/test',
+    'http://[::1]/test',
+    'http://[fc00::1]/test',
+    'http://[fe80::1]/test',
+    'http://[::ffff:7f00:1]/test',
+    'http://[64:ff9b::7f00:1]/test',
+    'ftp://example.com/file',
+  ])('rejects unsafe URL %s', (url) => {
     expect(() => validatePublicUrl(url)).toThrow();
+  });
+
+  it('accepts a public IPv6 URL', () => {
+    expect(validatePublicUrl('https://[2606:4700:4700::1111]/').hostname).toBe('[2606:4700:4700::1111]');
   });
 
   it('parses DuckDuckGo result HTML', () => {

@@ -61,14 +61,14 @@ export function IphoneAssistant(_props: AgentProps) {
     if (!configured) return;
 
     const routingStartedAt = Date.now();
-    if (!configured.route) writeRouting({ state: 'running', mode: configured.mode });
+    if (!configured.route) writeRouting({ state: 'running' });
     let route: JevRoute;
     let fallback = false;
     if (configured.route) {
       route = configured.route;
     } else {
       try {
-        route = await classifyWithJev(configured.prompt, configured.mode, signal, configured.routingContext);
+        route = await classifyWithJev(configured.prompt, signal, configured.routingContext, configured.gatewayCaller);
       } catch (error) {
         fallback = true;
         route = 'direct_answer';
@@ -80,11 +80,11 @@ export function IphoneAssistant(_props: AgentProps) {
     }
 
     const durationMs = Date.now() - routingStartedAt;
-    if (!configured.route) writeRouting({ state: 'complete', mode: configured.mode, route, fallback, durationMs });
+    if (!configured.route) writeRouting({ state: 'complete', route, fallback, durationMs });
     append({
       kind: 'signal',
       type: 'routing-decision',
-      body: `Mandatory Jev route: ${route}. Requested compatibility mode: ${configured.mode}.`,
+      body: `Mandatory Jev route: ${route}.`,
     });
   });
 

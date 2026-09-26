@@ -1,6 +1,15 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "iphone-ai-flue-agent",
+  // Production ingress is the Access-protected custom domain, not alternate workers.dev URLs.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "iphoneai.oskarcode.com",
+      "custom_domain": true
+    }
+  ],
   // Browser Run Quick Actions require 2026-03-24 or later; this project uses its current deploy date.
   "compatibility_date": "2026-09-20",
   "compatibility_flags": ["nodejs_compat", "enable_request_signal"],

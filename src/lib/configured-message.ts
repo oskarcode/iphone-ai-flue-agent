@@ -1,12 +1,11 @@
-// Explain mode preserves the dedicated Shortcut behavior; chat mode handles general requests.
-export type AssistantMode = 'explain' | 'chat';
+import { isGatewayCallerMetadata, type GatewayCallerMetadata } from './gateway-metadata.ts';
 
 // Flue receives one string, so this shape describes the trusted metadata encoded before the visible prompt.
 export type ConfiguredMessage = {
-  mode: AssistantMode;
   prompt: string;
   routingContext?: string;
   route?: 'direct_answer' | 'web_research' | 'clarification';
+  gatewayCaller?: GatewayCallerMetadata;
 };
 
 const CONFIG_START = '<iphone-assistant-config>';
@@ -14,7 +13,7 @@ const CONFIG_END = '</iphone-assistant-config>';
 
 /**
  * Input:
- * - A visible user prompt, compatibility mode, optional chat context, and optional preselected route.
+ * - A visible user prompt, optional chat context, and optional preselected route.
  *
  * Output:
  * - One string containing a private JSON metadata line followed by the visible prompt.
@@ -25,11 +24,16 @@ const CONFIG_END = '</iphone-assistant-config>';
  */
 export function encodeConfiguredMessage(
   prompt: string,
-  mode: AssistantMode,
   routingContext?: string,
   route?: ConfiguredMessage['route'],
+  gatewayCaller?: GatewayCallerMetadata,
 ): string {
-  const config = JSON.stringify({ v: 1, mode, ...(routingContext ? { routingContext } : {}), ...(route ? { route } : {}) });
+  const config = JSON.stringify({
+    v: 1,
+    ...(routingContext ? { routingContext } : {}),
+    ...(route ? { route } : {}),
+    ...(gatewayCaller ? { gatewayCaller } : {}),
+  });
   return `${CONFIG_START}${config}${CONFIG_END}\n${prompt}`;
 }
 
@@ -42,7 +46,7 @@ export function encodeConfiguredMessage(
  *
  * What this function does:
  * - Separates the first metadata line from the visible user prompt.
- * - Runtime-validates mode and route values before the agent acts on them.
+ * - Runtime-validates the envelope version and route before the agent acts on them.
  */
 export function decodeConfiguredMessage(value: string): ConfiguredMessage | null {
   const newline = value.indexOf('\n');
@@ -54,20 +58,40 @@ export function decodeConfiguredMessage(value: string): ConfiguredMessage | null
   try {
     const parsed = JSON.parse(metadata.slice(CONFIG_START.length, -CONFIG_END.length)) as {
       v?: unknown;
-      mode?: unknown;
       routingContext?: unknown;
       route?: unknown;
+      gatewayCaller?: unknown;
     };
-    if (parsed.v !== 1 || !['explain', 'chat'].includes(String(parsed.mode))) return null;
+    if (parsed.v !== 1) return null;
     return {
-      mode: parsed.mode as AssistantMode,
       prompt: value.slice(newline + 1),
       ...(typeof parsed.routingContext === 'string' ? { routingContext: parsed.routingContext } : {}),
       ...(['direct_answer', 'web_research', 'clarification'].includes(String(parsed.route))
         ? { route: parsed.route as ConfiguredMessage['route'] }
         : {}),
+      ...(isGatewayCallerMetadata(parsed.gatewayCaller) ? { gatewayCaller: parsed.gatewayCaller } : {}),
     };
   } catch {
     return null;
   }
+}
+
+/** Finds the most recent app-owned caller identity in a serialized model request. */
+export function gatewayCallerFromModelInput(input: unknown): GatewayCallerMetadata | undefined {
+  if (!input || typeof input !== 'object' || !('messages' in input) || !Array.isArray(input.messages)) return undefined;
+  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
+    const message = input.messages[index];
+    if (!message || typeof message !== 'object' || !('content' in message)) continue;
+    const content = message.content;
+    const textParts = typeof content === 'string'
+      ? [content]
+      : Array.isArray(content)
+        ? content.flatMap((part) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' ? [part.text] : [])
+        : [];
+    for (const text of textParts) {
+      const configured = decodeConfiguredMessage(text);
+      if (configured?.gatewayCaller) return configured.gatewayCaller;
+    }
+  }
+  return undefined;
 }

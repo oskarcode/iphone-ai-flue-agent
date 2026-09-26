@@ -1,4 +1,9 @@
-// Keep this prompt aligned with the existing non-Flue OpenAI version so pasted text is explained, not treated as a question.
+// Grammar correction is a separate stateless API behavior, not an agent route.
+export const GRAMMAR_CORRECTION_PROMPT = `Correct spelling and grammar in the provided text.
+Keep the original tone and structure.
+Return only the corrected text.`;
+
+// Explanation behavior is activated by explicit wording in the user's visible prompt.
 export const EXPLANATION_PROMPT = `You are a general-purpose explanation assistant. Explain the provided text clearly, concisely, and in plain English.
 
 The input may be a single word, phrase, idiom, sentence, paragraph, technical concept, or non-technical text.
@@ -57,11 +62,11 @@ export const WEB_RESEARCH_PROMPT = `Use the returned web evidence to answer clea
 
 Return only the useful answer without a generic preamble or conclusion.`;
 
-// These route contracts keep compatibility-mode behavior and tool order explicit inside the shared agent prompt.
+// These route contracts keep user intent and tool order explicit inside the shared agent prompt.
 export const DIRECT_ANSWER_ROUTE_PROMPT = `Do not use tools.
-- When the requested compatibility mode is explain, always explain the provided text using the direct-text instructions, even when that text is phrased as a question.
-- In chat mode, answer an explicit user question or conversational follow-up using the conversation context.
-- In chat mode, treat a newly pasted word, phrase, sentence, paragraph, or technical concept as text to explain rather than as a question to answer.`;
+- When the user explicitly asks for pasted text to be explained, use the direct-text instructions even when the pasted text is phrased as a question.
+- Otherwise, answer an explicit user question or conversational follow-up using the conversation context.
+- Treat explanation intent as part of the visible user prompt, not hidden request metadata.`;
 
 export const WEB_RESEARCH_ROUTE_PROMPT = `Call web_research exactly once before answering.
 - Pass the requested URL when one is present.

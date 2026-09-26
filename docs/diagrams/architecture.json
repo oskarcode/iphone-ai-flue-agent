@@ -7,8 +7,8 @@
       "subtitle": "Flue dispatches the durable turn; the agent runs Jev before model generation.",
       "meta": {
         "created": "2026-09-20",
-        "updated": "2026-09-20",
-        "status": "verified from source and live smoke tests"
+        "updated": "2026-09-25",
+        "status": "version 9d5574df source-verified; custom-domain ingress and service-token Gateway metadata verified 2026-09-25"
       },
       "actors": [
         {
@@ -98,7 +98,7 @@
           "detail": {
             "why": "Keep one stable mobile endpoint for all request types.",
             "sends": "text up to 30,000 chars",
-            "auth": "public endpoint",
+            "auth": "Cloudflare Access service token",
             "fails": "400 for invalid text; 502 when the agent fails"
           }
         },
@@ -106,12 +106,12 @@
           "from": "worker",
           "to": "flue.agent",
           "text": "dispatch turn",
-          "caption": "configured message envelope",
+          "caption": "route context + service-token caller",
           "via": "api",
           "src": "runAgent() -> agent.dispatch()",
           "detail": {
             "why": "Run the turn in a durable conversation keyed by ID.",
-            "sends": "private config + visible prompt"
+            "sends": "private config + visible prompt + verified caller"
           }
         },
         {
@@ -121,12 +121,12 @@
           "from": "flue.agent",
           "to": "jev",
           "text": "classify request",
-          "caption": "AI binding + gateway",
+          "caption": "jev-router + service_token_id",
           "via": "api",
           "src": "useAgentStart() -> classifyWithJev()",
           "detail": {
             "why": "Choose one deterministic execution path before generation.",
-            "sends": "mode + prompt + context",
+            "sends": "prompt + context + Gateway caller metadata",
             "fails": "agent falls back to a local safe route"
           }
         },
@@ -134,7 +134,7 @@
           "from": "jev",
           "to": "flue.agent",
           "text": "route choice",
-          "caption": "direct, URL, search, ask",
+          "caption": "direct, research, clarify",
           "kind": "ret"
         },
         {
@@ -144,7 +144,7 @@
           "from": "flue.agent",
           "to": "model",
           "text": "generate answer",
-          "caption": "GLM-5.2 through AI Gateway",
+          "caption": "assistant + service_token_id",
           "via": "api",
           "src": "IphoneAssistant() -> useModel()"
         },
@@ -239,13 +239,126 @@
       ]
     },
     {
+      "id": "grammar-correction",
+      "title": "Stateless clipboard grammar correction",
+      "subtitle": "A dedicated Shortcut calls Workers AI directly without Jev, chat, tools, or durable state.",
+      "meta": {
+        "created": "2026-09-25",
+        "updated": "2026-09-25",
+        "status": "version 9d5574df source-verified; route tests and post-deploy service-token Gateway metadata verified"
+      },
+      "actors": [
+        {
+          "id": "user",
+          "label": "Oskar",
+          "zone": "user",
+          "sub_caption": "iPhone user"
+        },
+        {
+          "id": "shortcut",
+          "label": "Grammar Shortcut",
+          "zone": "mobile",
+          "sub_caption": "Clipboard client"
+        },
+        {
+          "id": "worker",
+          "label": "Hono Worker",
+          "zone": "worker",
+          "sub_caption": "src/app.ts"
+        },
+        {
+          "id": "model",
+          "label": "Workers AI",
+          "zone": "llm",
+          "sub_caption": "GLM-5.2 via AI Gateway"
+        }
+      ],
+      "messages": [
+        {
+          "phase": "CAPTURE"
+        },
+        {
+          "from": "user",
+          "to": "shortcut",
+          "text": "copy text",
+          "paths": [
+            "grammar"
+          ]
+        },
+        {
+          "from": "shortcut",
+          "to": "worker",
+          "text": "POST /v1/correct",
+          "caption": "JSON { text }, 30k UTF-16 / 200 KB",
+          "via": "api",
+          "paths": [
+            "grammar"
+          ],
+          "src": "iPhone Shortcut -> src/app.ts",
+          "detail": {
+            "why": "Keep grammar correction isolated from routed assistant behavior.",
+            "sends": "clipboard or Share Sheet text",
+            "auth": "Cloudflare Access service token",
+            "fails": "400 for invalid or oversized text"
+          }
+        },
+        {
+          "phase": "CORRECT"
+        },
+        {
+          "self": "worker",
+          "text": "build fixed request",
+          "caption": "temperature 0, no reasoning",
+          "src": "createGrammarRequest()"
+        },
+        {
+          "from": "worker",
+          "to": "model",
+          "text": "run grammar model",
+          "caption": "grammar + service_token_id",
+          "via": "api",
+          "src": "POST /v1/correct -> AI.run()",
+          "detail": {
+            "why": "Perform one finite correction without conversation state or routing.",
+            "sends": "fixed prompt + copied text + verified caller metadata",
+            "fails": "provider, malformed, or incomplete output becomes 502"
+          }
+        },
+        {
+          "from": "model",
+          "to": "worker",
+          "text": "corrected text",
+          "caption": "maximum 32,768 completion tokens",
+          "kind": "ret",
+          "src": "correctedTextFromAi()"
+        },
+        {
+          "phase": "RETURN"
+        },
+        {
+          "from": "worker",
+          "to": "shortcut",
+          "text": "JSON response",
+          "caption": "{ corrected_text }",
+          "kind": "ret",
+          "via": "api"
+        },
+        {
+          "from": "shortcut",
+          "to": "user",
+          "text": "copy result",
+          "kind": "ret"
+        }
+      ]
+    },
+    {
       "id": "browser-handoff",
       "title": "Shortcut handoff and streaming chat",
       "subtitle": "KV provides best-effort one-time transfer; the browser streams one durable conversation.",
       "meta": {
         "created": "2026-09-20",
-        "updated": "2026-09-20",
-        "status": "verified from source and live smoke tests"
+        "updated": "2026-09-25",
+        "status": "source-verified against the modified worktree; handoff and streaming remain Needs verification"
       },
       "actors": [
         {
@@ -417,7 +530,7 @@
           "from": "browser",
           "to": "worker",
           "text": "POST /chat/stream",
-          "caption": "conversation ID + history",
+          "caption": "history + Access user identity",
           "via": "api",
           "paths": [
             "stream"
@@ -425,7 +538,7 @@
           "src": "sendMessage() -> POST /chat/stream",
           "detail": {
             "why": "Start one live answer while retaining follow-up context.",
-            "sends": "up to 20 messages",
+            "sends": "up to 20 messages; Access JWT verified at ingress",
             "fails": "400 invalid history; SSE error on agent failure"
           }
         },
@@ -433,7 +546,7 @@
           "from": "worker",
           "to": "jev",
           "text": "classify request",
-          "caption": "sent before agent dispatch",
+          "caption": "jev-router + access_user_id",
           "via": "api"
         },
         {
@@ -446,7 +559,7 @@
           "from": "worker",
           "to": "flue.agent",
           "text": "dispatch turn",
-          "caption": "conversation ID reuses durable state",
+          "caption": "durable ID + caller envelope",
           "via": "api",
           "src": "agent.dispatch()"
         },
@@ -454,6 +567,7 @@
           "from": "flue.agent",
           "to": "flue.model",
           "text": "generate response",
+          "caption": "assistant + access_user_id",
           "via": "api"
         },
         {
@@ -489,6 +603,6 @@
     }
   ],
   "provenance": {
-    "git_sha": "a6bf43d243dd5955e4a40a95931be238d4509f4b"
+    "git_sha": "be43c7dac021884167a48d7d8804815c14aea660"
   }
 }

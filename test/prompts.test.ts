@@ -8,15 +8,16 @@ import {
 } from '../src/prompts.ts';
 
 describe('route-specific prompts', () => {
-  it('preserves the non-Flue explanation behavior for pasted text', () => {
+  it('preserves explanation behavior for explicitly requested pasted text', () => {
     expect(EXPLANATION_PROMPT).toContain('Explain the provided text clearly');
     expect(EXPLANATION_PROMPT).toContain('For a sentence or paragraph, paraphrase its overall meaning');
     expect(EXPLANATION_PROMPT).toContain('Prefer TypeScript because the learner is studying TypeScript');
   });
 
-  it('always explains question-shaped text on the explain compatibility route', () => {
-    expect(DIRECT_ANSWER_ROUTE_PROMPT).toContain('compatibility mode is explain, always explain the provided text');
-    expect(DIRECT_ANSWER_ROUTE_PROMPT).toContain('even when that text is phrased as a question');
+  it('uses visible prompt wording for question-shaped explanation requests', () => {
+    expect(DIRECT_ANSWER_ROUTE_PROMPT).toContain('user explicitly asks for pasted text to be explained');
+    expect(DIRECT_ANSWER_ROUTE_PROMPT).toContain('pasted text is phrased as a question');
+    expect(DIRECT_ANSWER_ROUTE_PROMPT).toContain('not hidden request metadata');
   });
 
   it('keeps URL content in context and permits grounded follow-up research', () => {

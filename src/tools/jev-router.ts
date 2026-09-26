@@ -1,4 +1,6 @@
 // Jev is called through the Cloudflare AI binding, while this module owns the app-specific route contract.
+import { gatewayMetadata, type GatewayCallerMetadata } from '../lib/gateway-metadata.ts';
+
 export type JevRoute = 'direct_answer' | 'web_research' | 'clarification';
 
 type JsonRecord = Record<string, unknown>;
@@ -55,7 +57,7 @@ export function parseJevRoute(value: unknown): JevRoute {
 
 /**
  * Input:
- * - The current prompt, requested compatibility mode, abort signal, and optional recent chat context.
+ * - The current prompt, abort signal, and optional recent chat context.
  *
  * Output:
  * - The route Jev selected for the Flue agent.
@@ -66,13 +68,12 @@ export function parseJevRoute(value: unknown): JevRoute {
  */
 export async function classifyWithJev(
   prompt: string,
-  requestedMode: string,
   signal: AbortSignal,
   routingContext?: string,
+  gatewayCaller?: GatewayCallerMetadata,
 ): Promise<JevRoute> {
   const gatewayId = process.env.AI_GATEWAY_ID?.trim() || 'default';
   const state = JSON.stringify({
-    requested_mode: requestedMode,
     user_request: prompt,
     ...(routingContext ? { recent_conversation: routingContext } : {}),
   });
@@ -89,7 +90,7 @@ export async function classifyWithJev(
       gateway: {
         id: gatewayId,
         skipCache: process.env.JEV_SKIP_CACHE?.trim() !== 'false',
-        metadata: { application: 'iphone-ai-flue-agent', component: 'jev-router' },
+        metadata: gatewayMetadata('jev-router', gatewayCaller),
       },
     },
   );

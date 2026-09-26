@@ -1,16 +1,18 @@
 // Cloudflare supplies environment bindings; Flue supplies durable agent dispatch and Workers AI integration.
 import { env as workerEnv } from 'cloudflare:workers';
 import { init, setProvider } from '@flue/runtime';
-import { cloudflareBindingProvider } from '@flue/runtime/cloudflare/workers-ai';
+import { cloudflareBindingProvider, type CloudflareAIBinding } from '@flue/runtime/cloudflare/workers-ai';
 
-// Hono is the Worker HTTP router, comparable to Django urls.py plus small view functions.
+// Hono registers the Worker's HTTP middleware and route handlers.
 import { Hono, type Context } from 'hono';
 
-// Application modules own the agent, browser UI, event projection, request envelope, and Jev routing.
+// Application modules own grammar correction, the agent, browser UI, event projection, request envelope, and Jev routing.
 import { IphoneAssistant } from './agents/iphone-assistant.ts';
 import { renderChatPage } from './chat-page.ts';
 import { projectConversationChunk } from './lib/chat-events.ts';
-import { encodeConfiguredMessage, type AssistantMode } from './lib/configured-message.ts';
+import { encodeConfiguredMessage, gatewayCallerFromModelInput } from './lib/configured-message.ts';
+import { gatewayCallerFromAccess, gatewayMetadata, type GatewayCallerMetadata } from './lib/gateway-metadata.ts';
+import { correctedTextFromAi, createGrammarRequest, grammarModelFromConfiguredModel } from './lib/grammar-correction.ts';
 import { classifyWithJev } from './tools/jev-router.ts';
 
 // These are the bindings accessed directly by the HTTP application layer.
@@ -21,9 +23,31 @@ type Bindings = {
 
 // Flue's model provider is configured once when the Worker isolate starts, not once per request.
 const bindings = workerEnv as unknown as Bindings;
+
+const baseAiBinding = bindings.AI as unknown as CloudflareAIBinding;
+const identityAwareBinding: CloudflareAIBinding = {
+  run(model: string, input: Record<string, unknown>, options?: Record<string, unknown>) {
+    const caller = gatewayCallerFromModelInput(input);
+    if (!caller || !options || typeof options !== 'object' || !('gateway' in options) || !options.gateway || typeof options.gateway !== 'object') {
+      return baseAiBinding.run(model, input, options);
+    }
+    const gateway = options.gateway as Record<string, unknown>;
+    const existingMetadata = gateway.metadata && typeof gateway.metadata === 'object'
+      ? gateway.metadata as Record<string, unknown>
+      : {};
+    return baseAiBinding.run(model, input, {
+      ...options,
+      gateway: { ...gateway, metadata: { ...existingMetadata, ...caller } },
+    });
+  },
+};
+
 setProvider(cloudflareBindingProvider({
-  binding: bindings.AI,
-  gateway: { id: process.env.AI_GATEWAY_ID?.trim() || 'default' },
+  binding: identityAwareBinding,
+  gateway: {
+    id: process.env.AI_GATEWAY_ID?.trim() || 'default',
+    metadata: gatewayMetadata('assistant'),
+  },
   streamIdleTimeoutMs: 3 * 60 * 1000,
 }));
 
@@ -37,8 +61,18 @@ const app = new Hono<AppEnv>();
 const CHAT_SESSION_TTL_SECONDS = 600;
 const CHAT_SESSION_KEY_PREFIX = 'chat-session:';
 const MAX_TEXT_LENGTH = 30_000;
+const MAX_GRAMMAR_REQUEST_BYTES = 200_000;
 const MAX_CHAT_MESSAGES = 20;
 const CONVERSATION_ID_PATTERN = /^[a-zA-Z0-9_-]{8,100}$/;
+
+async function gatewayCallerForRequest(c: Context<AppEnv>): Promise<GatewayCallerMetadata | undefined> {
+  try {
+    const executionCtx = c.executionCtx as ExecutionContext & { access?: CloudflareAccessContext };
+    return gatewayCallerFromAccess(executionCtx.access);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Input:
@@ -62,16 +96,49 @@ app.use('*', async (c, next) => {
  * - A Hono request context whose JSON body should contain text.
  *
  * Output:
- * - Trimmed text within the size limit, or null for invalid input.
+ * - Valid text within the size limit, optionally preserving surrounding whitespace.
  *
  * What this function does:
  * - Centralizes the public text-body contract used by Shortcut routes and handoff creation.
  */
-async function readTextBody(c: Context<AppEnv>): Promise<string | null> {
-  const body = await c.req.json<{ text?: unknown }>().catch(() => null);
+async function readTextBody(c: Context<AppEnv>, preserveWhitespace = false, maxRequestBytes?: number): Promise<string | null> {
+  let body: { text?: unknown } | null = null;
+  if (maxRequestBytes) {
+    const declaredBytes = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredBytes) && declaredBytes > maxRequestBytes) return null;
+    const reader = c.req.raw.body?.getReader();
+    if (!reader) return null;
+    const chunks: Uint8Array[] = [];
+    let receivedBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        receivedBytes += value.byteLength;
+        if (receivedBytes > maxRequestBytes) {
+          await reader.cancel();
+          return null;
+        }
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(receivedBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      body = JSON.parse(new TextDecoder().decode(bytes)) as { text?: unknown };
+    } catch {
+      return null;
+    } finally {
+      reader.releaseLock();
+    }
+  } else {
+    body = await c.req.json<{ text?: unknown }>().catch(() => null);
+  }
   if (typeof body?.text !== 'string') return null;
-  const text = body.text.trim();
-  return text && text.length <= MAX_TEXT_LENGTH ? text : null;
+  const text = preserveWhitespace ? body.text : body.text.trim();
+  return text.trim() && text.length <= MAX_TEXT_LENGTH ? text : null;
 }
 
 // Internal callers need the answer and, when available, the Jev route recorded by Flue.
@@ -99,7 +166,7 @@ function routeFromReplyData(data: Record<string, unknown[]>): string | undefined
 
 /**
  * Input:
- * - A user prompt, compatibility mode, optional conversation ID, and optional recent history.
+ * - A user prompt, optional conversation ID, and optional recent history.
  *
  * Output:
  * - The completed agent text and selected route.
@@ -110,37 +177,15 @@ function routeFromReplyData(data: Record<string, unknown[]>): string | undefined
  */
 async function runAgent(
   prompt: string,
-  mode: AssistantMode,
   conversationId: string = crypto.randomUUID(),
   routingContext?: string,
+  gatewayCaller?: GatewayCallerMetadata,
 ): Promise<AssistantResult> {
   const agent = init(IphoneAssistant, { id: conversationId });
-  const receipt = await agent.dispatch(encodeConfiguredMessage(prompt, mode, routingContext));
+  const receipt = await agent.dispatch(encodeConfiguredMessage(prompt, routingContext, undefined, gatewayCaller));
   const reply = await agent.read(receipt);
   if (!reply.text.trim()) throw new Error('The Flue agent returned an empty response.');
   return { text: reply.text, route: routeFromReplyData(reply.data) };
-}
-
-/**
- * Input:
- * - A Hono request context containing text to explain.
- *
- * Output:
- * - The Shortcut-compatible explanation field, or a 400/502 error response.
- *
- * What this function does:
- * - Validates and runs the dedicated explanation Shortcut request.
- */
-async function runExplainRoute(c: Context<AppEnv>) {
-  const text = await readTextBody(c);
-  if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
-  try {
-    const result = await runAgent(text, 'explain');
-    return c.json({ explanation: result.text });
-  } catch (error) {
-    console.error(JSON.stringify({ message: 'Flue agent request failed', error: error instanceof Error ? error.message : String(error) }));
-    return c.json({ error: 'Assistant request failed' }, 502);
-  }
 }
 
 /**
@@ -169,9 +214,8 @@ function validateChatMessages(value: unknown): ChatMessage[] | null {
   return messages.at(-1)?.role === 'user' ? messages : null;
 }
 
-// Small routes provide liveness and the dedicated explanation Shortcut contract.
+// The health route provides a lightweight liveness check without invoking the agent.
 app.get('/health', (c) => c.json({ status: 'ok', framework: 'flue', router: 'jev' }));
-app.post('/v1/explain', runExplainRoute);
 
 /**
  * Input:
@@ -187,11 +231,47 @@ app.post('/v1/ask', async (c) => {
   const text = await readTextBody(c);
   if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
   try {
-    const result = await runAgent(text, 'chat');
+    const result = await runAgent(text, undefined, undefined, await gatewayCallerForRequest(c));
     return c.json({ answer: result.text, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue agent request failed', error: error instanceof Error ? error.message : String(error) }));
     return c.json({ error: 'Assistant request failed' }, 502);
+  }
+});
+
+/**
+ * Input:
+ * - POST /v1/correct with copied text in JSON `{ text }`.
+ *
+ * Output:
+ * - The corrected text only in `{ corrected_text }`, or a validation/provider error.
+ *
+ * What this function does:
+ * - Calls Workers AI directly without Flue state, Jev routing, tools, or chat history.
+ */
+app.post('/v1/correct', async (c) => {
+  const text = await readTextBody(c, true, MAX_GRAMMAR_REQUEST_BYTES);
+  if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
+  try {
+    // The generated Ai model union lags the currently documented GLM-5.2 binding model.
+    const grammarAi = c.env.AI as { run(model: string, input: unknown, options: unknown): Promise<unknown> };
+    const gatewayCaller = await gatewayCallerForRequest(c);
+    const result = await grammarAi.run(
+      grammarModelFromConfiguredModel(process.env.MODEL),
+      createGrammarRequest(text),
+      {
+        signal: c.req.raw.signal,
+        gateway: {
+          id: process.env.AI_GATEWAY_ID?.trim() || 'default',
+          skipCache: true,
+          metadata: gatewayMetadata('grammar-correction', gatewayCaller),
+        },
+      },
+    );
+    return c.json({ corrected_text: correctedTextFromAi(result) });
+  } catch (error) {
+    console.error(JSON.stringify({ message: 'Grammar correction request failed', error: error instanceof Error ? error.message : String(error) }));
+    return c.json({ error: 'Grammar correction request failed' }, 502);
   }
 });
 
@@ -245,7 +325,7 @@ app.get('/chat/session/:id', async (c) => {
 
 /**
  * Input:
- * - POST /chat/stream with a conversation ID, bounded browser history, and optional explain mode for copied handoff text.
+ * - POST /chat/stream with a conversation ID and bounded browser history.
  *
  * Output:
  * - An SSE stream containing classification, tool, safe planning, token, and completion events.
@@ -256,13 +336,13 @@ app.get('/chat/session/:id', async (c) => {
  * - Cancels downstream work when the browser disconnects.
  */
 app.post('/chat/stream', async (c) => {
-  const body = await c.req.json<{ conversation_id?: unknown; messages?: unknown; mode?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ conversation_id?: unknown; messages?: unknown }>().catch(() => null);
   const messages = validateChatMessages(body?.messages);
   const conversationId = typeof body?.conversation_id === 'string' ? body.conversation_id : '';
-  const mode: AssistantMode = body?.mode === 'explain' ? 'explain' : 'chat';
   if (!messages || !CONVERSATION_ID_PATTERN.test(conversationId)) {
     return c.json({ error: 'Send a conversation_id and chat history ending with a user message' }, 400);
   }
+  const gatewayCaller = await gatewayCallerForRequest(c);
 
   const encoder = new TextEncoder();
   const readAbort = new AbortController();
@@ -341,7 +421,7 @@ app.post('/chat/stream', async (c) => {
           let route: 'direct_answer' | 'web_research' | 'clarification';
           let fallback = false;
           try {
-            route = await classifyWithJev(messages.at(-1)!.content, mode, readAbort.signal, routingContext);
+            route = await classifyWithJev(messages.at(-1)!.content, readAbort.signal, routingContext, gatewayCaller);
           } catch (error) {
             fallback = true;
             route = 'direct_answer';
@@ -349,7 +429,7 @@ app.post('/chat/stream', async (c) => {
           }
           send('progress', { type: 'classification', state: 'complete', route, fallback, durationMs: Date.now() - classificationStartedAt });
           const agent = init(IphoneAssistant, { id: conversationId });
-          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, mode, routingContext, route));
+          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, routingContext, route, gatewayCaller));
           send('status', { type: 'queued', submissionId: receipt.submissionId });
           const toolNames = new Map<string, string>();
           const reply = await agent.read(receipt, {
@@ -422,7 +502,7 @@ app.post('/chat/stream', async (c) => {
  * - POST /chat/api with a conversation ID and bounded browser history.
  *
  * Output:
- * - A non-streaming complete explanation response.
+ * - A non-streaming complete answer response.
  *
  * What this function does:
  * - Preserves the earlier JSON chat contract for non-streaming clients.
@@ -436,8 +516,8 @@ app.post('/chat/api', async (c) => {
   }
   try {
     const routingContext = messages.slice(-6).map((message) => `${message.role}: ${message.content}`).join('\n');
-    const result = await runAgent(messages.at(-1)!.content, 'chat', conversationId, routingContext);
-    return c.json({ explanation: result.text, conversation_id: conversationId, route: result.route });
+    const result = await runAgent(messages.at(-1)!.content, conversationId, routingContext, await gatewayCallerForRequest(c));
+    return c.json({ answer: result.text, conversation_id: conversationId, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue chat failed', error: error instanceof Error ? error.message : String(error) }));
     return c.json({ error: 'Assistant request failed' }, 502);

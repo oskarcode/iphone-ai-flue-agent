@@ -727,7 +727,7 @@ export function renderChatPage() {
 
   /**
    * Input:
-   * - Text entered by the user or loaded from a handoff session, plus its assistant mode.
+   * - Text entered by the user or prepared from a handoff session.
    *
    * Output:
    * - A streamed assistant message added to the current browser conversation.
@@ -736,7 +736,7 @@ export function renderChatPage() {
    * - Posts bounded history to /chat/stream and applies each SSE event to the UI.
    * - Re-enables the composer after success, failure, or cancellation.
    */
-  async function sendMessage(value, mode = 'chat') {
+  async function sendMessage(value) {
     const content = value.trim();
     if (!content) return;
 
@@ -758,7 +758,7 @@ export function renderChatPage() {
       const response = await fetch('/chat/stream', {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-        body: JSON.stringify({ conversation_id: conversationId, messages: history, mode }),
+        body: JSON.stringify({ conversation_id: conversationId, messages: history }),
         signal: activeController.signal,
       });
       await consumeEvents(response, (event, data) => handleChatEvent(assistant, event, data));
@@ -809,8 +809,7 @@ export function renderChatPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not load copied text');
       conversationId = id;
-      // Copied Shortcut content is text to explain; later composer turns use normal chat mode.
-      await sendMessage(data.text, 'explain');
+      await sendMessage('Explain this pasted text in plain English:\\n\\n' + data.text);
     } catch (error) {
       messages.push({
         role: 'assistant',
