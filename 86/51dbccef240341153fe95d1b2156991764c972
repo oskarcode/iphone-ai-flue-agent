@@ -1,0 +1,19 @@
+docs/diagrams/index.html
+  s_74e8e72b176644::t_59ad1b2418960c 164,169,172,178-187,190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8651dbccef240341153fe95d1b2156991764c972",
+  "prompts": {},
+  "sessions": {
+    "s_74e8e72b176644": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3bc1b339ffeJgj12gPTdav61a",
+        "model": "gpt-5.6"
+      },
+      "human_author": "oskarcode <manaskarsanqu@gmail.com>"
+    }
+  }
+}
