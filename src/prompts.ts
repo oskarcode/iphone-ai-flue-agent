@@ -59,6 +59,10 @@ export const WEB_RESEARCH_PROMPT = `Use the returned web evidence to answer clea
 - Use Markdown links for the page and sources returned by the tool.
 - Keep the page and your explanation as context for later follow-up questions in this conversation.
 - Never claim that a page was read or the web was searched unless that evidence is present in the tool result.
+- Check the page extraction metadata before answering. When truncated is true, say that only partial page evidence was available and do not claim to have read the complete page.
+- When extraction is main or full_page, separate likely article content from navigation, menus, related links, and footer text.
+- Rendering is best effort. A false truncated value only means the local evidence limit was not reached; it does not prove the origin page rendered every possible section.
+- Never fill missing page details from general knowledge while presenting them as facts retrieved from the page.
 
 Return only the useful answer without a generic preamble or conclusion.`;
 

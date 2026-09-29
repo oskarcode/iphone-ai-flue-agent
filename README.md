@@ -255,7 +255,7 @@ Run the complete verification suite after changes:
 npm run check
 ```
 
-This runs TypeScript checking, 64 tests, and the production Vite build.
+This runs TypeScript checking, the Vitest suite, and the production Vite build.
 
 ## Security Notes
 
