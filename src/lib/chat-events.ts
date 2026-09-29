@@ -74,3 +74,58 @@ export function projectConversationChunk(value: unknown): PublicChatEvent | null
   if (value.type === 'message-completed') return { type: 'response', state: 'complete' };
   return null;
 }
+
+/**
+ * Input:
+ * - The submission ID returned by Flue for the current browser turn.
+ *
+ * Output:
+ * - A stateful projector that emits only deduplicated events for that submission's response.
+ *
+ * What this function does:
+ * - Ignores conversation history replayed by Flue's at-least-once event stream.
+ * - Correlates tool outcomes with tool calls from the active response.
+ */
+export function createSubmissionEventProjector(submissionId: string) {
+  let messageId: string | undefined;
+  const seenPositions = new Set<string>();
+  const toolNames = new Map<string, string>();
+
+  return (value: unknown): PublicChatEvent | null => {
+    if (!isRecord(value) || typeof value.type !== 'string') return null;
+
+    if (isRecord(value.position)
+      && typeof value.position.batch === 'number'
+      && typeof value.position.index === 'number') {
+      const position = `${value.position.batch}:${value.position.index}`;
+      if (seenPositions.has(position)) return null;
+      seenPositions.add(position);
+    }
+
+    if (value.type === 'message-started') {
+      if (value.submissionId === submissionId && typeof value.messageId === 'string') {
+        messageId = value.messageId;
+      }
+      if (value.messageId !== messageId) return null;
+    } else if ('messageId' in value && value.messageId !== messageId) {
+      return null;
+    } else if (!messageId) {
+      return null;
+    }
+
+    if (value.type === 'tool-input') {
+      if (typeof value.toolCallId !== 'string' || typeof value.toolName !== 'string') return null;
+      toolNames.set(value.toolCallId, value.toolName);
+    }
+
+    if (value.type === 'tool-output' || value.type === 'tool-output-error') {
+      if (typeof value.toolCallId !== 'string' || !toolNames.has(value.toolCallId)) return null;
+    }
+
+    const projected = projectConversationChunk(value);
+    if (projected?.type === 'tool' && projected.state !== 'running') {
+      projected.name = toolNames.get(projected.name) || projected.name;
+    }
+    return projected;
+  };
+}

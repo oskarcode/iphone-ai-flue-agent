@@ -9,7 +9,7 @@ import { Hono, type Context } from 'hono';
 // Application modules own grammar correction, the agent, browser UI, event projection, request envelope, and Jev routing.
 import { IphoneAssistant } from './agents/iphone-assistant.ts';
 import { renderChatPage } from './chat-page.ts';
-import { projectConversationChunk } from './lib/chat-events.ts';
+import { createSubmissionEventProjector } from './lib/chat-events.ts';
 import { encodeConfiguredMessage, gatewayCallerFromModelInput } from './lib/configured-message.ts';
 import { gatewayCallerFromAccess, gatewayMetadata, type GatewayCallerMetadata } from './lib/gateway-metadata.ts';
 import { correctedTextFromAi, createGrammarRequest, grammarModelFromConfiguredModel } from './lib/grammar-correction.ts';
@@ -166,7 +166,7 @@ function routeFromReplyData(data: Record<string, unknown[]>): string | undefined
 
 /**
  * Input:
- * - A user prompt, optional conversation ID, and optional recent history.
+ * - A user prompt, optional conversation ID, optional preselected route, and caller identity.
  *
  * Output:
  * - The completed agent text and selected route.
@@ -178,14 +178,14 @@ function routeFromReplyData(data: Record<string, unknown[]>): string | undefined
 async function runAgent(
   prompt: string,
   conversationId: string = crypto.randomUUID(),
-  routingContext?: string,
+  route?: 'direct_answer' | 'web_research' | 'clarification',
   gatewayCaller?: GatewayCallerMetadata,
 ): Promise<AssistantResult> {
   const agent = init(IphoneAssistant, { id: conversationId });
-  const receipt = await agent.dispatch(encodeConfiguredMessage(prompt, routingContext, undefined, gatewayCaller));
+  const receipt = await agent.dispatch(encodeConfiguredMessage(prompt, undefined, route, gatewayCaller));
   const reply = await agent.read(receipt);
   if (!reply.text.trim()) throw new Error('The Flue agent returned an empty response.');
-  return { text: reply.text, route: routeFromReplyData(reply.data) };
+  return { text: reply.text, route: routeFromReplyData(reply.data) || route };
 }
 
 /**
@@ -429,9 +429,9 @@ app.post('/chat/stream', async (c) => {
           }
           send('progress', { type: 'classification', state: 'complete', route, fallback, durationMs: Date.now() - classificationStartedAt });
           const agent = init(IphoneAssistant, { id: conversationId });
-          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, routingContext, route, gatewayCaller));
+          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, undefined, route, gatewayCaller));
           send('status', { type: 'queued', submissionId: receipt.submissionId });
-          const toolNames = new Map<string, string>();
+          const projectEvent = createSubmissionEventProjector(receipt.submissionId);
           const reply = await agent.read(receipt, {
             signal: readAbort.signal,
             /**
@@ -442,16 +442,12 @@ app.post('/chat/stream', async (c) => {
              * - At most one sanitized progress event sent to the browser.
              *
              * What this function does:
-             * - Correlates tool completion IDs with their human-readable tool names.
-             * - Drops events that projectConversationChunk does not explicitly allow.
+             * - Drops replayed history and duplicate chunks from Flue's at-least-once stream.
+             * - Drops events that the browser-safe projector does not explicitly allow.
              */
             onEvent(chunk) {
-              if (chunk.type === 'tool-input') toolNames.set(chunk.toolCallId, chunk.toolName);
-              const projected = projectConversationChunk(chunk);
+              const projected = projectEvent(chunk);
               if (!projected) return;
-              if (projected.type === 'tool' && projected.state !== 'running') {
-                projected.name = toolNames.get(projected.name) || projected.name;
-              }
               send('progress', projected);
             },
           });
@@ -515,8 +511,17 @@ app.post('/chat/api', async (c) => {
     return c.json({ error: 'Send a conversation_id and chat history ending with a user message' }, 400);
   }
   try {
+    const prompt = messages.at(-1)!.content;
     const routingContext = messages.slice(-6).map((message) => `${message.role}: ${message.content}`).join('\n');
-    const result = await runAgent(messages.at(-1)!.content, conversationId, routingContext, await gatewayCallerForRequest(c));
+    const gatewayCaller = await gatewayCallerForRequest(c);
+    let route: 'direct_answer' | 'web_research' | 'clarification';
+    try {
+      route = await classifyWithJev(prompt, c.req.raw.signal, routingContext, gatewayCaller);
+    } catch (error) {
+      route = 'direct_answer';
+      console.error(JSON.stringify({ message: 'Jev chat route failed; using direct answer', error: error instanceof Error ? error.message : String(error) }));
+    }
+    const result = await runAgent(prompt, conversationId, route, gatewayCaller);
     return c.json({ answer: result.text, conversation_id: conversationId, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue chat failed', error: error instanceof Error ? error.message : String(error) }));

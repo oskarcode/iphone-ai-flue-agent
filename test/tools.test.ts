@@ -64,12 +64,25 @@ describe('retrieval tools', () => {
     ])).toMatchObject({ selector: 'main', text: main });
   });
 
+  it('selects one dominant article among smaller related cards', () => {
+    const article = 'Complete article content. '.repeat(150);
+    const relatedCard = 'Related article card. '.repeat(25);
+    expect(selectArticleCandidate([
+      { selector: 'article', results: [
+        { html: `<article>${relatedCard}</article>`, text: relatedCard },
+        { html: `<article>${article}</article>`, text: article },
+        { html: `<article>${relatedCard}</article>`, text: relatedCard },
+      ] },
+    ])).toMatchObject({ selector: 'article', text: article });
+  });
+
   it('preserves the beginning and conclusion when bounding long Markdown', () => {
     const result = boundMarkdown(`START-${'x'.repeat(2_000)}-END`, 1_000);
     expect(result.truncated).toBe(true);
     expect(result.markdown).toContain('START-');
     expect(result.markdown).toContain('middle content omitted');
     expect(result.markdown).toContain('-END');
+    expect(result.omittedRegion).toBe('middle');
     expect(result.returnedCharacters).toBeLessThanOrEqual(1_000);
   });
 
@@ -79,6 +92,7 @@ describe('retrieval tools', () => {
       sourceCharacters: 16,
       returnedCharacters: 16,
       truncated: false,
+      omittedRegion: 'none',
     });
   });
 
@@ -102,6 +116,7 @@ describe('retrieval tools', () => {
       extraction: 'article',
       selector: 'article',
       truncated: false,
+      omittedRegion: 'none',
     });
     expect(quickAction).toHaveBeenNthCalledWith(2, 'markdown', expect.objectContaining({
       html: expect.stringContaining('<base href="https://example.com/post">'),
@@ -144,6 +159,7 @@ describe('retrieval tools', () => {
       extraction: 'full_page',
       markdown: '# Fallback page',
       truncated: false,
+      omittedRegion: 'none',
     });
   });
 

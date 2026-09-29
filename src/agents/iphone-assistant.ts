@@ -130,6 +130,8 @@ ${EXPLANATION_PROMPT}
 For web_research turns:
 ${WEB_RESEARCH_PROMPT}
 
+For follow-up questions about a prior page retrieval, use its recorded extraction metadata. Never infer which unseen sections were missing.
+
 Never invent sources or URLs.`;
 }
 
