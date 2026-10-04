@@ -6,4 +6,5 @@ dist/
 coverage/
 worker-configuration.d.ts
 .DS_Store
-docs/
+# The personal Shortcut migration notes remain local; learning handoff artifacts are committed.
+docs/SHORTCUT_GUIDE.md

@@ -1,297 +1,100 @@
 # iPhone AI Flue Agent
 
-A Cloudflare Worker that turns iPhone Shortcuts into a secure AI assistant. It can answer questions, research public webpages, correct grammar, and hand selected text to a browser chat with durable follow-up conversation.
+A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar correction, public-web research, and temporary code-learning guides for public GitHub repositories.
 
-The reference deployment is available at <https://iphoneai.oskarcode.com> and is protected by Cloudflare Access.
-
-## What It Does
-
-This project supports three main experiences:
-
-1. **Universal AI Shortcut**: send a question or selected text to `POST /v1/ask`. Jev chooses whether the request needs a direct answer, web research, or clarification.
-2. **Grammar Shortcut**: send clipboard or Share Sheet text to `POST /v1/correct`. This stateless path returns corrected text without creating a conversation or invoking research tools.
-3. **Browser handoff**: send selected text to `POST /handoff`, open the returned URL, and continue in a streamed browser chat backed by a durable Flue conversation.
-
-Example requests:
-
-```text
-Explain Durable Objects in plain English.
-```
-
-```text
-https://developers.cloudflare.com/workers/ Summarize this page.
-```
-
-```text
-Correct the grammar in text copied from my clipboard.
-```
-
-## How It Works
-
-### Routed assistant flow
-
-```text
-iPhone Shortcut
-  -> Cloudflare Access service-token check
-  -> Hono route in src/app.ts
-  -> Jev route classification
-  -> Flue durable agent
-  -> Workers AI through AI Gateway
-  -> optional Browser Run and public search
-  -> JSON answer or streamed browser response
-```
-
-### Grammar flow
-
-```text
-iPhone Shortcut
-  -> Cloudflare Access service-token check
-  -> POST /v1/correct
-  -> deterministic grammar prompt
-  -> Workers AI through AI Gateway
-  -> {"corrected_text":"..."}
-```
-
-### Browser handoff flow
-
-```text
-iPhone Shortcut
-  -> POST /handoff
-  -> selected text stored in Workers KV for 10 minutes
-  -> browser opens /chat?session=<id>
-  -> browser consumes and deletes the KV value
-  -> follow-up messages stream from one Flue Durable Object conversation
-```
-
-## Technology Stack
-
-| Technology | Role |
+## Start Here (Python/Django Mental Model)
+| This project | Django/Python equivalent |
 |---|---|
-| [Cloudflare Workers](https://developers.cloudflare.com/workers/) | HTTP runtime and deployment unit |
-| [Hono](https://hono.dev/) | Worker routing and request handling |
-| [Flue](https://www.npmjs.com/package/@flue/runtime) | Durable AI-agent dispatch, model integration, tools, and conversation state |
-| [Workers AI](https://developers.cloudflare.com/workers-ai/) | Jev classification, grammar correction, and answer generation |
-| [AI Gateway](https://developers.cloudflare.com/ai-gateway/) | AI request logs, metadata, caching controls, and observability |
-| [Durable Objects](https://developers.cloudflare.com/durable-objects/) | SQLite-backed state for browser follow-up conversations |
-| [Workers KV](https://developers.cloudflare.com/kv/) | Short-lived text transfer from Shortcut to browser |
-| [Browser Run](https://developers.cloudflare.com/browser-run/) | Converts public webpages into Markdown for research |
-| [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/) | Protects API and browser routes for users and service tokens |
-| TypeScript, Vite, Vitest | Development, build, type checking, and tests |
+| `src/app.ts` Hono routes | `urls.py` plus `views.py` or FastAPI route decorators |
+| `IphoneAssistant` / `GithubLearningAgent` | Stateful service classes backed by durable persistence |
+| Valibot schemas | Pydantic models or DRF serializers |
+| `wrangler.jsonc` bindings | `settings.py` plus injected service clients |
+| Workers KV | Expiring cache/session storage |
+| Durable Objects | One SQLite-backed actor per conversation/session ID |
+| `package.json` scripts | `pyproject.toml` commands and dependency manifest |
+| Vitest files | pytest modules |
 
-## Project Structure
+## What You Actually Maintain
+1. `src/app.ts`: public HTTP contracts, validation, routing, SSE, and service orchestration.
+2. `src/agents/`: durable assistant behavior and lifecycle.
+3. `src/tools/`: Jev routing, web research, and commit-pinned GitHub reads.
+4. `src/lib/learning-session.ts`: one-hour KV state and atomic guide publication.
+5. `src/chat-page.ts` and `src/learning-page.ts`: fixed self-contained browser interfaces.
+6. `wrangler.jsonc`: production route, bindings, Durable Object migrations, and observability.
 
-```text
-src/app.ts                         Worker entrypoint, routes, validation, KV, and SSE
-src/agents/iphone-assistant.ts    Flue agent, model, tools, routing signal, and retries
-src/lib/configured-message.ts     Trusted route context passed into durable agent turns
-src/lib/gateway-metadata.ts       Pseudonymous Access identity for AI Gateway logs
-src/lib/grammar-correction.ts     Stateless grammar request and response handling
-src/lib/chat-events.ts            Safe projection of internal Flue events to the browser
-src/tools/jev-router.ts           Jev route classification
-src/tools/web-research.ts         Browser Run, DuckDuckGo, and Wikipedia research
-src/chat-page.ts                  Self-contained browser chat HTML, CSS, and JavaScript
-src/prompts.ts                    Model instructions
-test/                             Unit and route tests
-wrangler.jsonc                    Cloudflare resources, bindings, routes, and variables
-```
+## What This Project Does
+- `POST /v1/ask` routes one-shot requests to direct answers, web research, clarification, or GitHub learning.
+- `POST /v1/correct` performs stateless grammar correction.
+- `POST /handoff` moves selected iPhone text into a ten-minute browser chat handoff.
+- Browser chat streams durable follow-up answers from a Flue Durable Object.
+- Public GitHub URLs can produce an escaped, structured learning guide pinned to one commit for one hour.
 
-## API Overview
+## Learning Guide
+- [Detailed learning guide](docs/iphone-ai-flue-agent-learning-guide.html)
+- [Interactive architecture diagram](docs/diagrams/index.html)
+- Local guide agent: `cd "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent" && .venv/bin/python run_guide_agent.py "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html" --project-root "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent"`
 
-The Worker does not implement its own authentication middleware, so the deployment should place its hostname behind Cloudflare Access. `GET /health` does not invoke AI or return private data and may be left public if your Access policy explicitly allows it.
+## Architecture At A Glance
+- One Hono Worker is the HTTP entrypoint and fixed HTML renderer.
+- `FlueIphoneAssistantAgent` stores normal conversation history in a Durable Object.
+- `FlueGithubLearningAgent` stores one repository tutor and expires its state after one hour.
+- `CHAT_SESSIONS` KV stores ten-minute handoffs and one-hour learning records/receipts.
+- Workers AI runs through AI Gateway; Browser Run and public search support web research.
+- GitHub API and raw content are read-only, bounded, and pinned to a resolved commit SHA.
 
-| Method and path | Purpose | Main response |
-|---|---|---|
-| `GET /health` | Public liveness check | `{status, framework, router}` |
-| `POST /v1/ask` | New routed assistant request | `{answer, route?}` |
-| `POST /v1/correct` | Stateless grammar correction | `{corrected_text}` |
-| `POST /handoff` | Create a temporary browser handoff | `{chat_url, expires_in_seconds}` |
-| `POST /v1/chat-session` | Alias for handoff creation | `{chat_url, expires_in_seconds}` |
-| `GET /chat` | Serve the browser chat | HTML |
-| `GET /chat/session/:id` | Consume temporary handoff text | `{text}` |
-| `POST /chat/stream` | Continue a conversation with SSE | `status`, `progress`, `done`, or `error` events |
-| `POST /chat/api` | Non-streaming durable chat | `{answer, conversation_id, route?}` |
+## Traffic Flow (Input -> Output)
+1. Shortcut/chat request -> Cloudflare Access -> Hono route -> Jev classification.
+2. Normal request -> durable assistant -> Workers AI and optional research -> JSON or SSE answer.
+3. GitHub learning request -> resolve repository -> queued KV record -> durable tutor -> atomic ready record -> learning page.
+4. Follow-up learning question -> same session Durable Object -> commit-pinned answer.
+5. Expiry/manual delete -> KV record and Durable Object storage removed.
 
-Text endpoints accept JSON with a non-empty `text` field. Chat endpoints accept a bounded conversation ID and message history ending with a user message.
+## Hosting and Deployment
+- Runtime: Cloudflare Workers at `https://iphoneai.oskarcode.com`.
+- Deploy command: `npm run deploy`.
+- Verification command: `npm run check`.
+- Current deployed baseline before this cleanup: Worker version `b0e2b881-1ecf-45ef-aaaf-7f74d913bb1b`.
+- The current cleanup commit requires a new deployment before its race-condition fixes are live.
 
-## Run It Locally
+## Security Model
+- Auth boundary: Cloudflare Access is expected to protect AI/chat ingress; the Worker has no application auth middleware.
+- Public learning links: opaque UUIDs, one-hour expiry, and explicit deletion; anyone with an allowed link can use that session.
+- Secret name: optional `GITHUB_TOKEN` raises GitHub API limits; never commit its value.
+- Repository controls: public repositories only, immutable commit SHA, allowlisted paths, fixed GitHub hosts, timeouts, and byte limits.
+- Rendering controls: model content is schema-validated and escaped; browser chat answers use `textContent`.
+- Demo limitation: there is no application-level rate limit or creator-bound authorization for learning sessions.
 
-### Prerequisites
+## APIs and Interfaces
+| Method and path | Purpose |
+|---|---|
+| `GET /health` | Liveness without AI |
+| `POST /v1/ask` | Routed one-shot assistant or learning-session creation |
+| `POST /v1/correct` | Stateless grammar correction |
+| `POST /handoff`, `POST /v1/chat-session` | Create ten-minute browser handoff |
+| `GET /chat`, `GET /chat/session/:id` | Browser UI and one-time handoff consumption |
+| `POST /chat/stream`, `POST /chat/api` | Streaming or complete durable answers |
+| `GET /learn/:id`, `/status`, `/events` | Guide page and generation lifecycle |
+| `POST /learn/:id/chat` | Commit-pinned tutor follow-up |
+| `DELETE /v1/learning-sessions/:id` | Immediate KV and Durable Object cleanup |
 
-- Node.js and npm.
-- A Cloudflare account with Workers AI, Browser Run, Workers KV, and Durable Objects available.
-- Wrangler authenticated to your account.
-
+## Quick Start
 ```bash
-git clone https://github.com/oskarcode/iphone-ai-flue-agent.git
-cd iphone-ai-flue-agent
 npm install
-npx wrangler login
 npm run check
 npm run dev
 ```
 
-Workers AI and Browser Run use remote bindings in this project. Local requests can therefore call real Cloudflare account resources and may incur usage.
+Remote AI and Browser bindings can use account resources during local development. Deploy only after `npm run check` passes.
 
-## Deploy Your Own Copy
-
-### 1. Fork and configure the Worker
-
-Fork the repository, then update these values in `wrangler.jsonc`:
-
-| Setting | What to change |
-|---|---|
-| `name` | Your Worker name |
-| `routes[0].pattern` | A hostname in a Cloudflare-managed zone, such as `iphone-ai.example.com` |
-| `MODEL` | The Workers AI model used by the Flue agent and grammar route |
-| `AI_GATEWAY_ID` | Your AI Gateway ID, or `default` to let Cloudflare create the default gateway on the first authenticated request |
-| `JEV_MODEL` | The Workers AI model used for route classification |
-| `kv_namespaces[0].id` | Your own KV namespace ID |
-
-The configured custom domain must belong to an active Cloudflare zone. Cloudflare creates the DNS record and certificate when Wrangler deploys the Custom Domain.
-
-### 2. Create the KV namespace
-
-```bash
-npx wrangler kv namespace create CHAT_SESSIONS
-```
-
-Copy the returned namespace ID into the `CHAT_SESSIONS` entry in `wrangler.jsonc`. Keep the binding name as `CHAT_SESSIONS` unless you also update the code.
-
-### 3. Review the Cloudflare bindings
-
-The Worker expects these binding names:
-
-```jsonc
-{
-  "ai": { "binding": "AI", "remote": true },
-  "browser": { "binding": "BROWSER", "remote": true },
-  "kv_namespaces": [
-    { "binding": "CHAT_SESSIONS", "id": "<YOUR_KV_NAMESPACE_ID>" }
-  ]
-}
-```
-
-The existing Durable Object migration creates the SQLite-backed `FlueIphoneAssistantAgent` namespace during deployment. Do not rename or remove an applied migration tag casually.
-
-### 4. Deploy
-
-```bash
-npm run deploy
-```
-
-The deploy script runs type checking, all tests, and a production build before calling Wrangler.
-
-Verify the public health route:
-
-```bash
-curl https://iphone-ai.example.com/health
-```
-
-### 5. Protect the hostname with Cloudflare Access
-
-Create a self-hosted Access application for your hostname. Add:
-
-- An interactive policy for people who may use browser chat.
-- A **Service Auth** policy that includes a service token for iPhone Shortcuts.
-
-Create the token under **Zero Trust > Access controls > Service credentials > Service Tokens**. Save the Client Secret when it is generated because Cloudflare displays it only once. Do not commit either credential.
-
-Non-browser clients authenticate with these headers:
-
-```text
-CF-Access-Client-Id: <CLIENT_ID>
-CF-Access-Client-Secret: <CLIENT_SECRET>
-```
-
-## Build The iPhone Shortcuts
-
-Replace `https://iphone-ai.example.com` with your deployed hostname and add your Access service-token headers to every API request.
-
-### Universal assistant Shortcut
-
-1. Add **Ask for Input** with a prompt such as `What should the assistant do?`.
-2. Add **Get Contents of URL**.
-3. Set the URL to `https://iphone-ai.example.com/v1/ask`.
-4. Set the method to `POST` and the request body to `JSON`.
-5. Add a `text` field using **Provided Input**.
-6. Add `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers.
-7. Add **Get Dictionary Value** for `answer`.
-8. Show, speak, or copy the result.
-
-### Grammar correction Shortcut
-
-1. Start with **Get Clipboard** or Share Sheet input.
-2. Add **Get Contents of URL** for `https://iphone-ai.example.com/v1/correct`.
-3. Use `POST` with a JSON `text` field containing the clipboard or Shortcut input.
-4. Add both Access service-token headers.
-5. Read the `corrected_text` dictionary value.
-6. Copy, display, or replace text with the result.
-
-### Browser handoff Shortcut
-
-1. Start with selected text, Share Sheet input, or clipboard content.
-2. POST it as the JSON `text` field to `https://iphone-ai.example.com/handoff`.
-3. Add both Access service-token headers.
-4. Read the returned `chat_url` dictionary value.
-5. Open that URL. The browser completes interactive Access authentication and loads the selected text.
-
-The handoff expires after ten minutes and uses best-effort one-time consumption. The browser then continues in one durable conversation.
-
-## Customize It
-
-| Goal | Main files |
-|---|---|
-| Change API contracts or validation | `src/app.ts` |
-| Change the AI model or gateway | `wrangler.jsonc`, `src/app.ts`, `src/agents/iphone-assistant.ts` |
-| Change route-selection criteria | `src/tools/jev-router.ts` |
-| Change assistant or grammar behavior | `src/prompts.ts`, `src/lib/grammar-correction.ts` |
-| Add or change research providers | `src/tools/web-research.ts` |
-| Change browser chat UI | `src/chat-page.ts` |
-| Change which identity appears in Gateway logs | `src/lib/gateway-metadata.ts`, `src/lib/configured-message.ts` |
-
-Run the complete verification suite after changes:
-
-```bash
-npm run check
-```
-
-This runs TypeScript checking, the Vitest suite, and the production Vite build.
-
-## Security Notes
-
-- Cloudflare Access should protect every AI and chat route. `/health` is the only route designed to be safe for an optional public liveness check.
-- Service-token secrets belong in iPhone Shortcut headers or another secret store, never in Git.
-- Human AI Gateway requests use pseudonymous `access_user_id`; service-token calls use `service_token_id`. The application does not add email addresses to Gateway metadata.
-- The app bounds request sizes and chat history, validates model tool inputs, and avoids inserting raw model HTML into the browser.
-- Before broader production use, add application-level rate limiting and stronger DNS/redirect-aware SSRF protection for web research.
-- KV handoff consumption uses separate read and delete operations, so it is not strictly atomic under concurrent access.
-
-## Troubleshooting
-
-| Symptom | First place to check |
-|---|---|
-| `400` response | Request JSON and `readTextBody()` or `validateChatMessages()` in `src/app.ts` |
-| `403` or Access login | Access application policies and service-token headers |
-| Grammar route returns `502` | AI Gateway logs and `src/lib/grammar-correction.ts` |
-| Wrong route is selected | `src/tools/jev-router.ts` and `JEV_MODEL` |
-| Research fails | `validatePublicUrl()` and provider calls in `src/tools/web-research.ts` |
-| Browser chat does not stream | `/chat/stream`, `src/lib/chat-events.ts`, and browser network frames |
-| Binding or deployment failure | `wrangler.jsonc`, then `npm run types` and `npm run check` |
-
-For live Worker logs:
-
-```bash
-npx wrangler tail
-```
-
-## Official Cloudflare References
-
-- [Workers AI with AI Gateway](https://developers.cloudflare.com/ai-gateway/integrations/aig-workers-ai-binding/)
-- [Workers KV namespaces](https://developers.cloudflare.com/kv/concepts/kv-namespaces/)
-- [Browser Run Quick Actions](https://developers.cloudflare.com/browser-run/quick-actions/)
-- [Workers Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
-- [Cloudflare Access service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+## Troubleshooting Jump Table
+- If a request returns `400`, inspect its route contract and bounded body helper in `src/app.ts`.
+- If Access redirects or returns `403`, inspect the Access application and service-token policy.
+- If Jev chooses the wrong route, inspect `QUESTIONS` in `src/tools/jev-router.ts`.
+- If GitHub creation returns `502`, inspect GitHub URL/repository visibility, API limits, and `resolveGithubRepository()`.
+- If a guide stays queued, inspect `/learn/:id/status`, `/events`, Durable Object logs, and submission receipt KV state.
+- If a guide fails, reload `/learn/:id`; terminal errors are stored and polling stops.
+- If deployment fails, inspect `wrangler.jsonc`, then run `npm run types` and `npm run check`.
+- Live logs: `npx wrangler tail iphone-ai-flue-agent`.
 
 ## License
-
-No open-source license is currently included. Add a license before redistributing this project as an open-source package.
+No open-source license is currently included. Add one before redistribution.

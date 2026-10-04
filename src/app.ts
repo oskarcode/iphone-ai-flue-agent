@@ -8,17 +8,31 @@ import { Hono, type Context } from 'hono';
 
 // Application modules own grammar correction, the agent, browser UI, event projection, request envelope, and Jev routing.
 import { IphoneAssistant } from './agents/iphone-assistant.ts';
+import { GithubLearningAgent } from './agents/github-learning.ts';
 import { renderChatPage } from './chat-page.ts';
+import { renderLearningGuidePage, renderLearningWaitingPage } from './learning-page.ts';
 import { createSubmissionEventProjector } from './lib/chat-events.ts';
 import { encodeConfiguredMessage, gatewayCallerFromModelInput } from './lib/configured-message.ts';
 import { gatewayCallerFromAccess, gatewayMetadata, type GatewayCallerMetadata } from './lib/gateway-metadata.ts';
 import { correctedTextFromAi, createGrammarRequest, grammarModelFromConfiguredModel } from './lib/grammar-correction.ts';
-import { classifyWithJev } from './tools/jev-router.ts';
+import {
+  deleteLearningSession,
+  getLearningGuide,
+  getLearningSession,
+  getLearningSubmission,
+  LEARNING_SESSION_TTL_SECONDS,
+  putLearningSession,
+  putLearningSubmission,
+  type LearningSessionMetadata,
+} from './lib/learning-session.ts';
+import { resolveGithubRepository } from './tools/github-repository.ts';
+import { classifyWithJev, type JevRoute } from './tools/jev-router.ts';
 
 // These are the bindings accessed directly by the HTTP application layer.
 type Bindings = {
   AI: Ai;
   CHAT_SESSIONS: KVNamespace;
+  FLUE_GITHUB_LEARNING_AGENT: DurableObjectNamespace;
 };
 
 // Flue's model provider is configured once when the Worker isolate starts, not once per request.
@@ -26,6 +40,16 @@ const bindings = workerEnv as unknown as Bindings;
 
 const baseAiBinding = bindings.AI as unknown as CloudflareAIBinding;
 const identityAwareBinding: CloudflareAIBinding = {
+  /**
+   * Input:
+   * - Model name, Flue model input, and optional provider options.
+   *
+   * Output:
+   * - The underlying Workers AI request promise.
+   *
+   * What this function does:
+   * - Adds pseudonymous caller identity to existing AI Gateway metadata when available.
+   */
   run(model: string, input: Record<string, unknown>, options?: Record<string, unknown>) {
     const caller = gatewayCallerFromModelInput(input);
     if (!caller || !options || typeof options !== 'object' || !('gateway' in options) || !options.gateway || typeof options.gateway !== 'object') {
@@ -62,15 +86,75 @@ const CHAT_SESSION_TTL_SECONDS = 600;
 const CHAT_SESSION_KEY_PREFIX = 'chat-session:';
 const MAX_TEXT_LENGTH = 30_000;
 const MAX_GRAMMAR_REQUEST_BYTES = 200_000;
+const MAX_LEARNING_QUESTION_BYTES = 16_000;
 const MAX_CHAT_MESSAGES = 20;
 const CONVERSATION_ID_PATTERN = /^[a-zA-Z0-9_-]{8,100}$/;
 
+// This narrow RPC type documents the only direct Durable Object method the HTTP layer calls.
+type LearningAgentRpc = DurableObjectStub & {
+  deleteLearningSession(): Promise<void>;
+};
+
+/**
+ * Input:
+ * - A request context that may contain a Cloudflare Access identity.
+ *
+ * Output:
+ * - Pseudonymous caller metadata, or undefined when Access identity is unavailable.
+ *
+ * What this function does:
+ * - Keeps personal email addresses out of AI Gateway metadata.
+ * - Lets browser and service-token calls remain distinguishable in observability.
+ */
 async function gatewayCallerForRequest(c: Context<AppEnv>): Promise<GatewayCallerMetadata | undefined> {
   try {
     const executionCtx = c.executionCtx as ExecutionContext & { access?: CloudflareAccessContext };
     return gatewayCallerFromAccess(executionCtx.access);
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Input:
+ * - A Hono request context and maximum accepted body size in bytes.
+ *
+ * Output:
+ * - Parsed JSON of the requested type, or null for oversized/malformed input.
+ *
+ * What this function does:
+ * - Stops reading once untrusted input crosses the memory boundary.
+ * - Centralizes bounded JSON parsing for routes with small request contracts.
+ */
+async function readBoundedJson<T>(c: Context<AppEnv>, maxRequestBytes: number): Promise<T | null> {
+  const declaredBytes = Number(c.req.header('content-length'));
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxRequestBytes) return null;
+  const reader = c.req.raw.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > maxRequestBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(receivedBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -104,35 +188,7 @@ app.use('*', async (c, next) => {
 async function readTextBody(c: Context<AppEnv>, preserveWhitespace = false, maxRequestBytes?: number): Promise<string | null> {
   let body: { text?: unknown } | null = null;
   if (maxRequestBytes) {
-    const declaredBytes = Number(c.req.header('content-length'));
-    if (Number.isFinite(declaredBytes) && declaredBytes > maxRequestBytes) return null;
-    const reader = c.req.raw.body?.getReader();
-    if (!reader) return null;
-    const chunks: Uint8Array[] = [];
-    let receivedBytes = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        receivedBytes += value.byteLength;
-        if (receivedBytes > maxRequestBytes) {
-          await reader.cancel();
-          return null;
-        }
-        chunks.push(value);
-      }
-      const bytes = new Uint8Array(receivedBytes);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-      body = JSON.parse(new TextDecoder().decode(bytes)) as { text?: unknown };
-    } catch {
-      return null;
-    } finally {
-      reader.releaseLock();
-    }
+    body = await readBoundedJson<{ text?: unknown }>(c, maxRequestBytes);
   } else {
     body = await c.req.json<{ text?: unknown }>().catch(() => null);
   }
@@ -190,6 +246,64 @@ async function runAgent(
 
 /**
  * Input:
+ * - The current request context and a prompt containing a public GitHub repository URL.
+ *
+ * Output:
+ * - Queued one-hour session metadata with an immutable repository commit.
+ *
+ * What this function does:
+ * - Resolves and bounds the repository before allocating durable state.
+ * - Dispatches generation, then stores its receipt in a separate KV key to avoid status races.
+ */
+async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): Promise<LearningSessionMetadata> {
+  const repository = await resolveGithubRepository(prompt, c.req.raw.signal);
+  const id = crypto.randomUUID();
+  const createdAt = new Date();
+  const metadata: LearningSessionMetadata = {
+    id,
+    status: 'queued',
+    repository: repository.fullName,
+    repositoryUrl: repository.url,
+    defaultBranch: repository.defaultBranch,
+    commitSha: repository.commitSha,
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + LEARNING_SESSION_TTL_SECONDS * 1000).toISOString(),
+  };
+  await putLearningSession(c.env.CHAT_SESSIONS, metadata);
+  try {
+    const agent = init(GithubLearningAgent, { id });
+    const receipt = await agent.dispatch({
+      message: 'Create and publish the complete code-learning guide for this repository.',
+      initialData: { sessionId: id, repository },
+      idempotencyKey: `learning-guide:${id}`,
+    });
+    await putLearningSubmission(c.env.CHAT_SESSIONS, id, receipt.submissionId, metadata.expiresAt);
+    return metadata;
+  } catch (error) {
+    await deleteLearningSession(c.env.CHAT_SESSIONS, id);
+    throw error;
+  }
+}
+
+/**
+ * Input:
+ * - The current request context and a learning-session UUID.
+ *
+ * Output:
+ * - An absolute URL for the public temporary guide page.
+ *
+ * What this function does:
+ * - Reuses the request origin while removing unrelated query parameters.
+ */
+function learningUrl(c: Context<AppEnv>, id: string): string {
+  const url = new URL(c.req.url);
+  url.pathname = `/learn/${id}`;
+  url.search = '';
+  return url.toString();
+}
+
+/**
+ * Input:
  * - Unknown JSON supplied as browser chat history.
  *
  * Output:
@@ -231,7 +345,24 @@ app.post('/v1/ask', async (c) => {
   const text = await readTextBody(c);
   if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
   try {
-    const result = await runAgent(text, undefined, undefined, await gatewayCallerForRequest(c));
+    const gatewayCaller = await gatewayCallerForRequest(c);
+    let route: JevRoute;
+    try {
+      route = await classifyWithJev(text, c.req.raw.signal, undefined, gatewayCaller);
+    } catch (error) {
+      route = 'direct_answer';
+      console.error(JSON.stringify({ message: 'Jev ask route failed; using direct answer', error: error instanceof Error ? error.message : String(error) }));
+    }
+    if (route === 'github_learning') {
+      const session = await createGithubLearningSession(c, text);
+      return c.json({
+        route,
+        status: session.status,
+        learning_url: learningUrl(c, session.id),
+        expires_in_seconds: LEARNING_SESSION_TTL_SECONDS,
+      }, 202);
+    }
+    const result = await runAgent(text, undefined, route, gatewayCaller);
     return c.json({ answer: result.text, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue agent request failed', error: error instanceof Error ? error.message : String(error) }));
@@ -321,6 +452,157 @@ app.get('/chat/session/:id', async (c) => {
   if (text === null) return c.json({ error: 'Chat session expired or was already used' }, 404);
   await c.env.CHAT_SESSIONS.delete(key);
   return c.json({ text });
+});
+
+/**
+ * Input:
+ * - GET /learn/:id with an opaque session UUID.
+ *
+ * Output:
+ * - Queued/failed status HTML or the completed fixed-renderer learning guide.
+ *
+ * What this function does:
+ * - Reads the atomic KV session record and never renders raw model-authored HTML.
+ */
+app.get('/learn/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
+  const metadata = await getLearningSession(c.env.CHAT_SESSIONS, id);
+  if (!metadata) return c.json({ error: 'Learning session expired or was deleted' }, 404);
+  const guide = metadata.status === 'ready' ? await getLearningGuide(c.env.CHAT_SESSIONS, id) : null;
+  return c.html(guide ? renderLearningGuidePage(metadata, guide) : renderLearningWaitingPage(metadata));
+});
+
+/**
+ * Input:
+ * - GET /learn/:id/status with an opaque session UUID.
+ *
+ * Output:
+ * - The browser-safe lifecycle status, error, and expiration time.
+ *
+ * What this function does:
+ * - Supports polling when SSE admission is delayed or a connection drops.
+ */
+app.get('/learn/:id/status', async (c) => {
+  const id = c.req.param('id');
+  if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
+  const metadata = await getLearningSession(c.env.CHAT_SESSIONS, id);
+  if (!metadata) return c.json({ error: 'Learning session expired or was deleted' }, 404);
+  return c.json({ status: metadata.status, error: metadata.error, expires_at: metadata.expiresAt });
+});
+
+/**
+ * Input:
+ * - GET /learn/:id/events for a queued session with a Flue submission receipt.
+ *
+ * Output:
+ * - One terminal SSE event: ready or failed.
+ *
+ * What this function does:
+ * - Waits for the original durable generation submission without exposing internal Flue events.
+ * - Persists terminal failure so future page loads stop polling.
+ */
+app.get('/learn/:id/events', async (c) => {
+  const id = c.req.param('id');
+  if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
+  const metadata = await getLearningSession(c.env.CHAT_SESSIONS, id);
+  if (!metadata) return c.json({ error: 'Learning session expired or was deleted' }, 404);
+  if (metadata.status === 'ready') {
+    return new Response(`event: ready\ndata: ${JSON.stringify({ status: 'ready' })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+  }
+  const submissionId = await getLearningSubmission(c.env.CHAT_SESSIONS, id);
+  if (!submissionId) return c.json({ error: 'Learning session is still being admitted' }, 425);
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      // This closure serializes one safe SSE frame; internal Flue events never reach the browser.
+      const send = (event: string, data: unknown) => controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      /**
+       * Input:
+       * - No explicit arguments; it closes over the session and request signal.
+       *
+       * Output:
+       * - No value after one terminal SSE event is sent or the client disconnects.
+       *
+       * What this function does:
+       * - Waits for the original submission and converts its terminal state into one public event.
+       */
+      const follow = async () => {
+        try {
+          const agent = init(GithubLearningAgent, { id });
+          await agent.read(submissionId, { signal: c.req.raw.signal });
+          const current = await getLearningSession(c.env.CHAT_SESSIONS, id);
+          if (current?.status !== 'ready') throw new Error('The agent completed without publishing a guide.');
+          send('ready', { status: 'ready' });
+        } catch (error) {
+          if (c.req.raw.signal.aborted) return;
+          const current = await getLearningSession(c.env.CHAT_SESSIONS, id);
+          const message = error instanceof Error ? error.message : String(error);
+          if (current) await putLearningSession(c.env.CHAT_SESSIONS, { ...current, status: 'failed', error: message });
+          send('failed', { error: message });
+        } finally {
+          try { controller.close(); } catch { /* Client disconnected. */ }
+        }
+      };
+      void follow();
+    },
+  });
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' },
+  });
+});
+
+/**
+ * Input:
+ * - POST /learn/:id/chat with bounded JSON `{ question }`.
+ *
+ * Output:
+ * - A text answer from the same commit-pinned durable tutor.
+ *
+ * What this function does:
+ * - Reuses the session Durable Object only after the guide reaches ready state.
+ */
+app.post('/learn/:id/chat', async (c) => {
+  const id = c.req.param('id');
+  if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
+  const metadata = await getLearningSession(c.env.CHAT_SESSIONS, id);
+  if (!metadata || metadata.status !== 'ready') return c.json({ error: 'Learning session is not ready or has expired' }, 404);
+  const body = await readBoundedJson<{ question?: unknown }>(c, MAX_LEARNING_QUESTION_BYTES);
+  const question = typeof body?.question === 'string' ? body.question.trim() : '';
+  if (!question || question.length > 4_000) return c.json({ error: 'Send a question of at most 4000 characters' }, 400);
+  try {
+    const agent = init(GithubLearningAgent, { id });
+    const receipt = await agent.dispatch(question);
+    const reply = await agent.read(receipt, { signal: c.req.raw.signal });
+    return c.json({ answer: reply.text });
+  } catch (error) {
+    console.error(JSON.stringify({ message: 'Learning follow-up failed', sessionId: id, error: error instanceof Error ? error.message : String(error) }));
+    return c.json({ error: 'Learning follow-up failed' }, 502);
+  }
+});
+
+/**
+ * Input:
+ * - DELETE /v1/learning-sessions/:id with an opaque session UUID.
+ *
+ * Output:
+ * - HTTP 204 after KV and Durable Object state are removed.
+ *
+ * What this function does:
+ * - Delegates all cleanup to one Durable Object RPC so partial duplicate deletion is avoided.
+ */
+app.delete('/v1/learning-sessions/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
+  try {
+    const stub = c.env.FLUE_GITHUB_LEARNING_AGENT.getByName(id) as DurableObjectStub & LearningAgentRpc;
+    await stub.deleteLearningSession();
+    return c.body(null, 204);
+  } catch (error) {
+    console.error(JSON.stringify({ message: 'Learning session deletion failed', sessionId: id, error: error instanceof Error ? error.message : String(error) }));
+    return c.json({ error: 'Learning session deletion failed' }, 502);
+  }
 });
 
 /**
@@ -418,7 +700,7 @@ app.post('/chat/stream', async (c) => {
           const routingContext = messages.slice(-6).map((message) => `${message.role}: ${message.content}`).join('\n');
           send('progress', { type: 'classification', state: 'running' });
           const classificationStartedAt = Date.now();
-          let route: 'direct_answer' | 'web_research' | 'clarification';
+          let route: JevRoute;
           let fallback = false;
           try {
             route = await classifyWithJev(messages.at(-1)!.content, readAbort.signal, routingContext, gatewayCaller);
@@ -428,6 +710,15 @@ app.post('/chat/stream', async (c) => {
             console.error(JSON.stringify({ message: 'Jev streaming route failed; using direct answer', error: error instanceof Error ? error.message : String(error) }));
           }
           send('progress', { type: 'classification', state: 'complete', route, fallback, durationMs: Date.now() - classificationStartedAt });
+          if (route === 'github_learning') {
+            const session = await createGithubLearningSession(c, messages.at(-1)!.content);
+            send('done', {
+              text: `Your temporary code-learning guide is being generated:\n\n${learningUrl(c, session.id)}\n\nIt expires in one hour.`,
+              route,
+              conversationId,
+            });
+            return;
+          }
           const agent = init(IphoneAssistant, { id: conversationId });
           const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, undefined, route, gatewayCaller));
           send('status', { type: 'queued', submissionId: receipt.submissionId });
@@ -514,12 +805,21 @@ app.post('/chat/api', async (c) => {
     const prompt = messages.at(-1)!.content;
     const routingContext = messages.slice(-6).map((message) => `${message.role}: ${message.content}`).join('\n');
     const gatewayCaller = await gatewayCallerForRequest(c);
-    let route: 'direct_answer' | 'web_research' | 'clarification';
+    let route: JevRoute;
     try {
       route = await classifyWithJev(prompt, c.req.raw.signal, routingContext, gatewayCaller);
     } catch (error) {
       route = 'direct_answer';
       console.error(JSON.stringify({ message: 'Jev chat route failed; using direct answer', error: error instanceof Error ? error.message : String(error) }));
+    }
+    if (route === 'github_learning') {
+      const session = await createGithubLearningSession(c, prompt);
+      return c.json({
+        answer: `Your temporary code-learning guide is being generated:\n\n${learningUrl(c, session.id)}\n\nIt expires in one hour.`,
+        conversation_id: conversationId,
+        route,
+        learning_url: learningUrl(c, session.id),
+      }, 202);
     }
     const result = await runAgent(prompt, conversationId, route, gatewayCaller);
     return c.json({ answer: result.text, conversation_id: conversationId, route: result.route });

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iPhone AI Flue Agent Learning Guide</title>
+  <style>
+    :root { color-scheme:light; --bg:#ece8dc; --paper:#fffdf7; --ink:#17201d; --muted:#63706a; --line:#d1cec2; --navy:#173653; --teal:#087d76; --soft:#e3f2ed; --amber:#8a5700; --warn:#fff1cc; --danger:#a3342a; --code:#14201c; --code-ink:#eaf4ef; --shadow:0 18px 50px rgba(23,54,83,.10); }
+    [data-theme="dark"] { color-scheme:dark; --bg:#0f1512; --paper:#17201c; --ink:#edf4ef; --muted:#a6b1aa; --line:#35423b; --navy:#acd0f7; --teal:#61d9cf; --soft:#173b34; --amber:#ffc66d; --warn:#403116; --danger:#ff9d93; --code:#0b100e; --code-ink:#edf5ef; --shadow:none; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:linear-gradient(90deg,color-mix(in srgb,var(--line) 25%,transparent) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(color-mix(in srgb,var(--line) 25%,transparent) 1px,transparent 1px) 0 0/24px 24px,var(--bg); font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    a { color:var(--teal); }
+    code,pre,.flow,.path { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    header { position:sticky; top:0; z-index:10; display:grid; grid-template-columns:auto minmax(180px,620px) auto; gap:14px; align-items:center; padding:12px 18px; border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--paper) 94%,transparent); backdrop-filter:blur(14px); }
+    header strong { color:var(--navy); white-space:nowrap; }
+    input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; color:var(--ink); background:var(--paper); font:inherit; }
+    button { padding:9px 13px; border:1px solid var(--line); border-radius:999px; color:var(--ink); background:var(--paper); cursor:pointer; font-weight:750; }
+    .layout { display:grid; grid-template-columns:250px minmax(0,1fr); width:min(1500px,100%); margin:auto; background:var(--paper); box-shadow:var(--shadow); }
+    nav { position:sticky; top:65px; align-self:start; height:calc(100vh - 65px); overflow:auto; padding:20px 14px; border-right:1px solid var(--line); }
+    nav a { display:block; padding:6px 9px; border-radius:7px; color:var(--muted); text-decoration:none; font-size:.83rem; }
+    nav a:hover { color:var(--teal); background:var(--soft); }
+    main { min-width:0; padding:38px clamp(20px,5vw,76px) 90px; }
+    section { max-width:980px; margin:0 auto 66px; scroll-margin-top:88px; }
+    section[hidden] { display:none; }
+    h1 { margin:.15em 0; color:var(--navy); font-size:clamp(2.4rem,7vw,5rem); line-height:.95; letter-spacing:-.055em; }
+    h2 { margin:0 0 .7em; padding-bottom:.35em; border-bottom:1px solid var(--line); color:var(--navy); font-size:clamp(1.65rem,4vw,2.45rem); line-height:1.1; letter-spacing:-.035em; }
+    h3 { margin-top:1.6em; color:var(--navy); }
+    .eyebrow { color:var(--teal); font-size:.76rem; font-weight:850; letter-spacing:.11em; text-transform:uppercase; }
+    .lead { max-width:760px; color:var(--muted); font-size:1.08rem; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; }
+    .card,.callout { padding:16px 18px; border:1px solid var(--line); border-radius:15px; background:var(--paper); }
+    .callout { border-left:5px solid var(--teal); background:var(--soft); }
+    .callout.warn { border-left-color:var(--amber); background:var(--warn); }
+    .flow { margin:12px 0; padding:14px 16px; border-left:4px solid var(--amber); background:color-mix(in srgb,var(--warn) 70%,var(--paper)); overflow-wrap:anywhere; }
+    table { width:100%; margin:16px 0 26px; border-collapse:collapse; font-size:.92rem; }
+    th,td { padding:10px 11px; border:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { color:var(--navy); background:var(--soft); }
+    pre { position:relative; overflow:auto; padding:17px; border-radius:13px; color:var(--code-ink); background:var(--code); }
+    code { padding:.12em .34em; border-radius:5px; color:var(--teal); background:var(--soft); }
+    pre code { padding:0; color:inherit; background:none; }
+    .copy { position:absolute; top:8px; right:8px; padding:5px 9px; font-size:.75rem; }
+    .tree { padding:17px; border:1px solid var(--line); border-radius:14px; background:color-mix(in srgb,var(--soft) 45%,var(--paper)); white-space:pre-wrap; }
+    details { margin:10px 0; padding:12px 14px; border:1px solid var(--line); border-radius:12px; }
+    summary { cursor:pointer; color:var(--navy); font-weight:800; }
+    .tag { display:inline-block; margin:2px 4px 2px 0; padding:3px 8px; border:1px solid var(--line); border-radius:999px; font-size:.75rem; font-weight:750; }
+    footer { max-width:980px; margin:auto; color:var(--muted); }
+    @media(max-width:850px){ header{grid-template-columns:1fr auto} header input{grid-column:1/-1;grid-row:2}.layout{display:block}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);columns:2}main{padding-top:28px} }
+    @media(max-width:520px){ nav{columns:1} table{display:block;overflow:auto;white-space:nowrap} }
+    @media print { header,nav,.copy{display:none}.layout{display:block;box-shadow:none}main{padding:0}section{break-inside:avoid} }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>iPhone AI Flue Agent</strong>
+    <input id="search" type="search" placeholder="Search sections, files, symbols, routes, and flows">
+    <button id="theme" type="button">Dark mode</button>
+  </header>
+  <div class="layout">
+    <nav aria-label="Guide sections">
+      <a href="#start-here">1. Start Here</a><a href="#quick-start">2. Developer Quick Start</a><a href="#local-agent">3. Local Learning Agent</a><a href="#flow-blocks">4. Request Flow Blocks</a><a href="#developer-map">5. Developer Map</a><a href="#safe-change">6. Safe Change Checklist</a><a href="#troubleshooting">7. Troubleshooting Matrix</a><a href="#deployment">8. Current Deployment Notes</a><a href="#source-evidence">9. Source Evidence</a><a href="#architecture">10. Architecture</a><a href="#infrastructure">11. Infrastructure</a><a href="#traffic-flows">12. Traffic Flows</a><a href="#frontend-backend">13. Frontend to Backend</a><a href="#backend-state">14. Backend and State</a><a href="#repository-map">15. Repository Map</a><a href="#typescript-python">16. TypeScript for Python</a><a href="#code-walkthrough">17. Code Walkthrough</a><a href="#logs-debugging">18. Logs and Debugging</a><a href="#labs-quiz">19. Labs and Quiz</a><a href="#evidence">20. Evidence</a>
+    </nav>
+    <main id="content">
+      <section id="start-here" data-search="overview django python map quick start flows troubleshooting deployment source evidence">
+        <div class="eyebrow">Start Here</div><h1>Maintain the Worker from the outside in</h1>
+        <p class="lead">This repository is one Cloudflare Worker with two durable Flue agents. Read <code>src/app.ts</code> like Django <code>urls.py</code> plus <code>views.py</code>, then follow each route into its agent, tool, and state module.</p>
+        <div class="grid">
+          <div class="card"><strong>Run safely</strong><p><code>npm run check</code> before every deploy.</p></div>
+          <div class="card"><strong>Main entry</strong><p><code>src/app.ts</code> owns all HTTP contracts.</p></div>
+          <div class="card"><strong>New feature</strong><p>Public GitHub repository to one-hour learning guide.</p></div>
+          <div class="card"><strong>Architecture visual</strong><p><a href="diagrams/index.html">Open the interactive Blueprint diagram</a>.</p></div>
+        </div>
+        <h3>Python/Django quick matrix</h3>
+        <table><tr><th>TypeScript/Cloudflare</th><th>Python/Django comparison</th><th>First file</th></tr><tr><td>Hono routes</td><td><code>urls.py</code> and view functions</td><td><code>src/app.ts</code></td></tr><tr><td>Flue Durable Object agent</td><td>Stateful service object with persistent SQLite state</td><td><code>src/agents/</code></td></tr><tr><td>Valibot schema</td><td>Pydantic model</td><td><code>src/tools/github-repository.ts</code></td></tr><tr><td>KV record</td><td>Expiring cache/session record</td><td><code>src/lib/learning-session.ts</code></td></tr></table>
+        <div class="flow">GitHub URL -> Jev github_learning -> resolve commit -> queue KV record -> durable tutor -> publish atomic ready record -> /learn/:id</div>
+        <div class="callout warn"><strong>Security boundary:</strong> Cloudflare Access protects ingress at deployment. Learning links are opaque and expire in one hour, but are not bound to their creator.</div>
+        <p><a href="#quick-start">Run the project</a> | <a href="#local-agent">Ask the local Learning Agent</a> | <a href="#troubleshooting">Find the first debugging file</a></p>
+      </section>
+
+      <section id="quick-start" data-search="install run test typecheck build deploy npm commands">
+        <div class="eyebrow">Developer Quick Start</div><h2>Prove the project before editing</h2>
+        <table><tr><th>Command</th><th>Purpose</th><th>Verified outcome</th></tr><tr><td><code>npm install</code></td><td>Install pinned Node dependencies</td><td>Existing workspace already installed</td></tr><tr><td><code>npm run typecheck</code></td><td>Compile-time TypeScript contracts</td><td>Passed after cleanup</td></tr><tr><td><code>npm test</code></td><td>Vitest behavior checks</td><td>94 tests passed after cleanup</td></tr><tr><td><code>npm run build</code></td><td>Flue and Worker production bundle</td><td>Passed after cleanup</td></tr><tr><td><code>npm run deploy</code></td><td>Check, build, then Wrangler deploy</td><td>Needs execution for this cleanup commit</td></tr></table>
+        <pre><code>npm install
+npm run check
+npm run dev</code></pre>
+        <p>Local AI and Browser bindings are remote and may use real account resources.</p>
+      </section>
+
+      <section id="local-agent" data-search="local guide learning agent run command shared runtime">
+        <div class="eyebrow">Local Learning Agent</div><h2>Ask read-only questions about this guide and repository</h2>
+        <p>The shared runtime serves this unchanged HTML from <code>127.0.0.1</code> and injects a temporary chat drawer. It can search/read the guide and project but cannot write files.</p>
+        <pre><code>cd "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent"
+.venv/bin/python run_guide_agent.py "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html" --project-root "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent"</code></pre>
+      </section>
+
+      <section id="flow-blocks" data-search="request flow shortcut grammar handoff chat github learning sse">
+        <div class="eyebrow">Request Flow Blocks</div><h2>Five runtime journeys</h2>
+        <div class="flow">POST /v1/ask -> classifyWithJev() -> runAgent() -> IphoneAssistant -> Workers AI -> JSON answer</div>
+        <div class="flow">POST /v1/correct -> createGrammarRequest() -> Workers AI -> correctedTextFromAi() -> corrected_text</div>
+        <div class="flow">POST /handoff -> KV write -> /chat?session=id -> GET /chat/session/:id -> KV delete -> browser chat</div>
+        <div class="flow">POST /chat/stream -> Jev -> durable dispatch/read -> safe event projector -> browser SSE</div>
+        <div class="flow">GitHub URL -> resolveGithubRepository() -> GithubLearningAgent -> publish_learning_guide -> /learn/:id</div>
+      </section>
+
+      <section id="developer-map" data-search="where change files symbols ownership">
+        <div class="eyebrow">Developer Map</div><h2>Where to make each change</h2>
+        <table><tr><th>Goal</th><th>Primary file</th><th>What can break</th></tr><tr><td>Change route contract</td><td><code>src/app.ts</code></td><td>Shortcut/browser clients and route tests</td></tr><tr><td>Change normal assistant behavior</td><td><code>src/agents/iphone-assistant.ts</code>, <code>src/prompts.ts</code></td><td>All answer modes and tool selection</td></tr><tr><td>Change GitHub research</td><td><code>src/tools/github-repository.ts</code></td><td>Host/path safety, limits, evidence quality</td></tr><tr><td>Change learning lifetime/state</td><td><code>src/lib/learning-session.ts</code>, <code>src/agents/github-learning.ts</code></td><td>KV/DO cleanup consistency</td></tr><tr><td>Change guide UI</td><td><code>src/learning-page.ts</code></td><td>Escaping, polling, follow-up chat</td></tr><tr><td>Change infrastructure</td><td><code>wrangler.jsonc</code></td><td>Bindings and immutable migrations</td></tr></table>
+      </section>
+
+      <section id="safe-change" data-search="safe change checklist validation security tests">
+        <div class="eyebrow">Safe Change Checklist</div><h2>Before editing and deploying</h2>
+        <ol><li>Identify the route and browser/Shortcut caller.</li><li>Preserve Access and bounded-input checks.</li><li>Keep GitHub requests on fixed hosts and immutable commit SHAs.</li><li>Keep ready metadata and guide content in one atomic KV record.</li><li>Never edit an applied Durable Object migration tag; add a new migration.</li><li>Update tests and this guide when interfaces or state change.</li><li>Run <code>npm run check</code>.</li><li>After deploy, test health plus one real protected flow and inspect logs.</li></ol>
+      </section>
+
+      <section id="troubleshooting" data-search="troubleshooting error 400 403 404 425 502 queued failed logs">
+        <div class="eyebrow">Troubleshooting Matrix</div><h2>Where to look when X breaks</h2>
+        <table><tr><th>Symptom</th><th>First evidence</th><th>Likely file/symbol</th></tr><tr><td><code>400</code></td><td>Request body and size</td><td><code>readTextBody()</code>, <code>readBoundedJson()</code></td></tr><tr><td>Access login/<code>403</code></td><td>Access policy and headers</td><td>Cloudflare Zero Trust config</td></tr><tr><td>GitHub learning <code>502</code></td><td>Worker logs and GitHub status</td><td><code>resolveGithubRepository()</code></td></tr><tr><td>Session <code>425</code></td><td>Submission receipt not visible yet</td><td><code>putLearningSubmission()</code></td></tr><tr><td>Guide remains queued</td><td><code>/status</code>, Durable Object logs</td><td><code>/events</code>, <code>GithubLearningAgent</code></td></tr><tr><td>Guide failed</td><td>Stored <code>error</code> field</td><td>Agent/tool exception path</td></tr><tr><td>Wrong route</td><td>AI Gateway Jev request</td><td><code>QUESTIONS</code>, <code>parseJevRoute()</code></td></tr><tr><td>Deploy migration error</td><td>Wrangler output</td><td><code>wrangler.jsonc</code></td></tr></table>
+      </section>
+
+      <section id="deployment" data-search="deployment production cloudflare version domain migration">
+        <div class="eyebrow">Current Deployment Notes</div><h2>Known production state</h2>
+        <ul><li>Custom domain: <code>https://iphoneai.oskarcode.com</code>.</li><li>Last deployed version before cleanup: <code>b0e2b881-1ecf-45ef-aaaf-7f74d913bb1b</code>.</li><li>Production smoke test verified GitHub generation, SSE ready, HTML guide, follow-up chat, and deletion.</li><li>This cleanup adds atomic KV publication and requires a new deploy after commit.</li><li>Migration <code>v2-github-learning</code> created <code>FlueGithubLearningAgent</code>; do not rewrite it.</li></ul>
+      </section>
+
+      <section id="source-evidence" data-search="source evidence claims proof files tests">
+        <div class="eyebrow">Source Evidence</div><h2>High-signal claims and proof</h2>
+        <table><tr><th>Claim</th><th>Evidence</th><th>Confidence</th></tr><tr><td>One Worker owns HTTP ingress</td><td><code>src/app.ts</code>, <code>wrangler.jsonc</code></td><td>Confirmed</td></tr><tr><td>Learning research is commit-pinned</td><td><code>resolveGithubRepository()</code>, <code>readRepositoryFile()</code></td><td>Confirmed</td></tr><tr><td>Ready status and guide publish atomically</td><td><code>putLearningGuide()</code>, unit test</td><td>Confirmed</td></tr><tr><td>DO/KV expire after one hour</td><td><code>onStart()</code>, KV expiration</td><td>Confirmed by code; scheduled runtime expiry needs periodic observation</td></tr><tr><td>Access protects AI ingress</td><td>Production redirect/smoke test</td><td>Confirmed for tested routes; policy lives outside repo</td></tr></table>
+      </section>
+
+      <section id="architecture" data-search="architecture components worker hono flue agents diagram">
+        <div class="eyebrow">Architecture</div><h2>One ingress, two durable agent roles</h2>
+        <p><a href="diagrams/index.html">Open the interactive sequence diagrams</a>. The Hono Worker validates requests and coordinates infrastructure. <code>IphoneAssistant</code> owns ordinary durable conversations. <code>GithubLearningAgent</code> owns one temporary repository tutor and its cleanup schedule.</p>
+        <table><tr><th>Component</th><th>Called by</th><th>Calls</th><th>State</th></tr><tr><td>Hono app</td><td>Shortcut/browser</td><td>Jev, Flue, KV, Workers AI</td><td>No global mutable request state</td></tr><tr><td>IphoneAssistant</td><td><code>runAgent()</code>, chat routes</td><td>Workers AI, web research</td><td>Flue SQLite conversation</td></tr><tr><td>GithubLearningAgent</td><td><code>createGithubLearningSession()</code></td><td>GitHub tools, Workers AI, KV</td><td>Flue SQLite plus published flag</td></tr><tr><td>Fixed page renderers</td><td>GET routes</td><td>Browser fetch/EventSource</td><td>Browser DOM only</td></tr></table>
+      </section>
+
+      <section id="infrastructure" data-search="infrastructure bindings ai browser kv durable objects gateway access github">
+        <div class="eyebrow">Infrastructure</div><h2>Cloudflare resources mapped to code</h2>
+        <table><tr><th>Resource</th><th>Binding/config</th><th>Consumer</th><th>Role</th></tr><tr><td>Workers AI</td><td><code>AI</code>, <code>MODEL</code></td><td>agents, grammar, Jev</td><td>Classification and generation</td></tr><tr><td>AI Gateway</td><td><code>AI_GATEWAY_ID</code></td><td>provider setup, direct AI calls</td><td>Metadata and observability</td></tr><tr><td>Browser Run</td><td><code>BROWSER</code></td><td><code>web-research.ts</code></td><td>Rendered page Markdown</td></tr><tr><td>Workers KV</td><td><code>CHAT_SESSIONS</code></td><td><code>app.ts</code>, learning state</td><td>Expiring handoffs and guides</td></tr><tr><td>Durable Objects</td><td>Generated Flue bindings</td><td>Both agents</td><td>Per-ID durable conversations</td></tr><tr><td>Cloudflare Access</td><td>External deployment policy</td><td>Ingress before Worker</td><td>User/service-token authentication</td></tr><tr><td>GitHub</td><td>Optional <code>GITHUB_TOKEN</code></td><td><code>github-repository.ts</code></td><td>Public metadata/tree/raw source</td></tr></table>
+      </section>
+
+      <section id="traffic-flows" data-search="traffic catalog endpoints http sse rpc alarm">
+        <div class="eyebrow">Traffic Flows</div><h2>Interface catalog</h2>
+        <table><tr><th>Transport</th><th>Interface</th><th>State/service effect</th><th>Output</th></tr><tr><td>HTTP</td><td><code>POST /v1/ask</code></td><td>Jev; normal or learning dispatch</td><td>200 answer or 202 guide URL</td></tr><tr><td>HTTP</td><td><code>POST /v1/correct</code></td><td>Direct AI call</td><td>Corrected text</td></tr><tr><td>HTTP</td><td><code>POST /handoff</code></td><td>Ten-minute KV write</td><td>Chat URL</td></tr><tr><td>SSE</td><td><code>POST /chat/stream</code></td><td>Durable assistant turn</td><td>Safe progress/token events</td></tr><tr><td>SSE</td><td><code>GET /learn/:id/events</code></td><td>Wait for generation receipt</td><td>Ready or failed</td></tr><tr><td>RPC</td><td><code>deleteLearningSession()</code></td><td>KV plus DO deletion</td><td>204 through HTTP route</td></tr><tr><td>Alarm</td><td><code>expireLearningSession()</code></td><td>One-hour cleanup</td><td>No user response</td></tr></table>
+      </section>
+
+      <section id="frontend-backend" data-search="frontend backend browser fetch eventsource chat guide html">
+        <div class="eyebrow">Frontend to Backend</div><h2>Browser request sequences</h2>
+        <table><tr><th>Step</th><th>Browser action</th><th>Endpoint</th><th>Server handler</th><th>Next result</th></tr><tr><td>1</td><td>Submit chat prompt</td><td><code>POST /chat/api</code> or <code>/chat/stream</code></td><td>Jev branch in <code>app.ts</code></td><td>Learning URL</td></tr><tr><td>2</td><td>Open URL</td><td><code>GET /learn/:id</code></td><td>Read session record</td><td>Waiting page</td></tr><tr><td>3</td><td>Watch generation</td><td><code>GET /learn/:id/events</code></td><td>Read Flue receipt</td><td>Ready/failed SSE</td></tr><tr><td>4</td><td>Reload ready URL</td><td><code>GET /learn/:id</code></td><td>Fixed guide renderer</td><td>Guide HTML</td></tr><tr><td>5</td><td>Ask follow-up</td><td><code>POST /learn/:id/chat</code></td><td>Same durable tutor</td><td>Text-only answer</td></tr><tr><td>6</td><td>Delete session</td><td><code>DELETE /v1/learning-sessions/:id</code></td><td>DO RPC cleanup</td><td>Redirect to chat</td></tr></table>
+      </section>
+
+      <section id="backend-state" data-search="backend state kv durable object lifecycle atomic expiration deletion consistency">
+        <div class="eyebrow">Backend and State</div><h2>Temporary data lifecycle</h2>
+        <table><tr><th>State</th><th>Created</th><th>Read</th><th>Deleted</th></tr><tr><td><code>chat-session:&lt;id&gt;</code></td><td>Handoff route</td><td>Browser consumes once</td><td>Read path or 10-minute KV expiry</td></tr><tr><td><code>learning-session:&lt;id&gt;:record</code></td><td>Queued metadata</td><td>Status/page/tool</td><td>DO RPC/alarm or one-hour KV expiry</td></tr><tr><td><code>learning-session:&lt;id&gt;:submission</code></td><td>After Flue dispatch</td><td>SSE completion watcher</td><td>Same cleanup path</td></tr><tr><td>Flue SQLite</td><td>Agent dispatch</td><td>Follow-up turns/read receipt</td><td>DO RPC/alarm</td></tr></table>
+        <div class="callout"><strong>Important:</strong> the ready metadata and complete guide share one KV record. The receipt uses a separate key because it becomes available after dispatch and must not overwrite a guide published quickly by the agent.</div>
+      </section>
+
+      <section id="repository-map" data-search="repository map tree files source tests config">
+        <div class="eyebrow">Repository Map</div><h2>Application-owned code tree</h2>
+        <pre class="tree"><code>src/
+  app.ts
+  chat-page.ts
+  learning-page.ts
+  prompts.ts
+  agents/
+    github-learning.ts
+    iphone-assistant.ts
+  lib/
+    chat-events.ts
+    configured-message.ts
+    gateway-metadata.ts
+    grammar-correction.ts
+    learning-session.ts
+  tools/
+    github-repository.ts
+    jev-router.ts
+    web-research.ts
+test/
+  chat-events.test.ts
+  chat-page.test.ts
+  configured-message.test.ts
+  gateway-metadata.test.ts
+  github-learning.test.ts
+  grammar-correction.test.ts
+  grammar-route.test.ts
+  jev-router.test.ts
+  web-research.test.ts
+  web-research-tools.test.ts
+flue.config.ts
+vite.config.ts
+vitest.config.ts
+wrangler.jsonc</code></pre>
+        <p>Generated/dependency folders such as <code>dist/</code>, <code>node_modules/</code>, <code>.wrangler/</code>, and <code>worker-configuration.d.ts</code> are not hand-maintained source.</p>
+      </section>
+
+      <section id="typescript-python" data-search="typescript python async promise imports exports optional null undefined callbacks map filter destructuring">
+        <div class="eyebrow">TypeScript for Python</div><h2>Syntax used in core files</h2>
+        <table><tr><th>TypeScript</th><th>Python mental model</th></tr><tr><td><code>async function f(): Promise&lt;T&gt;</code></td><td><code>async def f() -&gt; T</code>, then <code>await f()</code></td></tr><tr><td><code>import</code> / <code>export</code></td><td>Python imports and public module names</td></tr><tr><td><code>type</code> / <code>interface</code></td><td>Type hints, <code>TypedDict</code>, dataclass intent; erased at runtime</td></tr><tr><td><code>null</code> / <code>undefined</code></td><td><code>None</code> versus omitted/uninitialized</td></tr><tr><td><code>value?.field</code></td><td>Safely read only when value exists</td></tr><tr><td><code>value ?? fallback</code></td><td>Fallback only for null/undefined, not <code>0</code> or empty string</td></tr><tr><td><code>array.map/filter/find</code></td><td>Comprehensions, <code>filter</code>, or <code>next</code></td></tr><tr><td><code>const { env } = value</code></td><td>Named property unpacking, similar to reading dict keys</td></tr></table>
+      </section>
+
+      <section id="code-walkthrough" data-search="code walkthrough files symbols functions classes runtime order">
+        <div class="eyebrow">Code Walkthrough</div><h2>Read files in runtime order</h2>
+        <details open><summary><code>src/app.ts</code></summary><p>Worker bootstrap and Hono route registry. It configures the Flue AI provider, validates bodies/history, classifies requests, dispatches agents, projects SSE, and coordinates KV/DO cleanup. Start with <code>createGithubLearningSession()</code>, then the <code>/learn/:id</code> routes.</p></details>
+        <details><summary><code>src/agents/iphone-assistant.ts</code></summary><p>Normal durable assistant. Flue hooks configure the model, route-aware prompt behavior, web-research tool, retries, and conversation lifecycle.</p></details>
+        <details><summary><code>src/agents/github-learning.ts</code></summary><p>Temporary repository tutor. Initial data fixes one repository/commit. Persistent <code>guide-published</code> prevents early completion; the Cloudflare extension schedules cleanup.</p></details>
+        <details><summary><code>src/tools/github-repository.ts</code></summary><p>Trust boundary for GitHub. Resolves public metadata/tree, filters readable paths, fetches bounded raw text, validates the guide schema, and rejects repeated publication.</p></details>
+        <details><summary><code>src/lib/learning-session.ts</code></summary><p>KV lifecycle. One atomic record contains metadata plus guide; a separate receipt key prevents concurrent status overwrites.</p></details>
+        <details><summary><code>src/learning-page.ts</code></summary><p>Fixed HTML/CSS/JS renderer. Escapes model values, watches queued work by SSE/polling, stops on terminal states, asks follow-ups, and deletes sessions.</p></details>
+        <details><summary><code>src/chat-page.ts</code></summary><p>Self-contained general chat UI. Sends bounded history and consumes projected SSE without placing raw model HTML in the DOM.</p></details>
+        <details><summary><code>src/tools/jev-router.ts</code></summary><p>Defines the four-route choice contract and parses Jev's nested result. The new <code>github_learning</code> choice only matches explicit learning intent plus a public GitHub URL.</p></details>
+        <details><summary><code>src/tools/web-research.ts</code></summary><p>Validates public URLs, reads pages through Browser Run, searches public providers, and bounds returned evidence.</p></details>
+        <details><summary><code>src/lib/chat-events.ts</code></summary><p>Converts internal Flue chunks into the small public browser event vocabulary.</p></details>
+        <details><summary><code>src/lib/configured-message.ts</code></summary><p>Encodes trusted routing/caller metadata separately from user-visible model text.</p></details>
+        <details><summary><code>src/lib/gateway-metadata.ts</code></summary><p>Transforms verified Access identity into pseudonymous AI Gateway metadata.</p></details>
+        <details><summary><code>src/lib/grammar-correction.ts</code></summary><p>Builds deterministic grammar input and rejects empty, truncated, or filtered output.</p></details>
+        <details><summary><code>src/prompts.ts</code></summary><p>Application-owned model instructions for the main assistant and grammar path.</p></details>
+        <details><summary><code>flue.config.ts</code>, <code>vite.config.ts</code>, <code>vitest.config.ts</code>, <code>wrangler.jsonc</code></summary><p>Build target, plugins, Node test environment, production resources, bindings, migrations, and observability.</p></details>
+        <details><summary><code>test/*.test.ts</code></summary><p>Pure parser, route, renderer, event-projection, security, and learning-state tests. <code>github-learning.test.ts</code> proves path filtering, atomic publication, terminal rendering, and safe generated JavaScript.</p></details>
+      </section>
+
+      <section id="logs-debugging" data-search="logs debugging wrangler tail ai gateway traces observability">
+        <div class="eyebrow">Logs and Debugging</div><h2>Use the narrowest signal first</h2>
+        <pre><code>npm run typecheck
+npm test
+npm run build
+npx wrangler tail iphone-ai-flue-agent --format pretty</code></pre>
+        <ul><li>Worker logs contain structured route/agent errors with session IDs where relevant.</li><li>AI Gateway separates <code>assistant</code>, <code>jev-router</code>, and <code>grammar-correction</code> metadata.</li><li>Wrangler observability enables full logs and traces for this low-volume demo.</li><li>Browser Network/EventStream views show status and SSE frames.</li><li>Needs verification: add a metric for queued duration before broader use.</li></ul>
+      </section>
+
+      <section id="labs-quiz" data-search="labs quiz practice learning exercises">
+        <div class="eyebrow">Labs and Quiz</div><h2>Practice safe maintenance</h2>
+        <ol><li>Trace <code>POST /chat/api</code> with a GitHub URL through every called symbol.</li><li>Add a unit test for a new skipped repository artifact without changing fetch logic.</li><li>Use the Blueprint diagram to explain why the submission receipt is separate from the guide record.</li><li>Run the local Learning Agent and ask: "Which code prevents raw repository text from becoming instructions?"</li></ol>
+        <details><summary>Why is a commit SHA stored?</summary><p>It makes every later raw-file read immutable so follow-up answers use the same evidence.</p></details>
+        <details><summary>Why not store ready metadata before the guide?</summary><p>The browser could observe ready without content. One record publishes both atomically.</p></details>
+        <details><summary>What is the Django equivalent of <code>src/app.ts</code>?</summary><p>It combines URL registration, view functions, middleware, and service orchestration.</p></details>
+      </section>
+
+      <section id="evidence" data-search="evidence verification commands outcomes sources official docs">
+        <div class="eyebrow">Evidence</div><h2>Verification record</h2>
+        <table><tr><th>Evidence</th><th>Outcome</th></tr><tr><td><code>npm run typecheck</code></td><td>Passed after state/page cleanup</td></tr><tr><td><code>npm test</code></td><td>94 tests passed after cleanup</td></tr><tr><td><code>npm run check</code></td><td>Passed: typecheck, 94 tests, and production build</td></tr><tr><td>Blueprint validator/renderer</td><td>Passed: 4 scenarios rendered to <code>docs/diagrams/index.html</code></td></tr><tr><td>Production smoke test</td><td>Previously passed generation, ready SSE, guide, follow-up, and delete on version <code>b0e2b881...</code></td></tr></table>
+        <p>Primary source evidence: <code>src/app.ts</code>, <code>src/agents/github-learning.ts</code>, <code>src/tools/github-repository.ts</code>, <code>src/lib/learning-session.ts</code>, <code>src/learning-page.ts</code>, <code>test/github-learning.test.ts</code>, and <code>wrangler.jsonc</code>.</p>
+      </section>
+
+      <footer><p>Generated for project handoff. Claims marked Needs verification include a concrete next proof step.</p></footer>
+    </main>
+  </div>
+
+  <script type="application/json" id="learning-guide-agent-metadata">
+  {
+    "title": "iPhone AI Flue Agent Learning Guide",
+    "scope": "Complete Worker repository including GitHub learning sessions",
+    "projectRoot": "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent",
+    "importantFiles": ["src/app.ts", "src/agents/github-learning.ts", "src/tools/github-repository.ts", "src/lib/learning-session.ts", "src/learning-page.ts", "wrangler.jsonc"],
+    "importantSymbols": ["createGithubLearningSession", "GithubLearningAgent", "publish_learning_guide", "GET /learn/:id/events", "deleteLearningSession"]
+  }
+  </script>
+  <script>
+    const root=document.documentElement;
+    const search=document.querySelector('#search');
+    const sections=[...document.querySelectorAll('main section')];
+    const theme=document.querySelector('#theme');
+    theme.addEventListener('click',()=>{const dark=root.dataset.theme!=='dark';root.dataset.theme=dark?'dark':'light';theme.textContent=dark?'Light mode':'Dark mode';});
+    search.addEventListener('input',()=>{const query=search.value.trim().toLowerCase();for(const section of sections){section.hidden=Boolean(query&&!section.textContent.toLowerCase().includes(query)&&!(section.dataset.search||'').includes(query));}});
+    for(const block of document.querySelectorAll('pre')){const button=document.createElement('button');button.className='copy';button.type='button';button.textContent='Copy';button.addEventListener('click',async()=>{await navigator.clipboard.writeText(block.innerText.replace(/^Copy\s*/,''));button.textContent='Copied';setTimeout(()=>button.textContent='Copy',1200);});block.append(button);}
+  </script>
+</body>
+</html>

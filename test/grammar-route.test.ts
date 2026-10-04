@@ -10,6 +10,9 @@ vi.mock('cloudflare:workers', () => ({
   },
 }));
 
+// This route test exercises the Hono app in Node; lifecycle extensions run only in the generated Worker.
+vi.mock('@flue/runtime/cloudflare', () => ({ extend: (extension: unknown) => extension }));
+
 import app from '../src/app';
 
 function correctionRequest(text: unknown) {

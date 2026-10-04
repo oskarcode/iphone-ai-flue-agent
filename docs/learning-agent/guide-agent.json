@@ -1,0 +1,26 @@
+{
+  "title": "iPhone AI Flue Agent Learning Guide",
+  "scope": "Complete Cloudflare Worker, both Flue agents, temporary learning sessions, browser interfaces, tests, and deployment configuration",
+  "guideHtml": "docs/iphone-ai-flue-agent-learning-guide.html",
+  "projectRoot": "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent",
+  "sharedRuntime": "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent",
+  "importantFiles": [
+    "src/app.ts",
+    "src/agents/iphone-assistant.ts",
+    "src/agents/github-learning.ts",
+    "src/tools/github-repository.ts",
+    "src/lib/learning-session.ts",
+    "src/learning-page.ts",
+    "wrangler.jsonc"
+  ],
+  "importantSymbols": [
+    "POST /v1/ask",
+    "POST /chat/stream",
+    "createGithubLearningSession",
+    "GithubLearningAgent",
+    "publish_learning_guide",
+    "GET /learn/:id/events",
+    "DELETE /v1/learning-sessions/:id"
+  ],
+  "runCommand": "cd \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent\" && .venv/bin/python run_guide_agent.py \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html\" --project-root \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent\""
+}

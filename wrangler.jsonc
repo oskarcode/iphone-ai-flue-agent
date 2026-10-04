@@ -29,18 +29,22 @@
     "binding": "BROWSER",
     "remote": true
   },
-  // KV stores ten-minute browser handoff payloads; it does not store the durable Flue conversation.
+  // KV stores ten-minute handoffs plus one-hour learning records; Flue conversation state stays in Durable Objects.
   "kv_namespaces": [
     {
       "binding": "CHAT_SESSIONS",
       "id": "8bfe929b07e5431fb15a0e185c4d3054"
     }
   ],
-  // Flue's generated agent class uses SQLite-backed Durable Object storage.
+  // Each immutable migration introduces one generated SQLite-backed Flue agent class.
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["FlueIphoneAssistantAgent"]
+    },
+    {
+      "tag": "v2-github-learning",
+      "new_sqlite_classes": ["FlueGithubLearningAgent"]
     }
   ],
   // Full sampling is appropriate for this low-volume demo and aids handoff debugging.

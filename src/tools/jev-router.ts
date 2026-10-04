@@ -1,7 +1,7 @@
 // Jev is called through the Cloudflare AI binding, while this module owns the app-specific route contract.
 import { gatewayMetadata, type GatewayCallerMetadata } from '../lib/gateway-metadata.ts';
 
-export type JevRoute = 'direct_answer' | 'web_research' | 'clarification';
+export type JevRoute = 'direct_answer' | 'web_research' | 'github_learning' | 'clarification';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -13,6 +13,7 @@ const QUESTIONS = {
     criteria: {
       direct_answer: 'Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from existing Flue context.',
       web_research: 'The request contains a URL to read or needs current, recent, live, broader web context, or external verification. The research tool can read a page, search the web, or do both in one call.',
+      github_learning: 'The user explicitly wants to learn, understand, map, study, or generate a code-learning guide for a public GitHub repository URL.',
       clarification: 'The request is too ambiguous to answer safely or usefully, and it is not a conversational follow-up with available Flue history.',
     },
   },
@@ -49,7 +50,7 @@ export function parseJevRoute(value: unknown): JevRoute {
   const result = isRecord(firstEnvelope.result) ? firstEnvelope.result : firstEnvelope;
   const answers = isRecord(result.answers) ? result.answers : null;
   const route = answers && isRecord(answers.route) ? answers.route.choice : undefined;
-  if (!['direct_answer', 'web_research', 'clarification'].includes(String(route))) {
+  if (!['direct_answer', 'web_research', 'github_learning', 'clarification'].includes(String(route))) {
     throw new Error('Jev returned an invalid route.');
   }
   return route as JevRoute;

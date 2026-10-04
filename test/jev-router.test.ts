@@ -7,6 +7,10 @@ describe('Jev routing', () => {
     expect(parseJevRoute({ result: { result: { model: 'typesafe/jev', answers: { route: { choice: 'web_research' } } } } })).toBe('web_research');
   });
 
+  it('accepts the GitHub learning route', () => {
+    expect(parseJevRoute({ result: { answers: { route: { choice: 'github_learning' } } } })).toBe('github_learning');
+  });
+
   it('rejects an unknown route', () => {
     expect(() => parseJevRoute({ result: { answers: { route: { choice: 'unknown' } } } })).toThrow('invalid route');
   });

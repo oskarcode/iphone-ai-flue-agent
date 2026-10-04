@@ -304,6 +304,7 @@ export function renderChatPage() {
   const routeNames = {
     direct_answer: 'Direct answer',
     web_research: 'Web research',
+    github_learning: 'GitHub learning guide',
     clarification: 'Clarify request',
   };
   const toolNames = { web_research: 'Research the web' };
