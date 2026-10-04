@@ -27,7 +27,9 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 - `POST /v1/correct` performs stateless grammar correction.
 - `POST /handoff` moves selected iPhone text into a ten-minute browser chat handoff.
 - Browser chat streams durable follow-up answers from a Flue Durable Object.
-- Public GitHub URLs can produce an escaped, structured learning guide pinned to one commit for one hour.
+- Public GitHub URLs can produce an escaped, mobile-first learning guide pinned to one commit for one hour.
+- The existing copy -> iPhone handoff Shortcut -> chat flow treats a copied `github.com/owner/repository` URL as GitHub learning and returns a clickable guide link.
+- Ready guides include a floating repository tutor; selecting guide text prepares bounded, explicitly untrusted context for a follow-up explanation.
 
 ## Learning Guide
 - [Detailed learning guide](docs/iphone-ai-flue-agent-learning-guide.html)
@@ -46,15 +48,16 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 1. Shortcut/chat request -> Cloudflare Access -> Hono route -> Jev classification.
 2. Normal request -> durable assistant -> Workers AI and optional research -> JSON or SSE answer.
 3. GitHub learning request -> resolve repository -> queued KV record -> durable tutor -> atomic ready record -> learning page.
-4. Follow-up learning question -> same session Durable Object -> commit-pinned answer.
+4. Typed question or selected guide text -> bounded follow-up payload -> same session Durable Object -> commit-pinned answer.
 5. Expiry/manual delete -> KV record and Durable Object storage removed.
 
 ## Hosting and Deployment
 - Runtime: Cloudflare Workers at `https://iphoneai.oskarcode.com`.
 - Deploy command: `npm run deploy`.
 - Verification command: `npm run check`.
-- Current deployed baseline before this cleanup: Worker version `b0e2b881-1ecf-45ef-aaaf-7f74d913bb1b`.
-- The current cleanup commit requires a new deployment before its race-condition fixes are live.
+- Current deployed version: `5d7015a1-5bb3-4aa0-a6af-ceeef7c4682d`.
+- Copied GitHub repository URLs now route from the existing handoff chat to a clickable temporary learning guide.
+- The floating mobile tutor and selected-text follow-up UI are locally verified and pending deployment.
 
 ## Security Model
 - Auth boundary: Cloudflare Access is expected to protect AI/chat ingress; the Worker has no application auth middleware.
@@ -62,6 +65,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 - Secret name: optional `GITHUB_TOKEN` raises GitHub API limits; never commit its value.
 - Repository controls: public repositories only, immutable commit SHA, allowlisted paths, fixed GitHub hosts, timeouts, and byte limits.
 - Rendering controls: model content is schema-validated and escaped; browser chat answers use `textContent`.
+- Follow-up controls: question, selection, and section context are independently bounded; selected guide text is labeled untrusted in both the HTTP prompt and tutor system instructions.
 - Demo limitation: there is no application-level rate limit or creator-bound authorization for learning sessions.
 
 ## APIs and Interfaces
@@ -74,7 +78,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 | `GET /chat`, `GET /chat/session/:id` | Browser UI and one-time handoff consumption |
 | `POST /chat/stream`, `POST /chat/api` | Streaming or complete durable answers |
 | `GET /learn/:id`, `/status`, `/events` | Guide page and generation lifecycle |
-| `POST /learn/:id/chat` | Commit-pinned tutor follow-up |
+| `POST /learn/:id/chat` | Commit-pinned tutor follow-up with a question and optional selected guide context |
 | `DELETE /v1/learning-sessions/:id` | Immediate KV and Durable Object cleanup |
 
 ## Quick Start
@@ -93,6 +97,7 @@ Remote AI and Browser bindings can use account resources during local developmen
 - If GitHub creation returns `502`, inspect GitHub URL/repository visibility, API limits, and `resolveGithubRepository()`.
 - If a guide stays queued, inspect `/learn/:id/status`, `/events`, Durable Object logs, and submission receipt KV state.
 - If a guide fails, reload `/learn/:id`; terminal errors are stored and polling stops.
+- If selection context is missing, highlight text outside the tutor panel; the selection controls remain disabled until context is captured.
 - If deployment fails, inspect `wrangler.jsonc`, then run `npm run types` and `npm run check`.
 - Live logs: `npx wrangler tail iphone-ai-flue-agent`.
 

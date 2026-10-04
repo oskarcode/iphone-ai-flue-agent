@@ -11,6 +11,7 @@
     "src/tools/github-repository.ts",
     "src/lib/learning-session.ts",
     "src/learning-page.ts",
+    "test/learning-chat-route.test.ts",
     "wrangler.jsonc"
   ],
   "importantSymbols": [
@@ -20,6 +21,7 @@
     "GithubLearningAgent",
     "publish_learning_guide",
     "GET /learn/:id/events",
+    "POST /learn/:id/chat",
     "DELETE /v1/learning-sessions/:id"
   ],
   "runCommand": "cd \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent\" && .venv/bin/python run_guide_agent.py \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html\" --project-root \"/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent\""

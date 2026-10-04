@@ -11,9 +11,9 @@ const QUESTIONS = {
     type: 'choice',
     instructions: 'Choose the single best execution path for this iPhone assistant request.',
     criteria: {
-      direct_answer: 'Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from existing Flue context.',
-      web_research: 'The request contains a URL to read or needs current, recent, live, broader web context, or external verification. The research tool can read a page, search the web, or do both in one call.',
-      github_learning: 'The user explicitly wants to learn, understand, map, study, or generate a code-learning guide for a public GitHub repository URL.',
+      direct_answer: 'Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from existing Flue context. Do not choose this when the request contains a github.com owner/repository URL.',
+      web_research: 'The request contains a non-GitHub URL to read or needs current, recent, live, broader web context, or external verification. Do not choose this for a github.com owner/repository URL.',
+      github_learning: 'Choose this whenever the current request contains a github.com owner/repository URL, including a bare copied URL or one prefixed with instructions to explain pasted text. This choice takes priority over direct_answer and web_research. Also choose it when the user explicitly asks to learn, understand, map, study, or generate a code-learning guide for that repository.',
       clarification: 'The request is too ambiguous to answer safely or usefully, and it is not a conversational follow-up with available Flue history.',
     },
   },

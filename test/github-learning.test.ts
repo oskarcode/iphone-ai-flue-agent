@@ -144,6 +144,14 @@ describe('GitHub learning sessions', () => {
     expect(html).not.toContain('<script>unsafe()</script>');
     expect(html).toContain('/v1/learning-sessions/');
     expect(html).toContain('Runtime walkthrough');
+    expect(html).toContain('class="tutor-launcher"');
+    expect(html).toContain('class="tutor-panel"');
+    expect(html).toContain("document.addEventListener('selectionchange'");
+    expect(html).toContain('selectedText,sectionTitle:selectedSection');
+    expect(html).toContain('id="ask-selection" type="button" disabled');
+    expect(html).toContain('maxlength="4000"');
+    expect(html).toContain("element.closest('section')");
+    expect(html).toContain('height:min(82dvh,720px)');
     expect(script).toBeTruthy();
     expect(() => new Function(script!)).not.toThrow();
   });

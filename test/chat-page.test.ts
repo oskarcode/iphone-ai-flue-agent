@@ -9,6 +9,7 @@ describe('renderChatPage', () => {
     expect(html).toContain('/chat/stream');
     expect(html).toContain('How this answer was made');
     expect(html).toContain("sendMessage('Explain this pasted text in plain English:\\n\\n' + data.text)");
+    expect(html).toContain("link.rel = 'noreferrer'");
     expect(html).toContain('messages: history');
     expect(html).not.toContain('messages: history, mode');
     expect(script).toBeTruthy();

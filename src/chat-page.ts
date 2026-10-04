@@ -367,6 +367,44 @@ export function renderChatPage() {
 
   /**
    * Input:
+   * - A target DOM node and inert text that may contain public HTTP links.
+   *
+   * Output:
+   * - Text nodes plus safe, separately created anchor elements.
+   *
+   * What this function does:
+  * - Makes generated learning-guide URLs usable without interpreting model-authored HTML.
+  */
+  function appendLinkedText(parent, text) {
+    let cursor = 0;
+    while (cursor < text.length) {
+      const httpIndex = text.indexOf('http://', cursor);
+      const httpsIndex = text.indexOf('https://', cursor);
+      const candidates = [httpIndex, httpsIndex].filter((index) => index >= 0);
+      const start = candidates.length ? Math.min(...candidates) : -1;
+      if (start < 0) break;
+      if (start > cursor) parent.append(document.createTextNode(text.slice(cursor, start)));
+
+      let end = start;
+      while (end < text.length) {
+        const character = text[end];
+        if (character.charCodeAt(0) <= 32 || '<>"'.includes(character) || character === String.fromCharCode(39)) break;
+        end++;
+      }
+      const url = text.slice(start, end);
+      const link = document.createElement('a');
+      link.href = url;
+      link.textContent = url;
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      parent.append(link);
+      cursor = end;
+    }
+    if (cursor < text.length) parent.append(document.createTextNode(text.slice(cursor)));
+  }
+
+  /**
+   * Input:
    * - A target DOM node and one line of model-generated text.
    *
    * Output:
@@ -392,14 +430,14 @@ export function renderChatPage() {
         marker = tick;
       }
       if (start < 0) {
-        parent.append(document.createTextNode(remaining));
+        appendLinkedText(parent, remaining);
         break;
       }
-      if (start > 0) parent.append(document.createTextNode(remaining.slice(0, start)));
+      if (start > 0) appendLinkedText(parent, remaining.slice(0, start));
 
       const end = remaining.indexOf(marker, start + marker.length);
       if (end < 0) {
-        parent.append(document.createTextNode(remaining.slice(start)));
+        appendLinkedText(parent, remaining.slice(start));
         break;
       }
       const node = document.createElement(marker === '**' ? 'strong' : 'code');

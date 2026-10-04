@@ -604,11 +604,11 @@
     {
       "id": "github-learning-session",
       "title": "Temporary GitHub learning session",
-      "subtitle": "A public repository is pinned to one commit, researched by a durable tutor, and published as a one-hour guide.",
+      "subtitle": "A copied public GitHub URL becomes a one-hour mobile guide with a floating, selection-aware repository tutor.",
       "meta": {
         "created": "2026-10-03",
         "updated": "2026-10-03",
-        "status": "source, tests, deployment, and production smoke flow verified"
+        "status": "base flow production verified; floating tutor source and focused tests verified locally"
       },
       "actors": [
         {
@@ -619,9 +619,9 @@
         },
         {
           "id": "browser",
-          "label": "Learning UI",
+          "label": "Chat + Learning UI",
           "zone": "frontend",
-          "sub_caption": "src/learning-page.ts"
+          "sub_caption": "chat-page + learning-page"
         },
         {
           "id": "worker",
@@ -662,7 +662,8 @@
         {
           "from": "user",
           "to": "browser",
-          "text": "request repo guide",
+          "text": "copy repository URL",
+          "caption": "existing iPhone handoff opens chat",
           "paths": [
             "learning"
           ]
@@ -670,8 +671,8 @@
         {
           "from": "browser",
           "to": "worker",
-          "text": "POST /chat/api",
-          "caption": "GitHub URL in final user message",
+          "text": "POST /chat/stream",
+          "caption": "Jev prioritizes GitHub repository",
           "via": "api",
           "paths": [
             "learning"
@@ -725,6 +726,15 @@
           "caption": "separate submission key",
           "via": "io",
           "src": "putLearningSubmission()"
+        },
+        {
+          "from": "worker",
+          "to": "browser",
+          "text": "clickable guide link",
+          "caption": "temporary /learn/:id URL",
+          "kind": "ret",
+          "via": "api",
+          "src": "src/app.ts -> src/chat-page.ts"
         },
         {
           "phase": "RESEARCH"
@@ -823,12 +833,66 @@
         },
         {
           "self": "browser",
-          "text": "render guide"
+          "text": "render mobile guide"
+        },
+        {
+          "phase": "TUTOR"
+        },
+        {
+          "self": "browser",
+          "text": "capture selection",
+          "caption": "outside tutor, maximum 5,000 chars",
+          "src": "src/learning-page.ts -> captureSelection()"
+        },
+        {
+          "from": "browser",
+          "to": "worker",
+          "text": "POST learning chat",
+          "caption": "question + selection + section",
+          "via": "api",
+          "paths": [
+            "learning"
+          ],
+          "src": "handleSubmit() -> POST /learn/:id/chat",
+          "detail": {
+            "why": "Send bounded guide context to the tutor already pinned to this commit.",
+            "sends": "4k question, 5k selection, 240-char heading",
+            "auth": "Cloudflare Access",
+            "fails": "Missing, oversized, expired, or non-ready sessions are rejected"
+          }
+        },
+        {
+          "from": "worker",
+          "to": "flue",
+          "text": "dispatch follow-up",
+          "caption": "selection labeled untrusted",
+          "via": "api",
+          "src": "src/app.ts -> GithubLearningAgent.dispatch()",
+          "detail": {
+            "why": "Preserve the durable repository conversation without trusting browser-selected prose.",
+            "sends": "labeled prompt context",
+            "ordering": "after ready-state check"
+          }
+        },
+        {
+          "from": "flue",
+          "to": "worker",
+          "text": "pinned answer",
+          "caption": "repository-relative evidence",
+          "kind": "ret"
+        },
+        {
+          "from": "worker",
+          "to": "browser",
+          "text": "text-only answer",
+          "caption": "rendered with textContent",
+          "kind": "ret",
+          "via": "api"
         }
       ]
     }
   ],
   "provenance": {
-    "git_sha": "46cb59de48ab986688cec1ccbadf77742666198a"
+    "git_sha": "f2255d3d76663af1ec362cf283e9cfe22e0c8c15"
   }
 }
