@@ -1,0 +1,19 @@
+docs/diagrams/architecture.json
+  s_cc69b42766cb66::t_0092eeff4dd9e4 611,896
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d22085bfc36af150e3af18637a63041468fad591",
+  "prompts": {},
+  "sessions": {
+    "s_cc69b42766cb66": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4f0a9d68ffeUIklt3ppEKKP2U",
+        "model": "gpt-5.6"
+      },
+      "human_author": "oskarcode <manaskarsanqu@gmail.com>"
+    }
+  }
+}
