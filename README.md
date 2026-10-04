@@ -55,9 +55,9 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 - Runtime: Cloudflare Workers at `https://iphoneai.oskarcode.com`.
 - Deploy command: `npm run deploy`.
 - Verification command: `npm run check`.
-- Current deployed version: `5d7015a1-5bb3-4aa0-a6af-ceeef7c4682d`.
+- Current deployed version: `399ff432-87ac-4017-81ec-2097dd8fb692`.
 - Copied GitHub repository URLs now route from the existing handoff chat to a clickable temporary learning guide.
-- The floating mobile tutor and selected-text follow-up UI are locally verified and pending deployment.
+- The floating mobile tutor is deployed; health and Access ingress passed smoke checks. Its authenticated selection interaction still needs a browser smoke test.
 
 ## Security Model
 - Auth boundary: Cloudflare Access is expected to protect AI/chat ingress; the Worker has no application auth middleware.

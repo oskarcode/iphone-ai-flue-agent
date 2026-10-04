@@ -608,7 +608,7 @@
       "meta": {
         "created": "2026-10-03",
         "updated": "2026-10-03",
-        "status": "base flow production verified; floating tutor source and focused tests verified locally"
+        "status": "version 399ff432 deployed; health and Access smoke passed; authenticated tutor interaction needs browser verification"
       },
       "actors": [
         {
@@ -893,6 +893,6 @@
     }
   ],
   "provenance": {
-    "git_sha": "f2255d3d76663af1ec362cf283e9cfe22e0c8c15"
+    "git_sha": "91c371a1789a750bc5d93c091d7fd330e572f893"
   }
 }
