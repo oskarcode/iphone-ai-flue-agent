@@ -1,7 +1,7 @@
 // Jev is called through the Cloudflare AI binding, while this module owns the app-specific route contract.
 import { gatewayMetadata, type GatewayCallerMetadata } from '../lib/gateway-metadata.ts';
 
-export type JevRoute = 'direct_answer' | 'web_research' | 'github_learning' | 'clarification';
+export type JevRoute = 'direct_answer' | 'web_research' | 'github_learning' | 'visual_explanation' | 'clarification';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -14,6 +14,7 @@ const QUESTIONS = {
       direct_answer: 'Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from existing Flue context. Do not choose this when the request contains a github.com owner/repository URL.',
       web_research: 'The request contains a non-GitHub URL to read or needs current, recent, live, broader web context, or external verification. Do not choose this for a github.com owner/repository URL.',
       github_learning: 'Choose this whenever the current request contains a github.com owner/repository URL, including a bare copied URL or one prefixed with instructions to explain pasted text. This choice takes priority over direct_answer and web_research. Also choose it when the user explicitly asks to learn, understand, map, study, or generate a code-learning guide for that repository.',
+      visual_explanation: 'The user explicitly asks for a visual, diagram, anatomy, interactive explainer, picture, SVG, visual guide, or visual teaching page for a technical concept. Do not choose this for GitHub repository URLs; github_learning takes priority.',
       clarification: 'The request is too ambiguous to answer safely or usefully, and it is not a conversational follow-up with available Flue history.',
     },
   },
@@ -50,7 +51,7 @@ export function parseJevRoute(value: unknown): JevRoute {
   const result = isRecord(firstEnvelope.result) ? firstEnvelope.result : firstEnvelope;
   const answers = isRecord(result.answers) ? result.answers : null;
   const route = answers && isRecord(answers.route) ? answers.route.choice : undefined;
-  if (!['direct_answer', 'web_research', 'github_learning', 'clarification'].includes(String(route))) {
+  if (!['direct_answer', 'web_research', 'github_learning', 'visual_explanation', 'clarification'].includes(String(route))) {
     throw new Error('Jev returned an invalid route.');
   }
   return route as JevRoute;

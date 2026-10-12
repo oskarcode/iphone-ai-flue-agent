@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DIRECT_ANSWER_ROUTE_PROMPT,
   EXPLANATION_PROMPT,
+  VISUAL_EXPLANATION_PROMPT,
   WEB_RESEARCH_PROMPT,
   WEB_RESEARCH_ROUTE_PROMPT,
 } from '../src/prompts.ts';
@@ -29,5 +30,11 @@ describe('route-specific prompts', () => {
     expect(WEB_RESEARCH_ROUTE_PROMPT).toContain('Pass the requested URL when one is present');
     expect(WEB_RESEARCH_ROUTE_PROMPT).toContain('Set searchWeb to true');
     expect(WEB_RESEARCH_PROMPT).toContain('Connect findings to earlier page or conversation context');
+  });
+
+  it('requires visual explainers to return structured data instead of raw HTML', () => {
+    expect(VISUAL_EXPLANATION_PROMPT).toContain('Return only valid JSON');
+    expect(VISUAL_EXPLANATION_PROMPT).toContain('5 to 8 meaningful parts');
+    expect(VISUAL_EXPLANATION_PROMPT).toContain('Do not put HTML, SVG, scripts, or Markdown');
   });
 });

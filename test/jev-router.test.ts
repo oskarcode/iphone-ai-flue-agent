@@ -11,6 +11,10 @@ describe('Jev routing', () => {
     expect(parseJevRoute({ result: { answers: { route: { choice: 'github_learning' } } } })).toBe('github_learning');
   });
 
+  it('accepts the visual explanation route', () => {
+    expect(parseJevRoute({ result: { answers: { route: { choice: 'visual_explanation' } } } })).toBe('visual_explanation');
+  });
+
   it('rejects an unknown route', () => {
     expect(() => parseJevRoute({ result: { answers: { route: { choice: 'unknown' } } } })).toThrow('invalid route');
   });

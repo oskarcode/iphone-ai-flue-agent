@@ -15,6 +15,13 @@ import { createSubmissionEventProjector } from './lib/chat-events.ts';
 import { encodeConfiguredMessage, gatewayCallerFromModelInput } from './lib/configured-message.ts';
 import { gatewayCallerFromAccess, gatewayMetadata, type GatewayCallerMetadata } from './lib/gateway-metadata.ts';
 import { correctedTextFromAi, createGrammarRequest, grammarModelFromConfiguredModel } from './lib/grammar-correction.ts';
+import { generateVisualExplainer } from './lib/visual-explainer.ts';
+import {
+  getVisualSession,
+  putVisualSession,
+  VISUAL_SESSION_TTL_SECONDS,
+  type VisualSessionMetadata,
+} from './lib/visual-session.ts';
 import {
   deleteLearningSession,
   getLearningGuide,
@@ -27,6 +34,7 @@ import {
 } from './lib/learning-session.ts';
 import { resolveGithubRepository } from './tools/github-repository.ts';
 import { classifyWithJev, type JevRoute } from './tools/jev-router.ts';
+import { renderVisualExplainerPage } from './visual-page.ts';
 
 // These are the bindings accessed directly by the HTTP application layer.
 type Bindings = {
@@ -258,6 +266,31 @@ async function runAgent(
  * - Resolves and bounds the repository before allocating durable state.
  * - Dispatches generation, then stores its receipt in a separate KV key to avoid status races.
  */
+async function createVisualExplainerSession(
+  c: Context<AppEnv>,
+  prompt: string,
+  gatewayCaller?: GatewayCallerMetadata,
+): Promise<VisualSessionMetadata> {
+  const id = crypto.randomUUID();
+  const createdAt = new Date();
+  const visualAi = c.env.AI as { run(model: string, input: unknown, options: unknown): Promise<unknown> };
+  const explainer = await generateVisualExplainer(
+    visualAi,
+    prompt,
+    c.req.raw.signal,
+    process.env.AI_GATEWAY_ID?.trim() || 'default',
+    gatewayMetadata('visual-explainer', gatewayCaller),
+  );
+  const metadata: VisualSessionMetadata = {
+    id,
+    concept: explainer.concept,
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + VISUAL_SESSION_TTL_SECONDS * 1000).toISOString(),
+  };
+  await putVisualSession(c.env.CHAT_SESSIONS, metadata, explainer);
+  return metadata;
+}
+
 async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): Promise<LearningSessionMetadata> {
   const repository = await resolveGithubRepository(prompt, c.req.raw.signal);
   const id = crypto.randomUUID();
@@ -301,6 +334,13 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
 function learningUrl(c: Context<AppEnv>, id: string): string {
   const url = new URL(c.req.url);
   url.pathname = `/learn/${id}`;
+  url.search = '';
+  return url.toString();
+}
+
+function visualUrl(c: Context<AppEnv>, id: string): string {
+  const url = new URL(c.req.url);
+  url.pathname = `/visual/${id}`;
   url.search = '';
   return url.toString();
 }
@@ -364,6 +404,15 @@ app.post('/v1/ask', async (c) => {
         learning_url: learningUrl(c, session.id),
         expires_in_seconds: LEARNING_SESSION_TTL_SECONDS,
       }, 202);
+    }
+    if (route === 'visual_explanation') {
+      const session = await createVisualExplainerSession(c, text, gatewayCaller);
+      return c.json({
+        route,
+        status: 'ready',
+        visual_url: visualUrl(c, session.id),
+        expires_in_seconds: VISUAL_SESSION_TTL_SECONDS,
+      });
     }
     const result = await runAgent(text, undefined, route, gatewayCaller);
     return c.json({ answer: result.text, route: result.route });
@@ -455,6 +504,14 @@ app.get('/chat/session/:id', async (c) => {
   if (text === null) return c.json({ error: 'Chat session expired or was already used' }, 404);
   await c.env.CHAT_SESSIONS.delete(key);
   return c.json({ text });
+});
+
+app.get('/visual/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid visual session' }, 400);
+  const session = await getVisualSession(c.env.CHAT_SESSIONS, id);
+  if (!session) return c.json({ error: 'Visual session expired or was deleted' }, 404);
+  return c.html(renderVisualExplainerPage(session.metadata, session.explainer));
 });
 
 /**
@@ -735,6 +792,16 @@ app.post('/chat/stream', async (c) => {
             });
             return;
           }
+          if (route === 'visual_explanation') {
+            const session = await createVisualExplainerSession(c, messages.at(-1)!.content, gatewayCaller);
+            send('done', {
+              text: `I made a visual explainer:\n\n${visualUrl(c, session.id)}\n\nIt expires in one hour.`,
+              route,
+              conversationId,
+              visualUrl: visualUrl(c, session.id),
+            });
+            return;
+          }
           const agent = init(IphoneAssistant, { id: conversationId });
           const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, undefined, route, gatewayCaller));
           send('status', { type: 'queued', submissionId: receipt.submissionId });
@@ -836,6 +903,15 @@ app.post('/chat/api', async (c) => {
         route,
         learning_url: learningUrl(c, session.id),
       }, 202);
+    }
+    if (route === 'visual_explanation') {
+      const session = await createVisualExplainerSession(c, prompt, gatewayCaller);
+      return c.json({
+        answer: `I made a visual explainer:\n\n${visualUrl(c, session.id)}\n\nIt expires in one hour.`,
+        conversation_id: conversationId,
+        route,
+        visual_url: visualUrl(c, session.id),
+      });
     }
     const result = await runAgent(prompt, conversationId, route, gatewayCaller);
     return c.json({ answer: result.text, conversation_id: conversationId, route: result.route });

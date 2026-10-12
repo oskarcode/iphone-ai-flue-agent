@@ -28,6 +28,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 - `POST /handoff` moves selected iPhone text into a ten-minute browser chat handoff.
 - Browser chat streams durable follow-up answers from a Flue Durable Object.
 - Public GitHub URLs can produce an escaped, mobile-first learning guide pinned to one commit for one hour.
+- Explicit visual explanation requests can produce a temporary, mobile-first interactive SVG explainer page for a technical concept.
 - The existing copy -> iPhone handoff Shortcut -> chat flow treats a copied `github.com/owner/repository` URL as GitHub learning and returns a clickable guide link.
 - Ready guides include a floating repository tutor; selecting guide text prepares bounded, explicitly untrusted context for a follow-up explanation.
 
@@ -55,7 +56,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 - Runtime: Cloudflare Workers at `https://iphoneai.oskarcode.com`.
 - Deploy command: `npm run deploy`.
 - Verification command: `npm run check`.
-- Current deployed version: `399ff432-87ac-4017-81ec-2097dd8fb692`.
+- Current deployed version: `f81164ed-cb17-43d0-9e75-950d8bdb4658`.
 - Copied GitHub repository URLs now route from the existing handoff chat to a clickable temporary learning guide.
 - The floating mobile tutor is deployed; health and Access ingress passed smoke checks. Its authenticated selection interaction still needs a browser smoke test.
 
@@ -78,6 +79,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 | `GET /chat`, `GET /chat/session/:id` | Browser UI and one-time handoff consumption |
 | `POST /chat/stream`, `POST /chat/api` | Streaming or complete durable answers |
 | `GET /learn/:id`, `/status`, `/events` | Guide page and generation lifecycle |
+| `GET /visual/:id` | Temporary interactive visual explainer page |
 | `POST /learn/:id/chat` | Commit-pinned tutor follow-up with a question and optional selected guide context |
 | `DELETE /v1/learning-sessions/:id` | Immediate KV and Durable Object cleanup |
 

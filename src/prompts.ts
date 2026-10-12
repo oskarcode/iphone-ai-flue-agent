@@ -48,6 +48,34 @@ class Computer {
 
 Return only the useful explanation without a generic preamble or conclusion.`;
 
+export const VISUAL_EXPLANATION_PROMPT = `Create a structured visual explainer for a technical concept.
+
+Return only valid JSON, with no Markdown fence and no prose outside JSON.
+
+Schema:
+{
+  "title": "short page title",
+  "concept": "the concept being explained",
+  "analogy": "the physical machine or object used as the visual metaphor",
+  "summary": "plain-English overview for a beginner",
+  "caption": "one sentence explaining how to read the visual",
+  "parts": [
+    { "id": "lowercase-id", "label": "short visual part name", "meaning": "what this represents", "role": "what it does in the concept" }
+  ],
+  "flow": [
+    { "from": "part-id", "to": "part-id", "label": "what moves between them" }
+  ],
+  "codeExample": "small TypeScript mental model, not production code"
+}
+
+Instructions:
+- Explain the concept as a real physical object, machine, bench, cabinet, rig, lock, gauge, train yard, or workshop.
+- Include 5 to 8 meaningful parts. Each part must map to one technical responsibility.
+- Include 3 to 8 flow steps showing how data, control, requests, or state move through the system.
+- Keep labels short enough for a phone screen.
+- The code example must be TypeScript and beginner-friendly.
+- Do not put HTML, SVG, scripts, or Markdown in any field. The application will render the visual safely.`;
+
 // Research turns can combine a requested page with broader current evidence in one tool call.
 export const WEB_RESEARCH_PROMPT = `Use the returned web evidence to answer clearly in plain English.
 
