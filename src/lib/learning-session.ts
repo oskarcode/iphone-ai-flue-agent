@@ -13,6 +13,7 @@ export type LearningSessionMetadata = {
   repositoryUrl: string;
   defaultBranch: string;
   commitSha: string;
+  privateRepository?: boolean;
   createdAt: string;
   expiresAt: string;
   error?: string;

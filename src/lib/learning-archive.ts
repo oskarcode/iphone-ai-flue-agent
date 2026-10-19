@@ -4,7 +4,7 @@ export const LEARNING_ARCHIVE_NAME = 'learning-archive';
 export const MAX_ARCHIVE_SESSIONS = 200;
 export const MAX_EVENT_PAYLOAD_CHARACTERS = 40_000;
 
-export type LearningArchiveEventType = 'created' | 'assistant_turn' | 'guide_published' | 'followup' | 'share_draft' | 'issue_created' | 'public_deleted' | 'expired' | 'failed';
+export type LearningArchiveEventType = 'created' | 'assistant_turn' | 'guide_published' | 'followup' | 'share_draft' | 'issue_created' | 'file_change_created' | 'public_deleted' | 'expired' | 'failed';
 
 export type LearningArchiveSessionSummary = {
   id: string;
@@ -67,6 +67,7 @@ export type LearningArchiveRpc = {
   recordFollowup(input: { sessionId: string; question: string; selectedText?: string; sectionTitle?: string; answer: string }): void | Promise<void>;
   recordShareDraft(sessionId: string, draft: unknown): void | Promise<void>;
   recordIssueCreated(input: { sessionId: string; title: string; issueUrl: string; number?: number; evidencePaths?: string[] }): void | Promise<void>;
+  recordFileChangeCreated(input: { sessionId: string; path: string; branch: string; commitUrl?: string; contentUrl?: string }): void | Promise<void>;
   recordPublicDeleted(sessionId: string, reason?: 'deleted' | 'expired'): void | Promise<void>;
   listSessions(limit?: number): LearningArchiveSessionSummary[] | Promise<LearningArchiveSessionSummary[]>;
   getSession(sessionId: string): LearningArchiveSessionDetail | null | Promise<LearningArchiveSessionDetail | null>;

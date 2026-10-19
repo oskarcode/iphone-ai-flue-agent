@@ -17,6 +17,8 @@ const MAX_REPOSITORY_FILES = 4_000;
 const MAX_RETURNED_PATHS = 300;
 const MAX_FILE_BYTES = 120_000;
 const MAX_FILE_CHARACTERS = 60_000;
+const MAX_WRITE_FILE_CHARACTERS = 60_000;
+const MAX_ISSUE_BODY_CHARACTERS = 12_000;
 const GITHUB_REPOSITORY_URL = /https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/i;
 const SKIPPED_PATH = /(^|\/)(node_modules|vendor|dist|build|coverage|\.git|\.next|target)(\/|$)|(^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$|\.(?:lock|min\.(?:js|css)|map|png|jpe?g|gif|webp|ico|pdf|zip|gz|woff2?|ttf|eot)$/i;
 
@@ -29,6 +31,7 @@ export type GithubRepository = {
   description: string;
   defaultBranch: string;
   commitSha: string;
+  private: boolean;
   files: string[];
   treeTruncated: boolean;
 };
@@ -43,6 +46,9 @@ type GithubRepositoryResponse = {
 };
 
 type GithubCommitResponse = { sha?: string };
+type GithubIssueResponse = { html_url?: string; number?: number };
+type GithubRefResponse = { object?: { sha?: string } };
+type GithubContentResponse = { sha?: string; content?: { html_url?: string }; commit?: { html_url?: string } };
 type GithubTreeResponse = {
   truncated?: boolean;
   tree?: Array<{ path?: string; type?: string; size?: number }>;
@@ -177,7 +183,7 @@ export async function resolveGithubRepository(text: string, signal?: AbortSignal
   const parsed = parseGithubRepositoryRequest(text);
   const basePath = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}`;
   const repository = await githubJson<GithubRepositoryResponse>(basePath, signal);
-  if (repository.private) throw new Error('Private GitHub repositories are not supported yet.');
+  if (repository.private && !process.env.GITHUB_TOKEN?.trim()) throw new Error('Private GitHub repositories require GITHUB_TOKEN.');
   if (!repository.full_name || !repository.default_branch) throw new Error('GitHub returned incomplete repository metadata.');
   const commit = await githubJson<GithubCommitResponse>(`${basePath}/commits/${encodeURIComponent(repository.default_branch)}`, signal);
   if (!commit.sha) throw new Error('GitHub did not return a commit SHA.');
@@ -195,6 +201,7 @@ export async function resolveGithubRepository(text: string, signal?: AbortSignal
     description: repository.description ?? '',
     defaultBranch: repository.default_branch,
     commitSha: commit.sha,
+    private: Boolean(repository.private),
     files,
     treeTruncated: Boolean(tree.truncated) || files.length === MAX_REPOSITORY_FILES,
   };
@@ -213,9 +220,11 @@ export async function resolveGithubRepository(text: string, signal?: AbortSignal
 async function readRepositoryFile(repository: GithubRepository, path: string, signal?: AbortSignal): Promise<string> {
   if (!repository.files.includes(path) || !isReadableRepositoryPath(path)) throw new Error('Path is not in the readable repository tree.');
   const encodedPath = path.split('/').map(encodeURIComponent).join('/');
-  const url = `https://raw.githubusercontent.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/${repository.commitSha}/${encodedPath}`;
+  const url = repository.private
+    ? `${GITHUB_API}/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/contents/${encodedPath}?ref=${encodeURIComponent(repository.commitSha)}`
+    : `https://raw.githubusercontent.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/${repository.commitSha}/${encodedPath}`;
   const response = await fetch(url, {
-    headers: { accept: 'text/plain', 'user-agent': 'Cloudflare-iPhone-Learning-Agent/1.0' },
+    headers: repository.private ? { ...Object.fromEntries(githubHeaders()), accept: 'application/vnd.github.raw' } : { accept: 'text/plain', 'user-agent': 'Cloudflare-iPhone-Learning-Agent/1.0' },
     signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20_000)]),
   });
   if (!response.ok) throw new Error(`GitHub raw content returned HTTP ${response.status}.`);
@@ -226,7 +235,26 @@ async function readRepositoryFile(repository: GithubRepository, path: string, si
     : bounded;
 }
 
+function base64Utf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 // These schemas bound model output before fixed application HTML renders the guide.
+const issueSchema = v.object({
+  title: v.pipe(v.string(), v.trim(), v.minLength(8), v.maxLength(120)),
+  body: v.pipe(v.string(), v.trim(), v.minLength(20), v.maxLength(MAX_ISSUE_BODY_CHARACTERS)),
+  evidencePaths: v.optional(v.pipe(v.array(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(500))), v.maxLength(12))),
+});
+
+const fileEditSchema = v.object({
+  path: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(500)),
+  content: v.pipe(v.string(), v.maxLength(MAX_WRITE_FILE_CHARACTERS)),
+  commitMessage: v.pipe(v.string(), v.trim(), v.minLength(8), v.maxLength(180)),
+});
+
 const guideSectionSchema = v.object({
   id: v.pipe(v.string(), v.trim(), v.regex(/^[a-z0-9-]{2,60}$/)),
   title: v.pipe(v.string(), v.trim(), v.minLength(2), v.maxLength(120)),
@@ -320,6 +348,102 @@ export function createGithubRepositoryTools(
     },
   });
 
+  const createIssue = defineTool({
+    name: 'create_github_issue',
+    description: 'Create a GitHub issue in the session repository only after the user explicitly asks or confirms in chat.',
+    input: issueSchema,
+    async run({ data, signal }) {
+      if (!process.env.GITHUB_TOKEN?.trim()) throw new Error('GITHUB_TOKEN is required to create GitHub issues.');
+      const evidencePaths = (data.evidencePaths ?? []).filter((path) => repository.files.includes(path));
+      const footer = [
+        '---',
+        'Created from iPhone AI learning session after user confirmation.',
+        `Repository: ${repository.fullName}`,
+        `Pinned commit reviewed: ${repository.commitSha}`,
+        evidencePaths.length ? `Evidence paths: ${evidencePaths.join(', ')}` : undefined,
+      ].filter(Boolean).join('\n');
+      const response = await githubJson<GithubIssueResponse>(
+        `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/issues`,
+        signal,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title: data.title, body: `${data.body}\n\n${footer}` }),
+        },
+      );
+      if (!response.html_url) throw new Error('GitHub did not return an issue URL.');
+      const { env } = await import('cloudflare:workers');
+      await tryArchive(
+        learningArchiveStub(env as unknown as CloudflareBindings & { LEARNING_ARCHIVE: DurableObjectNamespace }).recordIssueCreated({
+          sessionId,
+          title: data.title,
+          issueUrl: response.html_url,
+          number: response.number,
+          evidencePaths,
+        }),
+        { sessionId, operation: 'recordIssueCreated' },
+      );
+      return { output: { issueUrl: response.html_url, number: response.number, evidencePaths } };
+    },
+  });
+
+  const createFileChange = defineTool({
+    name: 'create_github_file_change',
+    description: 'Create a new branch and commit one edited repository file after the user explicitly asks or confirms in chat. Does not modify the default branch directly.',
+    input: fileEditSchema,
+    async run({ data, signal }) {
+      if (!process.env.GITHUB_TOKEN?.trim()) throw new Error('GITHUB_TOKEN is required to create GitHub file changes.');
+      if (!repository.files.includes(data.path) || !isReadableRepositoryPath(data.path)) throw new Error('Path is not in the readable repository tree.');
+      const encodedPath = data.path.split('/').map(encodeURIComponent).join('/');
+      const branch = `iphone-ai-learning-${sessionId.slice(0, 8)}-${Date.now()}`;
+      const baseRef = await githubJson<GithubRefResponse>(
+        `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/git/ref/heads/${encodeURIComponent(repository.defaultBranch)}`,
+        signal,
+      );
+      const baseSha = baseRef.object?.sha || repository.commitSha;
+      await githubJson(
+        `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/git/refs`,
+        signal,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: baseSha }),
+        },
+      );
+      const current = await githubJson<GithubContentResponse>(
+        `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`,
+        signal,
+      );
+      if (!current.sha) throw new Error('GitHub did not return the current file SHA.');
+      const updated = await githubJson<GithubContentResponse>(
+        `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/contents/${encodedPath}`,
+        signal,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            message: data.commitMessage,
+            content: base64Utf8(data.content),
+            sha: current.sha,
+            branch,
+          }),
+        },
+      );
+      const { env } = await import('cloudflare:workers');
+      await tryArchive(
+        learningArchiveStub(env as unknown as CloudflareBindings & { LEARNING_ARCHIVE: DurableObjectNamespace }).recordFileChangeCreated({
+          sessionId,
+          path: data.path,
+          branch,
+          commitUrl: updated.commit?.html_url,
+          contentUrl: updated.content?.html_url,
+        }),
+        { sessionId, operation: 'recordFileChangeCreated' },
+      );
+      return { output: { branch, path: data.path, commitUrl: updated.commit?.html_url, contentUrl: updated.content?.html_url } };
+    },
+  });
+
   const publishGuide = defineTool({
     name: 'publish_learning_guide',
     description: 'Publish the final evidence-based learning guide. Call this exactly once after repository research is complete.',
@@ -355,5 +479,5 @@ export function createGithubRepositoryTools(
     },
   });
 
-  return { listFiles, readFile, publishGuide };
+  return { listFiles, readFile, publishGuide, createIssue, createFileChange };
 }

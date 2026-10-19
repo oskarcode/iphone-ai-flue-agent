@@ -20,9 +20,13 @@
     "JEV_MODEL": "typesafe/jev",
     "JEV_SKIP_CACHE": "true"
   },
-  // Local development uses the account's real Workers AI, Web Search, and AI Gateway services.
+  // Local development uses the account's real Workers AI, Browser Run, and AI Gateway services.
   "ai": {
     "binding": "AI",
+    "remote": true
+  },
+  "browser": {
+    "binding": "BROWSER",
     "remote": true
   },
   // KV stores ten-minute handoffs plus one-hour learning records; Flue conversation state stays in Durable Objects.

@@ -143,6 +143,12 @@ export class LearningArchive extends DurableObject<ArchiveEnv> {
     this.recordEvent(input.sessionId, 'issue_created', at, input);
   }
 
+  recordFileChangeCreated(input: { sessionId: string; path: string; branch: string; commitUrl?: string; contentUrl?: string }): void {
+    const at = nowIso();
+    this.ctx.storage.sql.exec('UPDATE sessions SET last_event_at = ? WHERE id = ?', at, input.sessionId);
+    this.recordEvent(input.sessionId, 'file_change_created', at, input);
+  }
+
   recordPublicDeleted(sessionId: string, reason: 'deleted' | 'expired' = 'deleted'): void {
     const at = nowIso();
     this.ctx.storage.sql.exec('UPDATE sessions SET public_deleted_at = ?, last_event_at = ? WHERE id = ?', at, at, sessionId);

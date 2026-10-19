@@ -311,6 +311,7 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
     repositoryUrl: repository.url,
     defaultBranch: repository.defaultBranch,
     commitSha: repository.commitSha,
+    privateRepository: repository.private,
     createdAt: createdAt.toISOString(),
     expiresAt: new Date(createdAt.getTime() + LEARNING_SESSION_TTL_SECONDS * 1000).toISOString(),
   };
