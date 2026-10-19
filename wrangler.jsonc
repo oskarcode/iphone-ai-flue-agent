@@ -30,6 +30,11 @@
     "remote": true
   },
   // KV stores ten-minute handoffs plus one-hour learning records; Flue conversation state stays in Durable Objects.
+  "durable_objects": {
+    "bindings": [
+      { "name": "LEARNING_ARCHIVE", "class_name": "LearningArchive" }
+    ]
+  },
   "kv_namespaces": [
     {
       "binding": "CHAT_SESSIONS",
@@ -45,6 +50,10 @@
     {
       "tag": "v2-github-learning",
       "new_sqlite_classes": ["FlueGithubLearningAgent"]
+    },
+    {
+      "tag": "v3-learning-archive",
+      "new_sqlite_classes": ["LearningArchive"]
     }
   ],
   // Full sampling is appropriate for this low-volume demo and aids handoff debugging.

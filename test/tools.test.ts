@@ -96,6 +96,23 @@ describe('retrieval tools', () => {
     });
   });
 
+  it('applies a custom page evidence limit for search-result reads', async () => {
+    const text = `START ${'detail '.repeat(500)} END`;
+    const quickAction = vi.fn()
+      .mockResolvedValueOnce(Response.json({ success: true, result: [], meta: { finalUrl: 'https://example.com/post' } }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: [], meta: { finalUrl: 'https://example.com/post' } }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: text, meta: { finalUrl: 'https://example.com/post' } }));
+    const page = await readPageWithBrowser(
+      'https://example.com/post',
+      { quickAction } as unknown as CloudflareBindings['BROWSER'],
+      1_000,
+    );
+
+    expect(page.truncated).toBe(true);
+    expect(page.returnedCharacters).toBeLessThanOrEqual(1_000);
+    expect(page.markdown).toContain('middle content omitted');
+  });
+
   it('extracts focused article HTML and supplies relative-link context', async () => {
     const articleText = 'Useful article content. '.repeat(30);
     const quickAction = vi.fn()

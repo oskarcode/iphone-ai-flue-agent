@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderLearningGuidePage, renderLearningWaitingPage } from '../src/learning-page.ts';
+import { renderReviewDetailPage, renderReviewIndexPage } from '../src/review-page.ts';
 import {
   getLearningGuide,
   getLearningSession,
@@ -132,6 +133,34 @@ describe('GitHub learning sessions', () => {
     expect(html).toContain('GitHub timed out.');
     expect(html).not.toContain('class="spinner"');
     expect(html).not.toContain('setInterval');
+  });
+
+  it('renders learning archive review pages', () => {
+    const index = renderReviewIndexPage([{ ...metadata, title: guide.title, subtitle: guide.subtitle, issueCount: 1, lastEventAt: metadata.createdAt }]);
+    expect(index).toContain('Saved assistant sessions');
+    expect(index).toContain('cloudflare/workers-sdk');
+    expect(index).toContain('Oct 3, 2026');
+    expect(index).not.toContain('issue');
+
+    const detail = renderReviewDetailPage({
+      ...metadata,
+      title: guide.title,
+      subtitle: guide.subtitle,
+      issueCount: 1,
+      lastEventAt: metadata.createdAt,
+      guide,
+      events: [
+        { id: 1, sessionId: metadata.id, type: 'followup', createdAt: metadata.createdAt, payload: { question: '<unsafe>', answer: 'Safe answer' } },
+        { id: 2, sessionId: metadata.id, type: 'share_draft', createdAt: metadata.createdAt, payload: { source: 'guide', topic: '<draft>', x: 'Short X draft', linkedin: 'Longer LinkedIn draft', hashtags: ['#TIL'], repository: metadata.repository, commitSha: metadata.commitSha } },
+      ],
+    });
+    expect(detail).toContain('Published guide');
+    expect(detail).toContain('Runtime walkthrough');
+    expect(detail).toContain('Share what you learned');
+    expect(detail).toContain('Short X draft');
+    expect(detail).toContain('&lt;draft&gt;');
+    expect(detail).toContain('&lt;unsafe&gt;');
+    expect(detail).not.toContain('<unsafe>');
   });
 
   it('renders a safe guide and executable follow-up chat', () => {

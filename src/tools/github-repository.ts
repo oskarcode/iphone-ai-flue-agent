@@ -7,6 +7,8 @@ import {
   putLearningGuide,
   type LearningGuide,
 } from '../lib/learning-session.ts';
+import { learningArchiveStub, tryArchive } from '../lib/learning-archive.ts';
+import { createGuideShareDraft } from '../lib/share-draft.ts';
 
 // These bounds keep remote repository discovery predictable in Worker memory and model context.
 const GITHUB_API = 'https://api.github.com';
@@ -107,9 +109,13 @@ async function readBoundedResponse(response: Response, maxBytes = MAX_GITHUB_RES
  * What this function does:
  * - Applies fixed-host fetching, bounded bodies, timeout, and rate-limit guidance.
  */
-async function githubJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function githubJson<T>(path: string, signal?: AbortSignal, init?: RequestInit): Promise<T> {
+  const headers = githubHeaders();
+  const initHeaders = new Headers(init?.headers);
+  initHeaders.forEach((value, key) => headers.set(key, value));
   const response = await fetch(`${GITHUB_API}${path}`, {
-    headers: githubHeaders(),
+    ...init,
+    headers,
     signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20_000)]),
   });
   if (!response.ok) {
@@ -333,7 +339,17 @@ export function createGithubRepositoryTools(
       const metadata = await getLearningSession(env.CHAT_SESSIONS, sessionId);
       if (!metadata || new Date(metadata.expiresAt).getTime() <= Date.now()) throw new Error('The learning session expired before publication.');
       if (metadata.status === 'ready') throw new Error('The learning guide has already been published.');
-      await putLearningGuide(env.CHAT_SESSIONS, metadata, data as LearningGuide);
+      const guide = data as LearningGuide;
+      await putLearningGuide(env.CHAT_SESSIONS, metadata, guide);
+      const archive = learningArchiveStub(env as unknown as CloudflareBindings & { LEARNING_ARCHIVE: DurableObjectNamespace });
+      await tryArchive(
+        archive.recordGuidePublished(metadata, guide),
+        { sessionId, operation: 'recordGuidePublished' },
+      );
+      await tryArchive(
+        archive.recordShareDraft(sessionId, createGuideShareDraft(metadata, guide)),
+        { sessionId, operation: 'recordGuideShareDraft' },
+      );
       setPublished(true);
       return { output: { published: true, learningUrl: `/learn/${sessionId}`, sectionCount: data.sections.length } };
     },

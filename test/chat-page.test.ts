@@ -7,6 +7,7 @@ describe('renderChatPage', () => {
     const html = renderChatPage();
     const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
     expect(html).toContain('/chat/stream');
+    expect(html).toContain('href="/review"');
     expect(html).toContain('How this answer was made');
     expect(html).toContain("sendMessage('Explain this pasted text in plain English:\\n\\n' + data.text)");
     expect(html).toContain("link.rel = 'noreferrer'");

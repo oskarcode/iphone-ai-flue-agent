@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const configuredAiRun = vi.hoisted(() => vi.fn());
 
 vi.mock('cloudflare:workers', () => ({
+  DurableObject: class {},
   env: {
     AI: { run: configuredAiRun },
     MODEL: 'cloudflare/@cf/zai-org/glm-5.2',

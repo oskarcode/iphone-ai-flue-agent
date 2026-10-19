@@ -3,7 +3,10 @@ import { defineTool } from '@flue/runtime';
 import * as v from 'valibot';
 
 // These limits bound model context and memory consumed by external responses.
-const MAX_MARKDOWN_CHARACTERS = 48_000;
+const MAX_MARKDOWN_CHARACTERS = 96_000;
+const MAX_SEARCH_RESULT_MARKDOWN_CHARACTERS = 16_000;
+const MAX_SEARCH_RESULT_PAGES = 3;
+const MAX_SEARCH_RESULTS = 8;
 const MAX_RESPONSE_BYTES = 750_000;
 const MAX_ARTICLE_HTML_CHARACTERS = 500_000;
 const MIN_ARTICLE_TEXT_CHARACTERS = 500;
@@ -24,7 +27,8 @@ const MAIN_CONTENT_SELECTORS = [
 ] as const;
 
 // Search providers are normalized to one result shape before evidence reaches the model.
-type SearchResult = { title: string; url: string; snippet: string };
+type SearchResultPage = Awaited<ReturnType<typeof readPageWithBrowser>>;
+type SearchResult = { title: string; url: string; snippet: string; page?: SearchResultPage; pageError?: string };
 type ScrapedElement = { html: string; text: string };
 type ScrapedGroup = { selector: string; results: ScrapedElement[] };
 type ArticleCandidate = ScrapedElement & { selector: string; textLength: number; kind: 'article' | 'main' };
@@ -176,7 +180,7 @@ async function readBoundedJson<T>(response: Response): Promise<T> {
  * - DuckDuckGo's HTML result page.
  *
  * Output:
- * - Up to five normalized search results.
+ * - Up to eight normalized search results.
  *
  * What this function does:
  * - Extracts result links/snippets and unwraps DuckDuckGo redirect URLs.
@@ -193,7 +197,7 @@ export function parseDuckDuckGoResults(html: string): SearchResult[] {
     } catch {
       continue;
     }
-    if (results.length === 5) break;
+    if (results.length === MAX_SEARCH_RESULTS) break;
   }
   return results;
 }
@@ -291,7 +295,7 @@ function articleDocument(html: string, baseUrl: string): string {
  * - Converts the best isolated article HTML to Markdown so navigation cannot consume the evidence budget.
  * - Falls back to whole-page Markdown when no useful content container exists.
  */
-export async function readPageWithBrowser(urlValue: string, browser: CloudflareBindings['BROWSER']) {
+export async function readPageWithBrowser(urlValue: string, browser: CloudflareBindings['BROWSER'], maxCharacters = MAX_MARKDOWN_CHARACTERS) {
   const url = validatePublicUrl(urlValue);
   const browserOptions = {
     url: url.toString(),
@@ -340,7 +344,7 @@ export async function readPageWithBrowser(urlValue: string, browser: CloudflareB
             extraction: candidate.kind,
             selector: candidate.selector,
             rendering: 'best_attempt',
-            ...boundMarkdown(articleMarkdown),
+            ...boundMarkdown(articleMarkdown, maxCharacters),
           };
         }
       }
@@ -364,15 +368,15 @@ export async function readPageWithBrowser(urlValue: string, browser: CloudflareB
     title: payload.meta?.title,
     extraction: 'full_page',
     rendering: 'best_attempt',
-    ...boundMarkdown(payload.result),
+    ...boundMarkdown(payload.result, maxCharacters),
   };
 }
 
 /** Resolves the Browser Run binding from the Worker environment for the Flue tool. */
-async function readPage(urlValue: string) {
+async function readPage(urlValue: string, maxCharacters = MAX_MARKDOWN_CHARACTERS) {
   const { env } = await import('cloudflare:workers');
   const bindings = env as unknown as CloudflareBindings;
-  return readPageWithBrowser(urlValue, bindings.BROWSER);
+  return readPageWithBrowser(urlValue, bindings.BROWSER, maxCharacters);
 }
 
 /**
@@ -380,7 +384,7 @@ async function readPage(urlValue: string) {
  * - A search query and request cancellation signal.
  *
  * Output:
- * - Up to five normalized DuckDuckGo results.
+ * - Up to eight normalized DuckDuckGo results.
  *
  * What this function does:
  * - Fetches bounded HTML with a ten-second timeout and parses readable results.
@@ -403,7 +407,7 @@ async function searchDuckDuckGo(query: string, signal: AbortSignal): Promise<Sea
  * - A search query and request cancellation signal.
  *
  * Output:
- * - Up to five normalized Wikipedia results.
+ * - Up to eight normalized Wikipedia results.
  *
  * What this function does:
  * - Queries Wikipedia as the fallback provider with a ten-second timeout.
@@ -411,7 +415,7 @@ async function searchDuckDuckGo(query: string, signal: AbortSignal): Promise<Sea
 async function searchWikipedia(query: string, signal: AbortSignal): Promise<SearchResult[]> {
   const url = new URL('https://en.wikipedia.org/w/api.php');
   url.search = new URLSearchParams({
-    action: 'query', generator: 'search', gsrsearch: query, gsrlimit: '5',
+    action: 'query', generator: 'search', gsrsearch: query, gsrlimit: String(MAX_SEARCH_RESULTS),
     prop: 'info|extracts', inprop: 'url', exintro: '1', explaintext: '1', format: 'json', origin: '*',
   }).toString();
   const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) });
@@ -421,7 +425,7 @@ async function searchWikipedia(query: string, signal: AbortSignal): Promise<Sear
   }>(response);
   const results = Object.values(payload.query?.pages ?? {})
     .filter((page) => page.title && page.fullurl)
-    .slice(0, 5)
+    .slice(0, MAX_SEARCH_RESULTS)
     .map((page) => ({ title: page.title!, url: page.fullurl!, snippet: page.extract ?? '' }));
   if (!results.length) throw new Error('Wikipedia returned no readable results.');
   return results;
@@ -443,6 +447,37 @@ async function searchPublicWeb(query: string, signal: AbortSignal) {
   } catch {
     return { provider: 'wikipedia', results: await searchWikipedia(query, signal) };
   }
+}
+
+/**
+ * Input:
+ * - Normalized public-search results and the current request cancellation signal.
+ *
+ * Output:
+ * - The same result list with top-result page evidence attached when readable.
+ *
+ * What this function does:
+ * - Search-result snippets alone are often too thin for synthesis.
+ * - Reads the top few public result pages with Browser Run and a smaller per-page budget.
+ * - Preserves the original search result when a page is blocked, unreadable, or times out.
+ */
+async function addSearchPageEvidence<T extends { provider: string; results: SearchResult[] }>(search: T, signal: AbortSignal): Promise<T & { pageReads: number }> {
+  let pageReads = 0;
+  const enriched: SearchResult[] = [];
+  for (const result of search.results) {
+    if (pageReads >= MAX_SEARCH_RESULT_PAGES || signal.aborted) {
+      enriched.push(result);
+      continue;
+    }
+    try {
+      const page = await readPage(result.url, MAX_SEARCH_RESULT_MARKDOWN_CHARACTERS);
+      enriched.push({ ...result, page });
+      pageReads += 1;
+    } catch (error) {
+      enriched.push({ ...result, pageError: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { ...search, results: enriched, pageReads };
 }
 
 export const webResearch = defineTool({
@@ -469,7 +504,7 @@ export const webResearch = defineTool({
     const requestSignal = signal ?? new AbortController().signal;
     let page: Awaited<ReturnType<typeof readPage>> | undefined;
     let pageError: string | undefined;
-    let search: Awaited<ReturnType<typeof searchPublicWeb>> | undefined;
+    let search: (Awaited<ReturnType<typeof searchPublicWeb>> & { pageReads?: number }) | undefined;
     let searchError: string | undefined;
 
     if (data.url) {
@@ -485,7 +520,7 @@ export const webResearch = defineTool({
     if (shouldSearch) {
       log.info(`Searching public web for: ${data.query}`);
       try {
-        search = await searchPublicWeb(data.query, requestSignal);
+        search = await addSearchPageEvidence(await searchPublicWeb(data.query, requestSignal), requestSignal);
       } catch (error) {
         searchError = error instanceof Error ? error.message : String(error);
         if (!page) throw error;

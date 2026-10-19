@@ -83,6 +83,7 @@ export function renderChatPage() {
       backdrop-filter: blur(18px);
     }
     .brand { display: flex; align-items: center; gap: 11px; }
+    .header-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
     .mark {
       width: 38px;
       height: 38px;
@@ -95,7 +96,7 @@ export function renderChatPage() {
     }
     h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.02em; }
     header p { margin: 0; color: var(--muted); font-size: .76rem; }
-    button {
+    button, .header-link {
       min-height: 42px;
       border: 1px solid var(--line);
       border-radius: 999px;
@@ -104,6 +105,10 @@ export function renderChatPage() {
       color: var(--ink);
       font: inherit;
       cursor: pointer;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
     }
 
     /* Conversation cards and live activity timeline */
@@ -273,7 +278,7 @@ export function renderChatPage() {
       <div class="mark">AI</div>
       <div><h1>iPhone AI Assistant</h1><p>Flue agent · Jev routing · live execution</p></div>
     </div>
-    <button id="new-chat">New chat</button>
+    <div class="header-actions"><a class="header-link" href="/review">Review</a><button id="new-chat">New chat</button></div>
   </header>
 
   <!-- Messages and agent activity are rendered here by the local script -->

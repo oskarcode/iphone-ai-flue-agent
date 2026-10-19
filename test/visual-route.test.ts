@@ -4,6 +4,7 @@ const workerAiRun = vi.hoisted(() => vi.fn());
 const requestAiRun = vi.hoisted(() => vi.fn());
 
 vi.mock('cloudflare:workers', () => ({
+  DurableObject: class {},
   env: { AI: { run: workerAiRun } },
 }));
 

@@ -10,11 +10,14 @@ import { Hono, type Context } from 'hono';
 import { IphoneAssistant } from './agents/iphone-assistant.ts';
 import { GithubLearningAgent } from './agents/github-learning.ts';
 import { renderChatPage } from './chat-page.ts';
+import { LearningArchive } from './learning-archive.ts';
+import { learningArchiveStub, tryArchive } from './lib/learning-archive.ts';
 import { renderLearningGuidePage, renderLearningWaitingPage } from './learning-page.ts';
 import { createSubmissionEventProjector } from './lib/chat-events.ts';
 import { encodeConfiguredMessage, gatewayCallerFromModelInput } from './lib/configured-message.ts';
 import { gatewayCallerFromAccess, gatewayMetadata, type GatewayCallerMetadata } from './lib/gateway-metadata.ts';
 import { correctedTextFromAi, createGrammarRequest, grammarModelFromConfiguredModel } from './lib/grammar-correction.ts';
+import { createAssistantShareDraft, createFollowupShareDraft } from './lib/share-draft.ts';
 import { generateVisualExplainer } from './lib/visual-explainer.ts';
 import {
   getVisualSession,
@@ -34,6 +37,7 @@ import {
 } from './lib/learning-session.ts';
 import { resolveGithubRepository } from './tools/github-repository.ts';
 import { classifyWithJev, type JevRoute } from './tools/jev-router.ts';
+import { renderReviewDetailPage, renderReviewIndexPage } from './review-page.ts';
 import { renderVisualExplainerPage } from './visual-page.ts';
 
 // These are the bindings accessed directly by the HTTP application layer.
@@ -41,6 +45,7 @@ type Bindings = {
   AI: Ai;
   CHAT_SESSIONS: KVNamespace;
   FLUE_GITHUB_LEARNING_AGENT: DurableObjectNamespace;
+  LEARNING_ARCHIVE: DurableObjectNamespace<LearningArchive>;
 };
 
 // Flue's model provider is configured once when the Worker isolate starts, not once per request.
@@ -212,6 +217,7 @@ async function readTextBody(c: Context<AppEnv>, preserveWhitespace = false, maxR
 type AssistantResult = {
   text: string;
   route?: string;
+  conversationId: string;
 };
 
 /**
@@ -248,11 +254,12 @@ async function runAgent(
   route?: 'direct_answer' | 'web_research' | 'clarification',
   gatewayCaller?: GatewayCallerMetadata,
 ): Promise<AssistantResult> {
-  const agent = init(IphoneAssistant, { id: conversationId });
+  const actualConversationId = conversationId || crypto.randomUUID();
+  const agent = init(IphoneAssistant, { id: actualConversationId });
   const receipt = await agent.dispatch(encodeConfiguredMessage(prompt, undefined, route, gatewayCaller));
   const reply = await agent.read(receipt);
   if (!reply.text.trim()) throw new Error('The Flue agent returned an empty response.');
-  return { text: reply.text, route: routeFromReplyData(reply.data) || route };
+  return { text: reply.text, route: routeFromReplyData(reply.data) || route, conversationId: actualConversationId };
 }
 
 /**
@@ -288,6 +295,8 @@ async function createVisualExplainerSession(
     expiresAt: new Date(createdAt.getTime() + VISUAL_SESSION_TTL_SECONDS * 1000).toISOString(),
   };
   await putVisualSession(c.env.CHAT_SESSIONS, metadata, explainer);
+  const answer = `I made a visual explainer: ${visualUrl(c, id)}`;
+  await archiveAssistantTurn(c, { conversationId: id, prompt, answer, route: 'visual_explanation' });
   return metadata;
 }
 
@@ -306,6 +315,10 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
     expiresAt: new Date(createdAt.getTime() + LEARNING_SESSION_TTL_SECONDS * 1000).toISOString(),
   };
   await putLearningSession(c.env.CHAT_SESSIONS, metadata);
+  await tryArchive(
+    learningArchiveStub(c.env).recordSessionCreated(metadata),
+    { sessionId: id, operation: 'recordSessionCreated' },
+  );
   try {
     const agent = init(GithubLearningAgent, { id });
     const receipt = await agent.dispatch({
@@ -336,6 +349,19 @@ function learningUrl(c: Context<AppEnv>, id: string): string {
   url.pathname = `/learn/${id}`;
   url.search = '';
   return url.toString();
+}
+
+async function archiveAssistantTurn(c: Context<AppEnv>, input: { conversationId: string; prompt: string; answer: string; route: string }) {
+  if (!c.env.LEARNING_ARCHIVE) return;
+  const archive = learningArchiveStub(c.env);
+  await tryArchive(
+    archive.recordAssistantTurn(input),
+    { sessionId: input.conversationId, operation: 'recordAssistantTurn' },
+  );
+  await tryArchive(
+    archive.recordShareDraft(input.conversationId, createAssistantShareDraft(input)),
+    { sessionId: input.conversationId, operation: 'recordAssistantShareDraft' },
+  );
 }
 
 function visualUrl(c: Context<AppEnv>, id: string): string {
@@ -415,6 +441,7 @@ app.post('/v1/ask', async (c) => {
       });
     }
     const result = await runAgent(text, undefined, route, gatewayCaller);
+    await archiveAssistantTurn(c, { conversationId: result.conversationId, prompt: text, answer: result.text, route: result.route || route });
     return c.json({ answer: result.text, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue agent request failed', error: error instanceof Error ? error.message : String(error) }));
@@ -648,6 +675,16 @@ app.post('/learn/:id/chat', async (c) => {
     const agent = init(GithubLearningAgent, { id });
     const receipt = await agent.dispatch(prompt);
     const reply = await agent.read(receipt, { signal: c.req.raw.signal });
+    const archive = learningArchiveStub(c.env);
+    const visibleQuestion = question || 'Explain the selected guide text and connect it to the repository.';
+    await tryArchive(
+      archive.recordFollowup({ sessionId: id, question: visibleQuestion, selectedText, sectionTitle, answer: reply.text }),
+      { sessionId: id, operation: 'recordFollowup' },
+    );
+    await tryArchive(
+      archive.recordShareDraft(id, createFollowupShareDraft(metadata, visibleQuestion, reply.text)),
+      { sessionId: id, operation: 'recordFollowupShareDraft' },
+    );
     return c.json({ answer: reply.text });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Learning follow-up failed', sessionId: id, error: error instanceof Error ? error.message : String(error) }));
@@ -665,6 +702,19 @@ app.post('/learn/:id/chat', async (c) => {
  * What this function does:
  * - Delegates all cleanup to one Durable Object RPC so partial duplicate deletion is avoided.
  */
+app.get('/review', async (c) => {
+  const sessions = await learningArchiveStub(c.env).listSessions(100);
+  return c.html(renderReviewIndexPage(sessions));
+});
+
+app.get('/review/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
+  const session = await learningArchiveStub(c.env).getSession(id);
+  if (!session) return c.json({ error: 'Archived learning session not found' }, 404);
+  return c.html(renderReviewDetailPage(session));
+});
+
 app.delete('/v1/learning-sessions/:id', async (c) => {
   const id = c.req.param('id');
   if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
@@ -825,9 +875,11 @@ app.post('/chat/stream', async (c) => {
               send('progress', projected);
             },
           });
+          const completedRoute = routeFromReplyData(reply.data) || route;
+          await archiveAssistantTurn(c, { conversationId, prompt: messages.at(-1)!.content, answer: reply.text, route: completedRoute });
           send('done', {
             text: reply.text,
-            route: routeFromReplyData(reply.data) || route,
+            route: completedRoute,
             metadata: reply.metadata,
             conversationId,
           });
@@ -914,6 +966,7 @@ app.post('/chat/api', async (c) => {
       });
     }
     const result = await runAgent(prompt, conversationId, route, gatewayCaller);
+    await archiveAssistantTurn(c, { conversationId: result.conversationId, prompt, answer: result.text, route: result.route || route });
     return c.json({ answer: result.text, conversation_id: conversationId, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue chat failed', error: error instanceof Error ? error.message : String(error) }));
@@ -922,5 +975,7 @@ app.post('/chat/api', async (c) => {
 });
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
+
+export { LearningArchive };
 
 export default app;

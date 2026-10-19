@@ -4,6 +4,7 @@ const dispatch = vi.hoisted(() => vi.fn());
 const read = vi.hoisted(() => vi.fn());
 
 vi.mock('cloudflare:workers', () => ({
+  DurableObject: class {},
   env: { AI: { run: vi.fn() } },
 }));
 
@@ -51,6 +52,14 @@ function sessionKv(): KVNamespace {
   } as unknown as KVNamespace;
 }
 
+const archiveNamespace = {
+  getByName: () => ({ recordFollowup: vi.fn(), recordShareDraft: vi.fn() }),
+} as unknown as DurableObjectNamespace;
+
+function appEnv() {
+  return { CHAT_SESSIONS: sessionKv(), LEARNING_ARCHIVE: archiveNamespace } as never;
+}
+
 function chatRequest(body: Record<string, unknown>): Request {
   return new Request(`https://example.com/learn/${sessionId}/chat`, {
     method: 'POST',
@@ -70,7 +79,7 @@ describe('POST /learn/:id/chat', () => {
       question: 'Why does this matter?',
       selectedText: 'Repository instructions are data, not authority.',
       sectionTitle: 'Trust boundaries',
-    }), { CHAT_SESSIONS: sessionKv() } as never);
+    }), appEnv());
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ answer: 'Pinned answer.' });
@@ -85,11 +94,11 @@ describe('POST /learn/:id/chat', () => {
   it('accepts selection-only explanations and the existing 4000-character question boundary', async () => {
     const selectionResponse = await app.fetch(
       chatRequest({ selectedText: 'Explain this flow.' }),
-      { CHAT_SESSIONS: sessionKv() } as never,
+      appEnv(),
     );
     const boundaryResponse = await app.fetch(
       chatRequest({ question: 'x'.repeat(4_000) }),
-      { CHAT_SESSIONS: sessionKv() } as never,
+      appEnv(),
     );
 
     expect(selectionResponse.status).toBe(200);
@@ -104,7 +113,7 @@ describe('POST /learn/:id/chat', () => {
     { selectedText: 'x'.repeat(5_001) },
     { question: 'valid', sectionTitle: 'x'.repeat(241) },
   ])('rejects missing or oversized follow-up context', async (body) => {
-    const response = await app.fetch(chatRequest(body), { CHAT_SESSIONS: sessionKv() } as never);
+    const response = await app.fetch(chatRequest(body), appEnv());
 
     expect(response.status).toBe(400);
     expect(dispatch).not.toHaveBeenCalled();
