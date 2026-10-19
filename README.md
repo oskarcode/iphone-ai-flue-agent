@@ -42,7 +42,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 - `FlueIphoneAssistantAgent` stores normal conversation history in a Durable Object.
 - `FlueGithubLearningAgent` stores one repository tutor and expires its state after one hour.
 - `CHAT_SESSIONS` KV stores ten-minute handoffs and one-hour learning records/receipts.
-- Workers AI runs through AI Gateway; Browser Run and public search support web research.
+- Workers AI runs through AI Gateway; Cloudflare Web Search (Exa) and Workers AI page conversion support web research.
 - GitHub API and raw content are read-only, bounded, and pinned to a resolved commit SHA.
 
 ## Traffic Flow (Input -> Output)

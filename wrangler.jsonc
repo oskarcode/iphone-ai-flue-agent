@@ -10,8 +10,8 @@
       "custom_domain": true
     }
   ],
-  // Browser Run Quick Actions require 2026-03-24 or later; this project uses its current deploy date.
-  "compatibility_date": "2026-09-20",
+  // Cloudflare Web Search requires the current Workers runtime API.
+  "compatibility_date": "2026-10-13",
   "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
   // Non-secret model and gateway selectors are visible to the Worker through process.env.
   "vars": {
@@ -20,13 +20,9 @@
     "JEV_MODEL": "typesafe/jev",
     "JEV_SKIP_CACHE": "true"
   },
-  // Remote bindings make local development call the account's real AI and Browser Run services.
+  // Local development uses the account's real Workers AI, Web Search, and AI Gateway services.
   "ai": {
     "binding": "AI",
-    "remote": true
-  },
-  "browser": {
-    "binding": "BROWSER",
     "remote": true
   },
   // KV stores ten-minute handoffs plus one-hour learning records; Flue conversation state stays in Durable Objects.

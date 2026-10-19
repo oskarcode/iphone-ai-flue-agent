@@ -1,20 +1,29 @@
-// Vitest assertions exercise retrieval input safety and provider response parsing without network calls.
+// Vitest exercises retrieval safety and Cloudflare retrieval adapters without network calls.
 import { describe, expect, it, vi } from 'vitest';
 import {
   boundMarkdown,
-  parseDuckDuckGoResults,
-  readPageWithBrowser,
-  selectArticleCandidate,
+  readPageWithAi,
+  searchPublicWeb,
   validatePublicUrl,
 } from '../src/tools/web-research.ts';
 
+function mockAi(overrides: Record<string, unknown> = {}) {
+  return {
+    websearch: vi.fn(),
+    toMarkdown: vi.fn(),
+    ...overrides,
+  } as unknown as Ai & { websearch(request: Record<string, unknown>): Promise<Response> };
+}
+
 describe('retrieval tools', () => {
-  it('accepts a public HTTPS URL', () => {
+  it('accepts public HTTPS and IPv6 URLs', () => {
     expect(validatePublicUrl('https://developers.cloudflare.com/workers/').hostname).toBe('developers.cloudflare.com');
+    expect(validatePublicUrl('https://[2606:4700:4700::1111]/').hostname).toBe('[2606:4700:4700::1111]');
   });
 
   it.each([
     'http://localhost/test',
+    'http://service.internal/test',
     'http://127.0.0.1/test',
     'http://10.1.2.3/test',
     'http://[::1]/test',
@@ -27,55 +36,6 @@ describe('retrieval tools', () => {
     expect(() => validatePublicUrl(url)).toThrow();
   });
 
-  it('accepts a public IPv6 URL', () => {
-    expect(validatePublicUrl('https://[2606:4700:4700::1111]/').hostname).toBe('[2606:4700:4700::1111]');
-  });
-
-  it('parses DuckDuckGo result HTML', () => {
-    const html = '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com">Example</a><a class="result__snippet">Useful result</a>';
-    expect(parseDuckDuckGoResults(html)).toEqual([{ title: 'Example', url: 'https://example.com', snippet: 'Useful result' }]);
-  });
-
-  it('prefers focused article content over a longer main container', () => {
-    const articleText = 'Article paragraph. '.repeat(50);
-    const mainText = `Navigation ${'link '.repeat(400)}${articleText}`;
-    expect(selectArticleCandidate([
-      { selector: 'main', results: [{ html: `<main>${mainText}</main>`, text: mainText }] },
-      { selector: 'article', results: [{ html: `<article>${articleText}</article>`, text: articleText }] },
-    ])).toMatchObject({ selector: 'article', text: articleText });
-  });
-
-  it('uses a main container when no focused article container exists', () => {
-    const text = 'Documentation content. '.repeat(30);
-    expect(selectArticleCandidate([
-      { selector: 'main', results: [{ html: `<main>${text}</main>`, text }] },
-    ])).toMatchObject({ selector: 'main', text });
-  });
-
-  it('prefers a complete main body over multiple article cards', () => {
-    const card = 'Article card content. '.repeat(30);
-    const main = `Complete page body. ${card}${card}${'More content. '.repeat(100)}`;
-    expect(selectArticleCandidate([
-      { selector: 'article', results: [
-        { html: `<article>${card}</article>`, text: card },
-        { html: `<article>${card}</article>`, text: card },
-      ] },
-      { selector: 'main', results: [{ html: `<main>${main}</main>`, text: main }] },
-    ])).toMatchObject({ selector: 'main', text: main });
-  });
-
-  it('selects one dominant article among smaller related cards', () => {
-    const article = 'Complete article content. '.repeat(150);
-    const relatedCard = 'Related article card. '.repeat(25);
-    expect(selectArticleCandidate([
-      { selector: 'article', results: [
-        { html: `<article>${relatedCard}</article>`, text: relatedCard },
-        { html: `<article>${article}</article>`, text: article },
-        { html: `<article>${relatedCard}</article>`, text: relatedCard },
-      ] },
-    ])).toMatchObject({ selector: 'article', text: article });
-  });
-
   it('preserves the beginning and conclusion when bounding long Markdown', () => {
     const result = boundMarkdown(`START-${'x'.repeat(2_000)}-END`, 1_000);
     expect(result.truncated).toBe(true);
@@ -86,7 +46,7 @@ describe('retrieval tools', () => {
     expect(result.returnedCharacters).toBeLessThanOrEqual(1_000);
   });
 
-  it('returns short Markdown unchanged', () => {
+  it('returns short Markdown unchanged and rejects invalid limits', () => {
     expect(boundMarkdown('Complete article', 100)).toEqual({
       markdown: 'Complete article',
       sourceCharacters: 16,
@@ -94,93 +54,100 @@ describe('retrieval tools', () => {
       truncated: false,
       omittedRegion: 'none',
     });
+    expect(() => boundMarkdown('Long content', 0)).toThrow('positive integer');
   });
 
-  it('applies a custom page evidence limit for search-result reads', async () => {
+  it('uses Cloudflare Web Search with Exa and the configured AI Gateway', async () => {
+    vi.stubEnv('AI_GATEWAY_ID', 'iphone-flue-shortcut');
+    const websearch = vi.fn().mockResolvedValue(Response.json({
+      items: [
+        { title: 'Cloudflare docs', url: 'https://developers.cloudflare.com/workers-ai/features/web-search/', description: 'Official documentation.' },
+        { title: 'Unsafe', url: 'http://127.0.0.1/private', description: 'Discard me.' },
+      ],
+      metadata: { requestId: 'request-1', latencyMs: 42 },
+    }));
+    const search = await searchPublicWeb('Cloudflare Web Search', mockAi({ websearch }), new AbortController().signal);
+
+    expect(websearch).toHaveBeenCalledWith({
+      gatewayId: 'iphone-flue-shortcut',
+      provider: 'exa',
+      query: 'Cloudflare Web Search',
+      limit: 8,
+    });
+    expect(search).toEqual({
+      provider: 'cloudflare-web-search-exa',
+      results: [{
+        title: 'Cloudflare docs',
+        url: 'https://developers.cloudflare.com/workers-ai/features/web-search/',
+        snippet: 'Official documentation.',
+      }],
+      metadata: { requestId: 'request-1', latencyMs: 42 },
+    });
+    vi.unstubAllEnvs();
+  });
+
+  it('converts HTML through Workers AI and applies the requested evidence limit', async () => {
     const text = `START ${'detail '.repeat(500)} END`;
-    const quickAction = vi.fn()
-      .mockResolvedValueOnce(Response.json({ success: true, result: [], meta: { finalUrl: 'https://example.com/post' } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: [], meta: { finalUrl: 'https://example.com/post' } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: text, meta: { finalUrl: 'https://example.com/post' } }));
-    const page = await readPageWithBrowser(
+    const toMarkdown = vi.fn().mockResolvedValue({
+      id: 'document-1',
+      name: 'post',
+      mimeType: 'text/html',
+      format: 'markdown',
+      tokens: 500,
+      data: text,
+    });
+    const fetcher = vi.fn().mockResolvedValue(new Response('<html>article</html>', {
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })) as unknown as typeof fetch;
+    const page = await readPageWithAi(
       'https://example.com/post',
-      { quickAction } as unknown as CloudflareBindings['BROWSER'],
+      mockAi({ toMarkdown }),
       1_000,
+      new AbortController().signal,
+      fetcher,
     );
 
-    expect(page.truncated).toBe(true);
-    expect(page.returnedCharacters).toBeLessThanOrEqual(1_000);
+    expect(toMarkdown).toHaveBeenCalledWith(expect.objectContaining({ name: 'post', blob: expect.any(Blob) }));
+    expect(page).toMatchObject({
+      url: 'https://example.com/post',
+      extraction: 'full_page',
+      rendering: 'workers_ai_converted',
+      truncated: true,
+      omittedRegion: 'middle',
+    });
     expect(page.markdown).toContain('middle content omitted');
   });
 
-  it('extracts focused article HTML and supplies relative-link context', async () => {
-    const articleText = 'Useful article content. '.repeat(30);
-    const quickAction = vi.fn()
-      .mockResolvedValueOnce(Response.json({
-        success: true,
-        result: [{ selector: 'article', results: [{ html: `<article><a href="/docs">${articleText}</a></article>`, text: articleText }] }],
-        meta: { title: 'Useful article', finalUrl: 'https://example.com/post' },
-      }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: `[Useful article](/docs)\n\n${articleText}` }));
-    const page = await readPageWithBrowser(
-      'https://example.com/post?campaign=test',
-      { quickAction } as unknown as CloudflareBindings['BROWSER'],
+  it('prefers Markdown negotiated directly from the origin', async () => {
+    const toMarkdown = vi.fn();
+    const fetcher = vi.fn().mockResolvedValue(new Response('# Direct Markdown', {
+      headers: { 'content-type': 'text/markdown; charset=utf-8' },
+    })) as unknown as typeof fetch;
+    const page = await readPageWithAi(
+      'https://example.com/article',
+      mockAi({ toMarkdown }),
+      2_000,
+      new AbortController().signal,
+      fetcher,
     );
 
-    expect(page).toMatchObject({
-      url: 'https://example.com/post',
-      title: 'Useful article',
-      extraction: 'article',
-      selector: 'article',
-      truncated: false,
-      omittedRegion: 'none',
-    });
-    expect(quickAction).toHaveBeenNthCalledWith(2, 'markdown', expect.objectContaining({
-      html: expect.stringContaining('<base href="https://example.com/post">'),
-      setJavaScriptEnabled: false,
-    }));
+    expect(page).toMatchObject({ markdown: '# Direct Markdown', rendering: 'markdown_negotiated', truncated: false });
+    expect(toMarkdown).not.toHaveBeenCalled();
   });
 
-  it('keeps complete scraped text when Markdown conversion is implausibly short', async () => {
-    const articleText = 'Complete article content. '.repeat(40);
-    const quickAction = vi.fn()
-      .mockResolvedValueOnce(Response.json({
-        success: true,
-        result: [{ selector: 'article', results: [{ html: `<article>${articleText}</article>`, text: articleText }] }],
-        meta: { finalUrl: 'https://example.com/post' },
-      }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: 'Partial' }));
-    const page = await readPageWithBrowser(
-      'https://example.com/post',
-      { quickAction } as unknown as CloudflareBindings['BROWSER'],
-    );
+  it('validates every redirect before following it', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, {
+      status: 302,
+      headers: { location: 'http://127.0.0.1/private' },
+    })) as unknown as typeof fetch;
 
-    expect(page.markdown).toBe(articleText.trim());
-  });
-
-  it('falls back to whole-page Markdown when focused scraping fails', async () => {
-    const quickAction = vi.fn()
-      .mockRejectedValueOnce(new Error('scrape unavailable'))
-      .mockResolvedValueOnce(Response.json({
-        success: true,
-        result: '# Fallback page',
-        meta: { finalUrl: 'https://example.com/final' },
-      }));
-    const page = await readPageWithBrowser(
+    await expect(readPageWithAi(
       'https://example.com/start',
-      { quickAction } as unknown as CloudflareBindings['BROWSER'],
-    );
-
-    expect(page).toMatchObject({
-      url: 'https://example.com/final',
-      extraction: 'full_page',
-      markdown: '# Fallback page',
-      truncated: false,
-      omittedRegion: 'none',
-    });
-  });
-
-  it('enforces positive Markdown limits', () => {
-    expect(() => boundMarkdown('Long content', 0)).toThrow('positive integer');
+      mockAi(),
+      2_000,
+      new AbortController().signal,
+      fetcher,
+    )).rejects.toThrow('Private network URLs');
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
