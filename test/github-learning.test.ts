@@ -173,6 +173,10 @@ describe('GitHub learning sessions', () => {
     expect(html).not.toContain('<script>unsafe()</script>');
     expect(html).toContain('/v1/learning-sessions/');
     expect(html).toContain('Runtime walkthrough');
+    expect(html).toContain('Learn this codebase through chat');
+    expect(html).toContain('High-level purpose');
+    expect(html).toContain('data-prompt=');
+    expect(html).toContain('form.requestSubmit()');
     expect(html).toContain('class="tutor-launcher"');
     expect(html).toContain('class="tutor-panel"');
     expect(html).toContain("document.addEventListener('selectionchange'");

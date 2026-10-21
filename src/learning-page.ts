@@ -188,6 +188,9 @@ function pageShell(title: string, metadata: LearningSessionMetadata, body: strin
     button.danger { border-color:var(--danger); color:var(--danger); background:transparent; }
     button:disabled,textarea:disabled { opacity:.55; cursor:not-allowed; }
     .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; }
+    .prompt-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-top:18px; }
+    .prompt-card { min-height:unset; padding:12px 14px; border-color:var(--line); border-radius:16px; color:var(--ink); background:color-mix(in srgb,var(--mint) 42%,var(--paper)); text-align:left; font-weight:800; }
+    .prompt-card span { display:block; margin-top:4px; color:var(--muted); font-size:.78rem; font-weight:600; }
     /* Queued and terminal generation status. */
     .waiting { max-width:620px; margin:10vh auto; text-align:center; }
     .spinner { width:54px; height:54px; margin:20px auto; border:5px solid var(--line); border-top-color:var(--teal); border-radius:50%; animation:spin .9s linear infinite; }
@@ -280,6 +283,16 @@ export function renderLearningWaitingPage(metadata: LearningSessionMetadata): st
  * - Uses textContent for follow-up answers so model output cannot become browser markup.
  */
 export function renderLearningGuidePage(metadata: LearningSessionMetadata, guide: LearningGuide): string {
+  const learningPrompts = [
+    ['High-level purpose', 'Explain this codebase at a high level: what problem it solves, who uses it, the main runtime entry points, and the 5 most important concepts I should understand first.'],
+    ['Architecture map', 'Map the architecture of this repository. Show the major components, their responsibilities, and how state/data moves between them. Cite the files I should read.'],
+    ['Traffic flow', 'Walk me through the main traffic/request flow from entry point to response. Include API routes, background work, durable/stateful parts, and external services.'],
+    ['API → backend → frontend', 'Explain how the API/backend/frontend pieces map together. For each important user action, show the frontend file, backend route/handler, state/storage used, and response path.'],
+    ['Folder and file tour', 'Teach me the folder and file structure. For each important directory, explain why it exists, what files matter, and what order I should read them in.'],
+    ['Main code walkthrough', 'Teach me the main code files in learning order. For each file: purpose, important functions/classes, key control flow, and beginner-friendly explanation of the syntax and design choices.'],
+    ['Safe change plan', 'If I wanted to make a small feature or fix, where should I start? Give safe extension points, tests/checks to run, and files to avoid changing casually.'],
+  ] as const;
+  const promptButtons = learningPrompts.map(([title, prompt]) => `<button class="prompt-card" type="button" data-prompt="${escapeHtml(prompt)}">${escapeHtml(title)}<span>${escapeHtml(prompt)}</span></button>`).join('');
   const navigation = [
     ['overview', 'Overview'], ['quick-start', 'Start'], ['architecture', 'Architecture'], ['flows', 'Flows'],
     ...guide.sections.map((section) => [section.id, section.title]), ['safe-changes', 'Change safely'], ['quiz', 'Quiz'],
@@ -287,7 +300,7 @@ export function renderLearningGuidePage(metadata: LearningSessionMetadata, guide
   const sections = guide.sections.map((section) => `<section id="${escapeHtml(section.id)}"><div class="eyebrow">Code walkthrough</div><h2>${escapeHtml(section.title)}</h2><p class="summary">${escapeHtml(section.summary)}</p>${renderMarkdown(section.content)}<div class="evidence"><strong>Repository evidence</strong><ul>${section.evidence.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join('')}</ul></div></section>`).join('');
   const body = `<nav>${navigation}</nav><main>
     <section id="overview"><div class="eyebrow">Repository orientation</div><h2>${escapeHtml(guide.title)}</h2><p class="summary">${escapeHtml(guide.subtitle)}</p>${renderMarkdown(guide.overview)}<p><a href="${escapeHtml(metadata.repositoryUrl)}" target="_blank" rel="noreferrer">Open repository at GitHub</a></p></section>
-    <section id="quick-start"><div class="eyebrow">Developer quick start</div><h2>Operate it before reading every file</h2><ol>${guide.quickStart.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ol></section>
+    <section id="quick-start"><div class="eyebrow">Repository tutor prompts</div><h2>Learn this codebase through chat</h2><p class="summary">Use these prompts to ask the commit-pinned tutor for focused code-learning answers instead of reading every generated section.</p><div class="prompt-grid">${promptButtons}</div><h3>Quick start notes</h3><ol>${guide.quickStart.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ol></section>
     <section id="architecture"><div class="eyebrow">Architecture</div><h2>Components and responsibilities</h2><ul>${guide.architecture.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ul></section>
     <section id="flows"><div class="eyebrow">Runtime order</div><h2>Request and data flows</h2>${guide.requestFlows.map((item) => `<span class="flow">${escapeHtml(item)}</span>`).join('')}</section>
     ${sections}
@@ -343,6 +356,7 @@ export function renderLearningGuidePage(metadata: LearningSessionMetadata, guide
     document.querySelector('#tutor-expand').addEventListener('click',toggleTutorSize);
     askSelection.addEventListener('click',()=>{if(!selectedText)return;question.value='Explain this selected text and connect it to the repository.';openTutor();});
     clearSelectionButton.addEventListener('click',clearSelection);
+    document.querySelectorAll('[data-prompt]').forEach((button)=>button.addEventListener('click',()=>{question.value=button.dataset.prompt||'';clearSelection();openTutor();form.requestSubmit();}));
     question.addEventListener('keydown',(event)=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();form.requestSubmit();}});
     document.addEventListener('selectionchange',()=>{clearTimeout(selectionTimer);selectionTimer=setTimeout(captureSelection,280);});
     document.addEventListener('pointerup',(event)=>{if(panel.contains(event.target)||launcher.contains(event.target))return;setTimeout(captureSelection,0);});
