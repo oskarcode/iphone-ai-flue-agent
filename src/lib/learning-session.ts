@@ -1,5 +1,5 @@
-// This module owns the short-lived KV record shared by HTTP routes and the durable learning agent.
-export const LEARNING_SESSION_TTL_SECONDS = 60 * 60;
+// This module owns the learning-session record shared by HTTP routes and the durable learning agent.
+export const LEARNING_SESSION_TTL_SECONDS = 0;
 export const LEARNING_SESSION_KEY_PREFIX = 'learning-session:';
 
 // Status is intentionally small because the browser only needs queued, ready, or terminal failure.
@@ -116,9 +116,7 @@ export async function getLearningSession(kv: KVNamespace, id: string): Promise<L
  */
 export async function putLearningSession(kv: KVNamespace, metadata: LearningSessionMetadata): Promise<void> {
   const existing = await kv.get<LearningSessionRecord>(learningSessionRecordKey(metadata.id), 'json');
-  await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ metadata, guide: existing?.guide }), {
-    expiration: learningSessionExpiration(metadata.expiresAt),
-  });
+  await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ metadata, guide: existing?.guide }));
 }
 
 /**
@@ -137,9 +135,7 @@ export async function putLearningSubmission(
   submissionId: string,
   expiresAt: string,
 ): Promise<void> {
-  await kv.put(learningSessionSubmissionKey(id), submissionId, {
-    expiration: learningSessionExpiration(expiresAt),
-  });
+  await kv.put(learningSessionSubmissionKey(id), submissionId);
 }
 
 /**
@@ -187,9 +183,7 @@ export async function putLearningGuide(
   guide: LearningGuide,
 ): Promise<void> {
   const readyMetadata = { ...metadata, status: 'ready' as const, error: undefined };
-  await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ metadata: readyMetadata, guide }), {
-    expiration: learningSessionExpiration(metadata.expiresAt),
-  });
+  await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ metadata: readyMetadata, guide }));
 }
 
 /**

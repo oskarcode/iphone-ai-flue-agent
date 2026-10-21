@@ -313,7 +313,7 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
     commitSha: repository.commitSha,
     privateRepository: repository.private,
     createdAt: createdAt.toISOString(),
-    expiresAt: new Date(createdAt.getTime() + LEARNING_SESSION_TTL_SECONDS * 1000).toISOString(),
+    expiresAt: '9999-12-31T23:59:59.999Z',
   };
   await putLearningSession(c.env.CHAT_SESSIONS, metadata);
   await tryArchive(
@@ -323,7 +323,7 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
   try {
     const agent = init(GithubLearningAgent, { id });
     const receipt = await agent.dispatch({
-      message: 'Create and publish the complete code-learning guide for this repository.',
+      message: 'Create and publish the chat-first repository tutor launch page.',
       initialData: { sessionId: id, repository },
       idempotencyKey: `learning-guide:${id}`,
     });
@@ -837,7 +837,7 @@ app.post('/chat/stream', async (c) => {
           if (route === 'github_learning') {
             const session = await createGithubLearningSession(c, messages.at(-1)!.content);
             send('done', {
-              text: `Your temporary code-learning guide is being generated:\n\n${learningUrl(c, session.id)}\n\nIt expires in one hour.`,
+              text: `Your repository tutor is being prepared:\n\n${learningUrl(c, session.id)}`,
               route,
               conversationId,
             });
@@ -951,7 +951,7 @@ app.post('/chat/api', async (c) => {
     if (route === 'github_learning') {
       const session = await createGithubLearningSession(c, prompt);
       return c.json({
-        answer: `Your temporary code-learning guide is being generated:\n\n${learningUrl(c, session.id)}\n\nIt expires in one hour.`,
+        answer: `Your repository tutor is being prepared:\n\n${learningUrl(c, session.id)}`,
         conversation_id: conversationId,
         route,
         learning_url: learningUrl(c, session.id),

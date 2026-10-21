@@ -456,13 +456,13 @@ export function createGithubRepositoryTools(
      * - Publication confirmation, learning URL, and section count.
      *
      * What this function does:
-     * - Publishes exactly once while the temporary session remains queued and unexpired.
+     * - Publishes exactly once while the session remains queued.
      */
     async run({ data }) {
       const { env } = await import('cloudflare:workers');
       const metadata = await getLearningSession(env.CHAT_SESSIONS, sessionId);
-      if (!metadata || new Date(metadata.expiresAt).getTime() <= Date.now()) throw new Error('The learning session expired before publication.');
-      if (metadata.status === 'ready') throw new Error('The learning guide has already been published.');
+      if (!metadata) throw new Error('The learning session was deleted before publication.');
+      if (metadata.status === 'ready') throw new Error('The repository tutor has already been published.');
       const guide = data as LearningGuide;
       await putLearningGuide(env.CHAT_SESSIONS, metadata, guide);
       const archive = learningArchiveStub(env as unknown as CloudflareBindings & { LEARNING_ARCHIVE: DurableObjectNamespace });

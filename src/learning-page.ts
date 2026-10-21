@@ -1,5 +1,6 @@
 // Learning-session types define the only model-authored values this fixed renderer accepts.
 import type { LearningGuide, LearningSessionMetadata } from './lib/learning-session.ts';
+import { renderTutorMarkdown } from './lib/tutor-markdown.ts';
 
 /**
  * Input:
@@ -117,7 +118,7 @@ function renderMarkdown(value: string): string {
  * What this function does:
  * - Applies shared visual structure to queued, failed, and ready learning pages.
  */
-function pageShell(title: string, metadata: LearningSessionMetadata, body: string, script: string): string {
+function pageShell(title: string, metadata: LearningSessionMetadata, body: string, script: string, chatOnly = false): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -191,6 +192,10 @@ function pageShell(title: string, metadata: LearningSessionMetadata, body: strin
     .prompt-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-top:18px; }
     .prompt-card { min-height:unset; padding:12px 14px; border-color:var(--line); border-radius:16px; color:var(--ink); background:color-mix(in srgb,var(--mint) 42%,var(--paper)); text-align:left; font-weight:800; }
     .prompt-card span { display:block; margin-top:4px; color:var(--muted); font-size:.78rem; font-weight:600; }
+    .repo-tutor-card { max-width:980px; }
+    .repo-tutor-card #chat-log { min-height:360px; max-height:62dvh; border:1px solid var(--line); border-radius:18px; background:color-mix(in srgb,var(--canvas) 35%,var(--paper)); }
+    .repo-tutor-card .tutor-form { margin-top:12px; border:1px solid var(--line); border-radius:18px; }
+    .repo-tutor-card .chat-empty { margin:80px auto; }
     /* Queued and terminal generation status. */
     .waiting { max-width:620px; margin:10vh auto; text-align:center; }
     .spinner { width:54px; height:54px; margin:20px auto; border:5px solid var(--line); border-top-color:var(--teal); border-radius:50%; animation:spin .9s linear infinite; }
@@ -216,16 +221,39 @@ function pageShell(title: string, metadata: LearningSessionMetadata, body: strin
       #chat-log { padding:12px; }
       .tutor-form { padding:9px; }
     }
+    /* Ready sessions contain only a viewport-sized conversation and composer. */
+    .chat-only { height:100dvh; min-height:0; max-width:960px; display:flex; flex-direction:column; overflow:hidden; box-shadow:none; }
+    .chat-only main { min-height:0; flex:1; display:flex; flex-direction:column; padding:0; }
+    .chat-only #chat-log { flex:1; padding:clamp(16px,4vw,36px); gap:20px; }
+    .chat-only .message { flex-shrink:0; min-width:0; font-size:1rem; }
+    .chat-only .message.assistant { white-space:normal; border:0; padding:0; }
+    .message.assistant p { margin:.6em 0; }
+    .message.assistant h3 { margin:1.2em 0 .4em; font-size:1.12rem; }
+    .message.assistant > :first-child { margin-top:0; }
+    .message.assistant blockquote { margin:16px 0; padding:10px 16px; border-left:3px solid var(--teal); background:var(--mint); }
+    .code-block { max-width:100%; margin:16px 0; overflow:hidden; border:1px solid var(--line); border-radius:12px; }
+    .code-toolbar { display:flex; justify-content:space-between; align-items:center; padding:6px 12px; color:var(--muted); background:var(--canvas); font-size:.75rem; }
+    .code-toolbar button { min-height:32px; padding:2px 10px; border-color:var(--line); color:var(--ink); background:var(--paper); font-size:.75rem; }
+    .code-block pre { margin:0; border:0; border-radius:0; white-space:pre; font-size:.86rem; }
+    .table-scroll { max-width:100%; overflow-x:auto; margin:16px 0; }
+    .table-scroll table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    .table-scroll th,.table-scroll td { min-width:120px; padding:10px 12px; border:1px solid var(--line); text-align:left; vertical-align:top; }
+    .table-scroll th { background:var(--mint); }
+    .chat-only .prompt-grid { display:flex; flex-wrap:nowrap; flex-shrink:0; gap:8px; margin:0; padding:10px 16px; overflow-x:auto; }
+    .chat-only .prompt-card { flex:none; min-height:44px; padding:8px 12px; border-radius:999px; font-size:.8rem; }
+    .chat-only .tutor-form { flex-shrink:0; padding:12px max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); background:var(--paper); }
+    .chat-only textarea { font-size:16px; }
+    :focus-visible { outline:2px solid var(--teal); outline-offset:3px; }
   </style>
 </head>
-<body><div class="shell">
-  <!-- Repository identity and immutable session boundary. -->
+<body><div class="shell${chatOnly ? ' chat-only' : ''}">
+  ${chatOnly ? '' : `<!-- Repository identity and immutable session boundary. -->
   <header>
-    <div class="eyebrow">Temporary code learning session</div>
+    <div class="eyebrow">Repository tutor session</div>
     <h1>${escapeHtml(title)}</h1>
-    <p class="subtitle">${escapeHtml(metadata.repository)} at an immutable commit. This session expires at ${escapeHtml(new Date(metadata.expiresAt).toLocaleString())}.</p>
-    <div class="repo"><span class="chip">${escapeHtml(metadata.defaultBranch)}</span><span class="chip">${escapeHtml(metadata.commitSha.slice(0, 12))}</span><span class="chip">1 hour</span></div>
-  </header>
+    <p class="subtitle">${escapeHtml(metadata.repository)} at an immutable commit. Keep this browser page open and use the repository tutor when it is ready.</p>
+    <div class="repo"><span class="chip">${escapeHtml(metadata.defaultBranch)}</span><span class="chip">${escapeHtml(metadata.commitSha.slice(0, 12))}</span><span class="chip">chat-first</span></div>
+  </header>`}
   ${body}
 </div><script>${script}</script></body></html>`;
 }
@@ -276,13 +304,11 @@ export function renderLearningWaitingPage(metadata: LearningSessionMetadata): st
  * - Ready session metadata and its validated structured guide.
  *
  * Output:
- * - A self-contained guide with safe content, follow-up chat, and deletion controls.
+ * - A chat-only page with starter prompts and safely formatted tutor answers.
  *
- * What this function does:
- * - Converts the fixed guide schema into navigable HTML pinned to one commit.
- * - Uses textContent for follow-up answers so model output cannot become browser markup.
+ * The legacy guide argument is accepted for route compatibility but never rendered.
  */
-export function renderLearningGuidePage(metadata: LearningSessionMetadata, guide: LearningGuide): string {
+export function renderLearningGuidePage(metadata: LearningSessionMetadata, _guide: LearningGuide): string {
   const learningPrompts = [
     ['High-level purpose', 'Explain this codebase at a high level: what problem it solves, who uses it, the main runtime entry points, and the 5 most important concepts I should understand first.'],
     ['Architecture map', 'Map the architecture of this repository. Show the major components, their responsibilities, and how state/data moves between them. Cite the files I should read.'],
@@ -292,76 +318,55 @@ export function renderLearningGuidePage(metadata: LearningSessionMetadata, guide
     ['Main code walkthrough', 'Teach me the main code files in learning order. For each file: purpose, important functions/classes, key control flow, and beginner-friendly explanation of the syntax and design choices.'],
     ['Safe change plan', 'If I wanted to make a small feature or fix, where should I start? Give safe extension points, tests/checks to run, and files to avoid changing casually.'],
   ] as const;
-  const promptButtons = learningPrompts.map(([title, prompt]) => `<button class="prompt-card" type="button" data-prompt="${escapeHtml(prompt)}">${escapeHtml(title)}<span>${escapeHtml(prompt)}</span></button>`).join('');
-  const navigation = [
-    ['overview', 'Overview'], ['quick-start', 'Start'], ['architecture', 'Architecture'], ['flows', 'Flows'],
-    ...guide.sections.map((section) => [section.id, section.title]), ['safe-changes', 'Change safely'], ['quiz', 'Quiz'],
-  ].map(([id, label]) => `<a href="#${escapeHtml(id)}">${escapeHtml(label)}</a>`).join('');
-  const sections = guide.sections.map((section) => `<section id="${escapeHtml(section.id)}"><div class="eyebrow">Code walkthrough</div><h2>${escapeHtml(section.title)}</h2><p class="summary">${escapeHtml(section.summary)}</p>${renderMarkdown(section.content)}<div class="evidence"><strong>Repository evidence</strong><ul>${section.evidence.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join('')}</ul></div></section>`).join('');
-  const body = `<nav>${navigation}</nav><main>
-    <section id="overview"><div class="eyebrow">Repository orientation</div><h2>${escapeHtml(guide.title)}</h2><p class="summary">${escapeHtml(guide.subtitle)}</p>${renderMarkdown(guide.overview)}<p><a href="${escapeHtml(metadata.repositoryUrl)}" target="_blank" rel="noreferrer">Open repository at GitHub</a></p></section>
-    <section id="quick-start"><div class="eyebrow">Repository tutor prompts</div><h2>Learn this codebase through chat</h2><p class="summary">Use these prompts to ask the commit-pinned tutor for focused code-learning answers instead of reading every generated section.</p><div class="prompt-grid">${promptButtons}</div><h3>Quick start notes</h3><ol>${guide.quickStart.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ol></section>
-    <section id="architecture"><div class="eyebrow">Architecture</div><h2>Components and responsibilities</h2><ul>${guide.architecture.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ul></section>
-    <section id="flows"><div class="eyebrow">Runtime order</div><h2>Request and data flows</h2>${guide.requestFlows.map((item) => `<span class="flow">${escapeHtml(item)}</span>`).join('')}</section>
-    ${sections}
-    <section id="safe-changes"><div class="eyebrow">Extension map</div><h2>Change the system safely</h2><ul>${guide.safeChanges.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ul></section>
-    <section id="quiz"><div class="eyebrow">Explain it back</div><h2>Knowledge check</h2>${guide.quiz.map((item) => `<details><summary>${escapeHtml(item.question)}</summary><p>${escapeHtml(item.answer)}</p></details>`).join('')}</section>
-    <section class="session-card" id="session"><div class="eyebrow">Keep learning</div><h2>Select any guide text to ask the tutor</h2><p class="summary">The floating Flue tutor stays pinned to commit <code>${escapeHtml(metadata.commitSha.slice(0, 12))}</code>. Highlight a sentence or code path and the tutor will prepare an explanation.</p><div class="actions"><button class="secondary" id="open-tutor-inline" type="button">Open repository tutor</button><button class="danger" id="delete-session" type="button">Delete session</button><a class="button-link" href="/chat">General assistant</a></div></section>
-  </main>
-  <button class="tutor-launcher" id="tutor-open" type="button" aria-controls="tutor-panel" aria-expanded="false">Ask repository tutor</button>
-  <aside class="tutor-panel" id="tutor-panel" aria-label="Repository tutor chat" hidden>
-    <div class="tutor-header"><div><h2>Repository tutor</h2><p>${escapeHtml(metadata.repository)} at ${escapeHtml(metadata.commitSha.slice(0, 12))}</p></div><div class="tutor-header-actions"><button class="tutor-icon" id="tutor-expand" type="button" aria-label="Expand tutor" aria-expanded="false">Expand</button><button class="tutor-icon" id="tutor-close" type="button" aria-label="Close tutor">Close</button></div></div>
-    <div class="selection-context"><div class="selection-preview" id="selection-preview">Highlight guide text to prepare an explanation.</div><div class="selection-actions"><button class="tutor-small" id="ask-selection" type="button" disabled>Explain selection</button><button class="tutor-small" id="clear-selection" type="button" disabled>Clear</button></div></div>
-    <div id="chat-log"><p class="chat-empty" id="chat-empty">Ask about a file, flow, test, or safe change. Your follow-up conversation remains attached to this repository session.</p></div>
-    <form class="tutor-form" id="chat-form"><textarea id="question" maxlength="4000" placeholder="Ask about this guide or repository..." rows="2"></textarea><button id="send">Send</button></form>
-  </aside>`;
+  const promptButtons = learningPrompts.map(([title, prompt]) => `<button class="prompt-card" type="button" data-prompt="${escapeHtml(prompt)}">${escapeHtml(title)}</button>`).join('');
+  const body = `<main aria-label="Repository tutor">
+    <div id="chat-log" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></div>
+    <div class="prompt-grid" role="group" aria-label="Starter prompts">${promptButtons}</div>
+    <form class="tutor-form" id="chat-form"><textarea id="question" aria-label="Your question" maxlength="4000" placeholder="Ask about this repository..." rows="2"></textarea><button id="send" type="submit">Send</button></form>
+  </main>`;
   const script = `
     const sessionId=${JSON.stringify(metadata.id)};
     const log=document.querySelector('#chat-log');
     const form=document.querySelector('#chat-form');
     const question=document.querySelector('#question');
     const send=document.querySelector('#send');
-    const panel=document.querySelector('#tutor-panel');
-    const launcher=document.querySelector('#tutor-open');
-    const preview=document.querySelector('#selection-preview');
-    const askSelection=document.querySelector('#ask-selection');
-    const clearSelectionButton=document.querySelector('#clear-selection');
-    const empty=document.querySelector('#chat-empty');
-    let selectedText='';
-    let selectedSection='';
-    let selectionTimer;
-    /** Input: whether to focus the composer. Output: none. What this function does: opens the floating tutor without rebuilding conversation state. */
-    function openTutor(focus=true){panel.hidden=false;launcher.setAttribute('aria-expanded','true');if(focus)question.focus();}
-    /** Input: none. Output: none. What this function does: hides the drawer while preserving messages and selection context. */
-    function closeTutor(){panel.hidden=true;launcher.setAttribute('aria-expanded','false');}
-    /** Input: none. Output: none. What this function does: expands or restores the tutor without losing its scroll position. */
-    function toggleTutorSize(){const top=log.scrollTop;const expanded=panel.classList.toggle('expanded');const button=document.querySelector('#tutor-expand');button.textContent=expanded?'Restore':'Expand';button.setAttribute('aria-expanded',String(expanded));button.setAttribute('aria-label',expanded?'Restore tutor size':'Expand tutor');requestAnimationFrame(()=>{log.scrollTop=top;});}
-    /** Input: a selection anchor node. Output: nearby guide context. What this function does: gives the tutor a bounded section label. */
-    function sectionForNode(node){const element=node&&node.nodeType===Node.TEXT_NODE?node.parentElement:node;const section=element&&element.closest?element.closest('section'):null;const heading=(section&&section.querySelector('h2,h3'))||(element&&element.closest?element.closest('h1,h2,h3'):null);return heading?heading.textContent.trim().slice(0,240):document.title.slice(0,240);}
-    /** Input: the browser's current selection. Output: bounded visible context. What this function does: opens the tutor with an explanation draft for selected guide text. */
-    function captureSelection(){const selection=window.getSelection();const text=selection?selection.toString().trim():'';if(!text)return;const anchor=selection.anchorNode&&(selection.anchorNode.nodeType===Node.TEXT_NODE?selection.anchorNode.parentElement:selection.anchorNode);const focus=selection.focusNode&&(selection.focusNode.nodeType===Node.TEXT_NODE?selection.focusNode.parentElement:selection.focusNode);if((anchor&&panel.contains(anchor))||(focus&&panel.contains(focus)))return;selectedText=text.slice(0,5000);selectedSection=sectionForNode(selection.anchorNode);preview.textContent=selectedText;askSelection.disabled=false;clearSelectionButton.disabled=false;if(!question.value.trim())question.value='Explain this selected text and connect it to the repository.';openTutor(false);}
-    /** Input: current selection state. Output: empty context. What this function does: prevents stale guide text from affecting later questions. */
-    function clearSelection(){selectedText='';selectedSection='';preview.textContent='Highlight guide text to prepare an explanation.';askSelection.disabled=true;clearSelectionButton.disabled=true;}
-    /** Input: message role and text. Output: the new message element. What this function does: appends escaped browser text and keeps the newest answer visible. */
-    function add(role,text){empty?.remove();const item=document.createElement('div');item.className='message '+role;item.textContent=text;log.append(item);log.scrollTop=log.scrollHeight;return item;}
-    /** Input: form submit event. Output: a completed follow-up request. What this function does: asks the same durable tutor and renders its text-only answer. */
-    async function handleSubmit(event){event.preventDefault();const value=question.value.trim();if(!value&&!selectedText)return;const visibleQuestion=value||'Explain the selected guide text.';add('user',visibleQuestion);const answer=add('assistant','Reading the pinned repository context...');question.value='';question.disabled=true;send.disabled=true;try{const response=await fetch('/learn/'+encodeURIComponent(sessionId)+'/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:value,selectedText,sectionTitle:selectedSection})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Question failed');answer.textContent=data.answer;}catch(error){answer.classList.add('error');answer.textContent=error instanceof Error?error.message:String(error);}finally{question.disabled=false;send.disabled=false;question.focus();}}
-    /** Input: none. Output: a completed delete request. What this function does: confirms and removes both temporary KV and durable conversation state. */
-    async function handleDelete(){if(!confirm('Delete this guide and its durable conversation now?'))return;const response=await fetch('/v1/learning-sessions/'+encodeURIComponent(sessionId),{method:'DELETE'});if(response.ok)location.href='/chat';else alert('Session deletion failed.');}
+    const renderAnswer=${renderTutorMarkdown.toString()};
+    let busy=false;
+    function add(role,text){const item=document.createElement('div');item.className='message '+role;item.setAttribute('aria-label',role==='user'?'You':'Tutor');item.textContent=text;log.append(item);log.scrollTop=log.scrollHeight;return item;}
+    async function handleSubmit(event){
+      event.preventDefault();
+      const value=question.value.trim();
+      if(!value||busy)return;
+      busy=true;
+      add('user',value);
+      const answer=add('assistant','Thinking…');
+      question.value='';question.disabled=true;send.disabled=true;
+      document.querySelectorAll('[data-prompt]').forEach(button=>button.disabled=true);
+      try{
+        const response=await fetch('/learn/'+encodeURIComponent(sessionId)+'/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:value})});
+        const data=await response.json();
+        if(!response.ok)throw new Error(data.error||'Question failed');
+        if(typeof data.answer!=='string')throw new Error('No answer received. Please try again.');
+        answer.innerHTML=renderAnswer(data.answer);
+      }catch(error){
+        answer.classList.add('error');answer.textContent=error instanceof Error?error.message:String(error);
+        question.value=value;
+      }finally{
+        busy=false;question.disabled=false;send.disabled=false;
+        document.querySelectorAll('[data-prompt]').forEach(button=>button.disabled=false);
+        question.focus({preventScroll:true});
+      }
+    }
+    log.addEventListener('click',async(event)=>{
+      const button=event.target.closest('[data-copy-code]');
+      if(!button)return;
+      try{await navigator.clipboard.writeText(button.closest('.code-block').querySelector('code').textContent);button.textContent='Copied';}
+      catch{button.textContent='Copy failed';}
+      setTimeout(()=>button.textContent='Copy',1800);
+    });
     form.addEventListener('submit',handleSubmit);
-    document.querySelector('#delete-session').addEventListener('click',handleDelete);
-    launcher.addEventListener('click',()=>openTutor());
-    document.querySelector('#open-tutor-inline').addEventListener('click',()=>openTutor());
-    document.querySelector('#tutor-close').addEventListener('click',closeTutor);
-    document.querySelector('#tutor-expand').addEventListener('click',toggleTutorSize);
-    askSelection.addEventListener('click',()=>{if(!selectedText)return;question.value='Explain this selected text and connect it to the repository.';openTutor();});
-    clearSelectionButton.addEventListener('click',clearSelection);
-    document.querySelectorAll('[data-prompt]').forEach((button)=>button.addEventListener('click',()=>{question.value=button.dataset.prompt||'';clearSelection();openTutor();form.requestSubmit();}));
-    question.addEventListener('keydown',(event)=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();form.requestSubmit();}});
-    document.addEventListener('selectionchange',()=>{clearTimeout(selectionTimer);selectionTimer=setTimeout(captureSelection,280);});
-    document.addEventListener('pointerup',(event)=>{if(panel.contains(event.target)||launcher.contains(event.target))return;setTimeout(captureSelection,0);});
-    document.addEventListener('touchend',(event)=>{if(panel.contains(event.target)||launcher.contains(event.target))return;setTimeout(captureSelection,320);},{passive:true});
-    document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&!panel.hidden)closeTutor();});
+    document.querySelectorAll('[data-prompt]').forEach((button)=>button.addEventListener('click',()=>{if(busy)return;question.value=button.dataset.prompt||'';question.focus();}));
+    question.addEventListener('keydown',(event)=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit();}});
   `;
-  return pageShell(guide.title, metadata, body, script);
+  return pageShell(`Repository tutor: ${metadata.repository}`, metadata, body, script, true);
 }
