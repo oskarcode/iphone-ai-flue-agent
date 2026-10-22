@@ -27,12 +27,12 @@ import {
 } from './lib/visual-session.ts';
 import {
   deleteLearningSession,
-  getLearningGuide,
+  getLearningSessionRecord,
   getLearningSession,
   getLearningSubmission,
   LEARNING_SESSION_TTL_SECONDS,
   putLearningSession,
-  putLearningSubmission,
+  putRepositoryTutorSession,
   type LearningSessionMetadata,
 } from './lib/learning-session.ts';
 import { resolveGithubRepository } from './tools/github-repository.ts';
@@ -304,7 +304,7 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
   const createdAt = new Date();
   const metadata: LearningSessionMetadata = {
     id,
-    status: 'queued',
+    status: 'ready',
     repository: repository.fullName,
     repositoryUrl: repository.url,
     defaultBranch: repository.defaultBranch,
@@ -313,24 +313,14 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
     createdAt: createdAt.toISOString(),
     expiresAt: '9999-12-31T23:59:59.999Z',
   };
-  await putLearningSession(c.env.CHAT_SESSIONS, metadata);
+  // Repository resolution is enough to open chat. The first model turn answers
+  // the user's question; it no longer generates a hidden guide before admission.
+  await putRepositoryTutorSession(c.env.CHAT_SESSIONS, metadata, repository);
   await tryArchive(
     learningArchiveStub(c.env).recordSessionCreated(metadata),
     { sessionId: id, operation: 'recordSessionCreated' },
   );
-  try {
-    const agent = init(GithubLearningAgent, { id });
-    const receipt = await agent.dispatch({
-      message: 'Create and publish the chat-first repository tutor launch page.',
-      initialData: { sessionId: id, repository },
-      idempotencyKey: `learning-guide:${id}`,
-    });
-    await putLearningSubmission(c.env.CHAT_SESSIONS, id, receipt.submissionId, metadata.expiresAt);
-    return metadata;
-  } catch (error) {
-    await deleteLearningSession(c.env.CHAT_SESSIONS, id);
-    throw error;
-  }
+  return metadata;
 }
 
 /**
@@ -338,7 +328,7 @@ async function createGithubLearningSession(c: Context<AppEnv>, prompt: string): 
  * - The current request context and a learning-session UUID.
  *
  * Output:
- * - An absolute URL for the public temporary guide page.
+ * - An absolute URL for the legacy standalone repository tutor.
  *
  * What this function does:
  * - Reuses the request origin while removing unrelated query parameters.
@@ -542,7 +532,7 @@ app.get('/visual/:id', async (c) => {
  * - GET /learn/:id with an opaque session UUID.
  *
  * Output:
- * - Queued/failed status HTML or the completed fixed-renderer learning guide.
+ * - A repository chat interface, or setup status for older sessions.
  *
  * What this function does:
  * - Reads the atomic KV session record and never renders raw model-authored HTML.
@@ -552,8 +542,7 @@ app.get('/learn/:id', async (c) => {
   if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
   const metadata = await getLearningSession(c.env.CHAT_SESSIONS, id);
   if (!metadata) return c.json({ error: 'Learning session expired or was deleted' }, 404);
-  const guide = metadata.status === 'ready' ? await getLearningGuide(c.env.CHAT_SESSIONS, id) : null;
-  return c.html(guide ? renderLearningGuidePage(metadata, guide) : renderLearningWaitingPage(metadata));
+  return c.html(metadata.status === 'ready' ? renderLearningGuidePage(metadata) : renderLearningWaitingPage(metadata));
 });
 
 /**
@@ -616,7 +605,10 @@ app.get('/learn/:id/events', async (c) => {
           const agent = init(GithubLearningAgent, { id });
           await agent.read(submissionId, { signal: c.req.raw.signal });
           const current = await getLearningSession(c.env.CHAT_SESSIONS, id);
-          if (current?.status !== 'ready') throw new Error('The agent completed without publishing a guide.');
+          if (!current) throw new Error('The repository session was deleted.');
+          // Compatibility for queued sessions from the former guide workflow.
+          // Successful agent completion is sufficient; no guide is required.
+          if (current.status !== 'ready') await putLearningSession(c.env.CHAT_SESSIONS, { ...current, status: 'ready', error: undefined });
           send('ready', { status: 'ready' });
         } catch (error) {
           if (c.req.raw.signal.aborted) return;
@@ -644,14 +636,14 @@ app.get('/learn/:id/events', async (c) => {
  * - A text answer from the same commit-pinned durable tutor.
  *
  * What this function does:
- * - Reuses the session Durable Object only after the guide reaches ready state.
+ * - Initializes a new tutor on its first question, or reuses an existing tutor.
  * - Labels browser-selected guide text as untrusted source material for the tutor.
  */
 app.post('/learn/:id/chat', async (c) => {
   const id = c.req.param('id');
   if (!CONVERSATION_ID_PATTERN.test(id)) return c.json({ error: 'Invalid learning session' }, 400);
-  const metadata = await getLearningSession(c.env.CHAT_SESSIONS, id);
-  if (!metadata || metadata.status !== 'ready') return c.json({ error: 'Learning session is not ready or has expired' }, 404);
+  const record = await getLearningSessionRecord(c.env.CHAT_SESSIONS, id);
+  if (!record || record.metadata.status !== 'ready') return c.json({ error: 'Learning session is not ready or has expired' }, 404);
   const body = await readBoundedJson<{ question?: unknown; selectedText?: unknown; sectionTitle?: unknown }>(c, MAX_LEARNING_QUESTION_BYTES);
   const question = typeof body?.question === 'string' ? body.question.trim() : '';
   const selectedText = typeof body?.selectedText === 'string' ? body.selectedText.trim() : '';
@@ -669,7 +661,11 @@ app.post('/learn/:id/chat', async (c) => {
   ].filter(Boolean).join('\n\n');
   try {
     const agent = init(GithubLearningAgent, { id });
-    const receipt = await agent.dispatch(prompt);
+    // Flue validates initialData on creation and ignores it on existing instances.
+    // Legacy sessions have their repository context in the existing agent already.
+    const receipt = await agent.dispatch(record.repository
+      ? { message: prompt, initialData: { sessionId: id, repository: record.repository } }
+      : prompt);
     const reply = await agent.read(receipt, { signal: c.req.raw.signal });
     return c.json({ answer: reply.text });
   } catch (error) {
@@ -940,7 +936,7 @@ app.post('/chat/api', async (c) => {
     if (route === 'github_learning') {
       const session = await createGithubLearningSession(c, prompt);
       return c.json({
-        answer: `Your repository tutor is being prepared:\n\n${learningUrl(c, session.id)}`,
+        answer: `Your repository tutor is ready:\n\n${learningUrl(c, session.id)}`,
         conversation_id: conversationId,
         route,
         learning_url: learningUrl(c, session.id),

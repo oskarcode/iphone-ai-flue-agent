@@ -4,12 +4,14 @@ import { renderReviewDetailPage, renderReviewIndexPage } from '../src/review-pag
 import {
   getLearningGuide,
   getLearningSession,
+  getLearningSessionRecord,
   getLearningSubmission,
   learningSessionRecordKey,
   learningSessionSubmissionKey,
   putLearningGuide,
   putLearningSession,
   putLearningSubmission,
+  putRepositoryTutorSession,
   type LearningGuide,
   type LearningSessionMetadata,
 } from '../src/lib/learning-session.ts';
@@ -80,6 +82,10 @@ describe('GitHub learning sessions', () => {
     });
   });
 
+  it('accepts the exact pasted-text tau repository handoff', () => {
+    expect(parseGithubRepositoryRequest('Explain this pasted text in plain English:\n\nhttps://github.com/huggingface/tau.git')).toEqual({ owner: 'huggingface', repo: 'tau', url: 'https://github.com/huggingface/tau' });
+  });
+
   it('rejects requests without a GitHub repository URL', () => {
     expect(() => parseGithubRepositoryRequest('Teach me this project')).toThrow('public GitHub repository URL');
   });
@@ -119,6 +125,26 @@ describe('GitHub learning sessions', () => {
     await expect(getLearningSubmission(kv, metadata.id)).resolves.toBe('submission-1');
   });
 
+  it('stores a chat-ready repository without a generated guide or setup receipt', async () => {
+    const kv = memoryKv();
+    const repository = { owner: 'huggingface', repo: 'tau', fullName: 'huggingface/tau', url: 'https://github.com/huggingface/tau', defaultBranch: 'main', commitSha: 'a'.repeat(40), description: '', files: ['README.md'], private: false, treeTruncated: false };
+    await putRepositoryTutorSession(kv, metadata, repository);
+    expect(await getLearningSessionRecord(kv, metadata.id)).toEqual({ metadata, repository });
+    expect(await getLearningGuide(kv, metadata.id)).toBeNull();
+    expect(await getLearningSubmission(kv, metadata.id)).toBeNull();
+    await putLearningSession(kv, { ...metadata, status: 'ready' });
+    expect((await getLearningSessionRecord(kv, metadata.id))?.repository).toEqual(repository);
+    expect(renderLearningGuidePage(metadata)).toContain('id="chat-form"');
+  });
+
+  it('recovers only the obsolete missing-guide failure for existing tutors', async () => {
+    const kv = memoryKv();
+    await putLearningSession(kv, { ...metadata, status: 'failed', error: 'The agent completed without publishing a guide.' });
+    expect(await getLearningSession(kv, metadata.id)).toMatchObject({ status: 'ready', error: undefined });
+    await putLearningSession(kv, { ...metadata, status: 'failed', error: 'GitHub timed out.' });
+    expect(await getLearningSession(kv, metadata.id)).toMatchObject({ status: 'failed', error: 'GitHub timed out.' });
+  });
+
   it('renders executable waiting-page JavaScript', () => {
     const html = renderLearningWaitingPage({ ...metadata, status: 'queued' });
     const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
@@ -129,7 +155,7 @@ describe('GitHub learning sessions', () => {
 
   it('renders terminal failure without a spinner or polling script', () => {
     const html = renderLearningWaitingPage({ ...metadata, status: 'failed', error: 'GitHub timed out.' });
-    expect(html).toContain('Guide generation stopped');
+    expect(html).toContain('Repository tutor unavailable');
     expect(html).toContain('GitHub timed out.');
     expect(html).not.toContain('class="spinner"');
     expect(html).not.toContain('setInterval');

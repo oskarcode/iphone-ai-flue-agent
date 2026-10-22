@@ -71,6 +71,9 @@ describe('main chat mode and recap routing', () => {
     expect(data.repositorySession).toEqual({ id: expect.any(String), repository: 'sample/private-repo', private: true });
     expect(data.text).not.toContain('/learn/');
     expect(resolveRepo).toHaveBeenCalledOnce();
+    expect(recordSessionCreated).toHaveBeenCalledWith(expect.objectContaining({ status: 'ready' }));
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
     expect(recordShareDraft).not.toHaveBeenCalled();
   });
 });

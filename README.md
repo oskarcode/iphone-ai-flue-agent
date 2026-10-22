@@ -18,7 +18,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 1. `src/app.ts`: public HTTP contracts, validation, routing, SSE, and service orchestration.
 2. `src/agents/`: durable assistant behavior and lifecycle.
 3. `src/tools/`: Jev routing, web research, and commit-pinned GitHub reads.
-4. `src/lib/learning-session.ts`: repository session KV state and atomic setup publication.
+4. `src/lib/learning-session.ts`: chat-ready repository snapshots in KV and legacy session compatibility.
 5. `src/chat-page.ts` and `src/learning-page.ts`: fixed self-contained browser interfaces.
 6. `wrangler.jsonc`: production route, bindings, Durable Object migrations, and observability.
 
@@ -32,7 +32,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 - Repository starter prompts appear under the composer; follow-ups reuse the same tutor. **General chat** replaces the repository view with the general conversation; **Repository tutor** returns to the same tutor. Each mode retains its own transcript, unsent draft, and scroll position. **New chat** resets both browser views.
 - **What I learned · post draft** uses the active conversation to request one cohesive X-style post: a natural opening, concrete lessons, an integrated TypeScript mental model, and a grounded closing. It targets roughly 100–160 words, so it may require X long-post support or adaptation before publishing. The entire post is in one copyable block; nothing posts automatically. Private-source redaction is prompt-based, not a guaranteed publication filter: review drafts before sharing.
 - Review is no longer linked from chat. New conversation turns and automatic social drafts are not copied into the review archive. Historical records, repository setup snapshots, and GitHub action audit records remain; no existing data is deleted.
-- The UI is unified, not the backend: Flue still persists separate assistant/repository agents, and repository setup still publishes an internal payload. This is not browser-only storage.
+- The UI is unified, not the backend: Flue still persists separate assistant/repository agents. Repository setup stores the resolved commit and file list directly; no model-generated guide or publication step is required. This is not browser-only storage.
 
 ## Learning Guide
 - [Detailed learning guide](docs/iphone-ai-flue-agent-learning-guide.html)
@@ -50,7 +50,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 ## Traffic Flow (Input -> Output)
 1. Shortcut/chat request -> Cloudflare Access -> Hono route -> Jev classification.
 2. Normal request -> durable assistant -> Workers AI and optional research -> JSON or SSE answer.
-3. GitHub learning request -> resolve repository -> queued KV record -> durable tutor -> ready record -> original question answered inside main chat.
+3. GitHub learning request -> resolve repository -> ready KV snapshot -> first question initializes the tutor with that snapshot -> answer inside main chat.
 4. Tutor follow-up -> bounded payload -> same repository Durable Object -> formatted answer. Legacy `/learn/:id` links still work.
 5. Manual delete API -> repository KV record and tutor Durable Object storage removed. New chat only resets the browser UI.
 
@@ -98,8 +98,8 @@ Remote AI and Browser bindings can use account resources during local developmen
 - If Access redirects or returns `403`, inspect the Access application and service-token policy.
 - If Jev chooses the wrong route, inspect `QUESTIONS` in `src/tools/jev-router.ts`.
 - If GitHub creation returns `502`, inspect GitHub URL/repository visibility, API limits, and `resolveGithubRepository()`.
-- If a guide stays queued, inspect `/learn/:id/status`, `/events`, Durable Object logs, and submission receipt KV state.
-- If a guide fails, reload `/learn/:id`; terminal errors are stored and polling stops.
+- New repository sessions are ready after GitHub resolution; they do not generate a guide before chat. For older queued sessions, `/learn/:id/events` still follows the original receipt.
+- The exact legacy error “The agent completed without publishing a guide.” is recovered automatically on status/page/chat reads. Other setup failures remain errors; retry a new session from General chat.
 - To leave repository mode or learn a different repository, choose **General chat** first. The recap preset uses the current conversation; review its wording and source privacy before posting.
 - If deployment fails, inspect `wrangler.jsonc`, then run `npm run types` and `npm run check`.
 - Live logs: `npx wrangler tail iphone-ai-flue-agent`.

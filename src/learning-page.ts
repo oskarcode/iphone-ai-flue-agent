@@ -273,7 +273,7 @@ function pageShell(title: string, metadata: LearningSessionMetadata, body: strin
 export function renderLearningWaitingPage(metadata: LearningSessionMetadata): string {
   const sessionId = JSON.stringify(metadata.id);
   const failed = metadata.status === 'failed';
-  const body = `<main><section class="waiting">${failed ? '' : '<div class="spinner"></div>'}<h2>${failed ? 'Guide generation stopped' : 'Reading the repository'}</h2><p id="status"${failed ? ' class="error"' : ''}>${escapeHtml(failed ? metadata.error || 'Guide generation failed.' : 'The durable Flue agent is mapping files, architecture, flows, tests, and safe extension points.')}</p><p class="summary">${failed ? 'Start a new session from the general assistant to try again.' : 'You can leave this page and return to the same URL while the session remains active.'}</p></section></main>`;
+  const body = `<main><section class="waiting">${failed ? '' : '<div class="spinner"></div>'}<h2>${failed ? 'Repository tutor unavailable' : 'Preparing the repository tutor'}</h2><p id="status"${failed ? ' class="error"' : ''}>${escapeHtml(failed ? metadata.error || 'Repository setup failed.' : 'Finishing setup for an existing repository session.')}</p><p class="summary">${failed ? 'Start a new session from the general assistant to try again.' : 'You can leave this page and return to the same URL while the session remains active.'}</p></section></main>`;
   if (failed) return pageShell(`Learning ${metadata.repository}`, metadata, body, '');
   const script = `
     const sessionId=${sessionId};
@@ -281,7 +281,7 @@ export function renderLearningWaitingPage(metadata: LearningSessionMetadata): st
     const source=new EventSource('/learn/'+encodeURIComponent(sessionId)+'/events');
     let pollTimer;
     /** Input: optional error text. Output: none. What this function does: stops watchers and shows terminal failure. */
-    function showFailure(error){source.close();clearInterval(pollTimer);statusEl.className='error';statusEl.textContent=error||'Guide generation failed.';}
+    function showFailure(error){source.close();clearInterval(pollTimer);statusEl.className='error';statusEl.textContent=error||'Repository setup failed.';}
     /** Input: none. Output: none. What this function does: stops watchers and reloads the published guide. */
     function showReady(){source.close();clearInterval(pollTimer);location.reload();}
     source.addEventListener('ready',showReady);
@@ -309,7 +309,7 @@ export function renderLearningWaitingPage(metadata: LearningSessionMetadata): st
  *
  * The legacy guide argument is accepted for route compatibility but never rendered.
  */
-export function renderLearningGuidePage(metadata: LearningSessionMetadata, _guide: LearningGuide): string {
+export function renderLearningGuidePage(metadata: LearningSessionMetadata, _guide?: LearningGuide): string {
   const learningPrompts = [...REPOSITORY_STARTER_PROMPTS, ['What I learned · post draft', LEARNING_RECAP_PROMPT]];
   const promptButtons = learningPrompts.map(([title, prompt]) => `<button class="prompt-card" type="button" data-prompt="${escapeHtml(prompt)}">${escapeHtml(title)}</button>`).join('');
   const body = `<main aria-label="Repository tutor">

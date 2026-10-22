@@ -1,12 +1,7 @@
 // Flue supplies typed tool registration; Valibot validates every model-generated tool input.
-import { defineTool, type StateSetter } from '@flue/runtime';
+import { defineTool } from '@flue/runtime';
 import * as v from 'valibot';
-// Learning-session helpers publish only validated structured data to temporary KV state.
-import {
-  getLearningSession,
-  putLearningGuide,
-  type LearningGuide,
-} from '../lib/learning-session.ts';
+import { getLearningSession } from '../lib/learning-session.ts';
 import { learningArchiveStub, tryArchive } from '../lib/learning-archive.ts';
 
 // These bounds keep remote repository discovery predictable in Worker memory and model context.
@@ -241,7 +236,7 @@ function base64Utf8(value: string): string {
   return btoa(binary);
 }
 
-// These schemas bound model output before fixed application HTML renders the guide.
+// Bound the inputs of explicitly requested GitHub write actions.
 const issueSchema = v.object({
   title: v.pipe(v.string(), v.trim(), v.minLength(8), v.maxLength(120)),
   body: v.pipe(v.string(), v.trim(), v.minLength(20), v.maxLength(MAX_ISSUE_BODY_CHARACTERS)),
@@ -254,35 +249,12 @@ const fileEditSchema = v.object({
   commitMessage: v.pipe(v.string(), v.trim(), v.minLength(8), v.maxLength(180)),
 });
 
-const guideSectionSchema = v.object({
-  id: v.pipe(v.string(), v.trim(), v.regex(/^[a-z0-9-]{2,60}$/)),
-  title: v.pipe(v.string(), v.trim(), v.minLength(2), v.maxLength(120)),
-  summary: v.pipe(v.string(), v.trim(), v.minLength(10), v.maxLength(500)),
-  content: v.pipe(v.string(), v.trim(), v.minLength(40), v.maxLength(8_000)),
-  evidence: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(500))), v.maxLength(12)),
-});
-
-const learningGuideSchema = v.object({
-  title: v.pipe(v.string(), v.trim(), v.minLength(3), v.maxLength(120)),
-  subtitle: v.pipe(v.string(), v.trim(), v.minLength(5), v.maxLength(220)),
-  overview: v.pipe(v.string(), v.trim(), v.minLength(40), v.maxLength(2_000)),
-  quickStart: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.minLength(3), v.maxLength(500))), v.minLength(2), v.maxLength(10)),
-  architecture: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.minLength(3), v.maxLength(800))), v.minLength(2), v.maxLength(12)),
-  requestFlows: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.minLength(3), v.maxLength(800))), v.minLength(1), v.maxLength(12)),
-  sections: v.pipe(v.array(guideSectionSchema), v.minLength(4), v.maxLength(12)),
-  safeChanges: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.minLength(3), v.maxLength(600))), v.minLength(2), v.maxLength(12)),
-  quiz: v.pipe(v.array(v.object({
-    question: v.pipe(v.string(), v.trim(), v.minLength(5), v.maxLength(500)),
-    answer: v.pipe(v.string(), v.trim(), v.minLength(5), v.maxLength(1_000)),
-  })), v.minLength(3), v.maxLength(10)),
-});
-
 /**
  * Input:
- * - A session UUID, resolved repository snapshot, and Flue persisted-state setter.
+ * - A session UUID and resolved repository snapshot.
  *
  * Output:
- * - Three Flue tools for file listing, bounded reading, and one-time guide publication.
+ * - File-list/read tools and permission-gated GitHub action tools.
  *
  * What this function does:
  * - Closes over the immutable repository so the model cannot switch owners, repos, or commits.
@@ -290,7 +262,6 @@ const learningGuideSchema = v.object({
 export function createGithubRepositoryTools(
   sessionId: string,
   repository: GithubRepository,
-  setPublished: StateSetter<boolean>,
 ) {
   const listFiles = defineTool({
     name: 'list_repository_files',
@@ -443,36 +414,5 @@ export function createGithubRepositoryTools(
     },
   });
 
-  const publishGuide = defineTool({
-    name: 'publish_learning_guide',
-    description: 'Publish the final evidence-based learning guide. Call this exactly once after repository research is complete.',
-    input: learningGuideSchema,
-    /**
-     * Input:
-     * - One Valibot-validated structured learning guide.
-     *
-     * Output:
-     * - Publication confirmation, learning URL, and section count.
-     *
-     * What this function does:
-     * - Publishes exactly once while the session remains queued.
-     */
-    async run({ data }) {
-      const { env } = await import('cloudflare:workers');
-      const metadata = await getLearningSession(env.CHAT_SESSIONS, sessionId);
-      if (!metadata) throw new Error('The learning session was deleted before publication.');
-      if (metadata.status === 'ready') throw new Error('The repository tutor has already been published.');
-      const guide = data as LearningGuide;
-      await putLearningGuide(env.CHAT_SESSIONS, metadata, guide);
-      const archive = learningArchiveStub(env as unknown as CloudflareBindings & { LEARNING_ARCHIVE: DurableObjectNamespace });
-      await tryArchive(
-        archive.recordGuidePublished(metadata, guide),
-        { sessionId, operation: 'recordGuidePublished' },
-      );
-      setPublished(true);
-      return { output: { published: true, learningUrl: `/learn/${sessionId}`, sectionCount: data.sections.length } };
-    },
-  });
-
-  return { listFiles, readFile, publishGuide, createIssue, createFileChange };
+  return { listFiles, readFile, createIssue, createFileChange };
 }

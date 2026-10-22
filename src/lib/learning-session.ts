@@ -1,4 +1,5 @@
 // This module owns the learning-session record shared by HTTP routes and the durable learning agent.
+import type { GithubRepository } from '../tools/github-repository.ts';
 export const LEARNING_SESSION_TTL_SECONDS = 0;
 export const LEARNING_SESSION_KEY_PREFIX = 'learning-session:';
 
@@ -41,11 +42,23 @@ export type LearningGuide = {
   quiz: Array<{ question: string; answer: string }>;
 };
 
-// Keeping metadata and guide together makes the queued -> ready transition one atomic KV write.
-type LearningSessionRecord = {
+// New sessions store tool context immediately; guide remains only for legacy archive compatibility.
+export type LearningSessionRecord = {
   metadata: LearningSessionMetadata;
+  repository?: GithubRepository;
   guide?: LearningGuide;
 };
+
+export async function getLearningSessionRecord(kv: KVNamespace, id: string): Promise<LearningSessionRecord | null> {
+  const record = await kv.get<LearningSessionRecord>(learningSessionRecordKey(id), 'json');
+  if (!record) return null;
+  // This exact old failure means the initialized agent completed successfully but
+  // did not publish a now-unnecessary guide. Do not hide other genuine failures.
+  if (record.metadata.status === 'failed' && record.metadata.error === 'The agent completed without publishing a guide.') {
+    return { ...record, metadata: { ...record.metadata, status: 'ready', error: undefined } };
+  }
+  return record;
+}
 
 /**
  * Input:
@@ -100,7 +113,7 @@ export function learningSessionExpiration(expiresAt: string): number {
  * - Reads only the metadata portion of the atomic session record.
  */
 export async function getLearningSession(kv: KVNamespace, id: string): Promise<LearningSessionMetadata | null> {
-  const record = await kv.get<LearningSessionRecord>(learningSessionRecordKey(id), 'json');
+  const record = await getLearningSessionRecord(kv, id);
   return record?.metadata ?? null;
 }
 
@@ -116,7 +129,12 @@ export async function getLearningSession(kv: KVNamespace, id: string): Promise<L
  */
 export async function putLearningSession(kv: KVNamespace, metadata: LearningSessionMetadata): Promise<void> {
   const existing = await kv.get<LearningSessionRecord>(learningSessionRecordKey(metadata.id), 'json');
-  await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ metadata, guide: existing?.guide }));
+  await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ ...existing, metadata }));
+}
+
+/** Create a chat-ready session with its immutable tool context, without an AI setup turn. */
+export async function putRepositoryTutorSession(kv: KVNamespace, metadata: LearningSessionMetadata, repository: GithubRepository): Promise<void> {
+  await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ metadata, repository }));
 }
 
 /**
