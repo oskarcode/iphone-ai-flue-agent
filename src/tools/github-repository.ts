@@ -8,7 +8,6 @@ import {
   type LearningGuide,
 } from '../lib/learning-session.ts';
 import { learningArchiveStub, tryArchive } from '../lib/learning-archive.ts';
-import { createGuideShareDraft } from '../lib/share-draft.ts';
 
 // These bounds keep remote repository discovery predictable in Worker memory and model context.
 const GITHUB_API = 'https://api.github.com';
@@ -469,10 +468,6 @@ export function createGithubRepositoryTools(
       await tryArchive(
         archive.recordGuidePublished(metadata, guide),
         { sessionId, operation: 'recordGuidePublished' },
-      );
-      await tryArchive(
-        archive.recordShareDraft(sessionId, createGuideShareDraft(metadata, guide)),
-        { sessionId, operation: 'recordGuideShareDraft' },
       );
       setPublished(true);
       return { output: { published: true, learningUrl: `/learn/${sessionId}`, sectionCount: data.sections.length } };

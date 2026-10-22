@@ -17,7 +17,7 @@ import { createSubmissionEventProjector } from './lib/chat-events.ts';
 import { encodeConfiguredMessage, gatewayCallerFromModelInput } from './lib/configured-message.ts';
 import { gatewayCallerFromAccess, gatewayMetadata, type GatewayCallerMetadata } from './lib/gateway-metadata.ts';
 import { correctedTextFromAi, createGrammarRequest, grammarModelFromConfiguredModel } from './lib/grammar-correction.ts';
-import { createAssistantShareDraft, createFollowupShareDraft } from './lib/share-draft.ts';
+import { chatTurnPrompt, LEARNING_RECAP_PROMPT } from './lib/chat-presets.ts';
 import { generateVisualExplainer } from './lib/visual-explainer.ts';
 import {
   getVisualSession,
@@ -295,8 +295,6 @@ async function createVisualExplainerSession(
     expiresAt: new Date(createdAt.getTime() + VISUAL_SESSION_TTL_SECONDS * 1000).toISOString(),
   };
   await putVisualSession(c.env.CHAT_SESSIONS, metadata, explainer);
-  const answer = `I made a visual explainer: ${visualUrl(c, id)}`;
-  await archiveAssistantTurn(c, { conversationId: id, prompt, answer, route: 'visual_explanation' });
   return metadata;
 }
 
@@ -350,19 +348,6 @@ function learningUrl(c: Context<AppEnv>, id: string): string {
   url.pathname = `/learn/${id}`;
   url.search = '';
   return url.toString();
-}
-
-async function archiveAssistantTurn(c: Context<AppEnv>, input: { conversationId: string; prompt: string; answer: string; route: string }) {
-  if (!c.env.LEARNING_ARCHIVE) return;
-  const archive = learningArchiveStub(c.env);
-  await tryArchive(
-    archive.recordAssistantTurn(input),
-    { sessionId: input.conversationId, operation: 'recordAssistantTurn' },
-  );
-  await tryArchive(
-    archive.recordShareDraft(input.conversationId, createAssistantShareDraft(input)),
-    { sessionId: input.conversationId, operation: 'recordAssistantShareDraft' },
-  );
 }
 
 function visualUrl(c: Context<AppEnv>, id: string): string {
@@ -442,7 +427,6 @@ app.post('/v1/ask', async (c) => {
       });
     }
     const result = await runAgent(text, undefined, route, gatewayCaller);
-    await archiveAssistantTurn(c, { conversationId: result.conversationId, prompt: text, answer: result.text, route: result.route || route });
     return c.json({ answer: result.text, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue agent request failed', error: error instanceof Error ? error.message : String(error) }));
@@ -461,14 +445,19 @@ app.post('/v1/ask', async (c) => {
  * - Calls Workers AI directly without Flue state, Jev routing, tools, or chat history.
  */
 app.post('/v1/correct', async (c) => {
+  const startedAt = Date.now();
   const text = await readTextBody(c, true, MAX_GRAMMAR_REQUEST_BYTES);
   if (!text) return c.json({ error: `Send JSON with a non-empty text field of at most ${MAX_TEXT_LENGTH} characters` }, 400);
   try {
     // The generated Ai model union lags the currently documented GLM-5.2 binding model.
     const grammarAi = c.env.AI as { run(model: string, input: unknown, options: unknown): Promise<unknown> };
+    const identityStartedAt = Date.now();
     const gatewayCaller = await gatewayCallerForRequest(c);
+    const identityMs = Date.now() - identityStartedAt;
+    const model = grammarModelFromConfiguredModel(process.env.MODEL);
+    const inferenceStartedAt = Date.now();
     const result = await grammarAi.run(
-      grammarModelFromConfiguredModel(process.env.MODEL),
+      model,
       createGrammarRequest(text),
       {
         signal: c.req.raw.signal,
@@ -479,9 +468,15 @@ app.post('/v1/correct', async (c) => {
         },
       },
     );
-    return c.json({ corrected_text: correctedTextFromAi(result) });
+    const inferenceMs = Date.now() - inferenceStartedAt;
+    const correctedText = correctedTextFromAi(result);
+    const totalMs = Date.now() - startedAt;
+    c.header('Server-Timing', `identity;dur=${identityMs}, inference;dur=${inferenceMs}, total;dur=${totalMs}`);
+    // Timing and sizes only: never log the user's copied text or corrected content.
+    console.info(JSON.stringify({ message: 'Grammar correction completed', model, identityMs, inferenceMs, totalMs, inputChars: text.length, outputChars: correctedText.length }));
+    return c.json({ corrected_text: correctedText });
   } catch (error) {
-    console.error(JSON.stringify({ message: 'Grammar correction request failed', error: error instanceof Error ? error.message : String(error) }));
+    console.error(JSON.stringify({ message: 'Grammar correction request failed', totalMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) }));
     return c.json({ error: 'Grammar correction request failed' }, 502);
   }
 });
@@ -676,16 +671,6 @@ app.post('/learn/:id/chat', async (c) => {
     const agent = init(GithubLearningAgent, { id });
     const receipt = await agent.dispatch(prompt);
     const reply = await agent.read(receipt, { signal: c.req.raw.signal });
-    const archive = learningArchiveStub(c.env);
-    const visibleQuestion = question || 'Explain the selected guide text and connect it to the repository.';
-    await tryArchive(
-      archive.recordFollowup({ sessionId: id, question: visibleQuestion, selectedText, sectionTitle, answer: reply.text }),
-      { sessionId: id, operation: 'recordFollowup' },
-    );
-    await tryArchive(
-      archive.recordShareDraft(id, createFollowupShareDraft(metadata, visibleQuestion, reply.text)),
-      { sessionId: id, operation: 'recordFollowupShareDraft' },
-    );
     return c.json({ answer: reply.text });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Learning follow-up failed', sessionId: id, error: error instanceof Error ? error.message : String(error) }));
@@ -827,7 +812,9 @@ app.post('/chat/stream', async (c) => {
           let route: JevRoute;
           let fallback = false;
           try {
-            route = await classifyWithJev(messages.at(-1)!.content, readAbort.signal, routingContext, gatewayCaller);
+            route = messages.at(-1)!.content === LEARNING_RECAP_PROMPT
+              ? 'direct_answer'
+              : await classifyWithJev(messages.at(-1)!.content, readAbort.signal, routingContext, gatewayCaller);
           } catch (error) {
             fallback = true;
             route = 'direct_answer';
@@ -837,9 +824,10 @@ app.post('/chat/stream', async (c) => {
           if (route === 'github_learning') {
             const session = await createGithubLearningSession(c, messages.at(-1)!.content);
             send('done', {
-              text: `Your repository tutor is being prepared:\n\n${learningUrl(c, session.id)}`,
+              text: 'Opening repository tutor…',
               route,
               conversationId,
+              repositorySession: { id: session.id, repository: session.repository, private: Boolean(session.privateRepository) },
             });
             return;
           }
@@ -854,7 +842,7 @@ app.post('/chat/stream', async (c) => {
             return;
           }
           const agent = init(IphoneAssistant, { id: conversationId });
-          const receipt = await agent.dispatch(encodeConfiguredMessage(messages.at(-1)!.content, undefined, route, gatewayCaller));
+          const receipt = await agent.dispatch(encodeConfiguredMessage(chatTurnPrompt(messages), undefined, route, gatewayCaller));
           send('status', { type: 'queued', submissionId: receipt.submissionId });
           const projectEvent = createSubmissionEventProjector(receipt.submissionId);
           const reply = await agent.read(receipt, {
@@ -877,7 +865,6 @@ app.post('/chat/stream', async (c) => {
             },
           });
           const completedRoute = routeFromReplyData(reply.data) || route;
-          await archiveAssistantTurn(c, { conversationId, prompt: messages.at(-1)!.content, answer: reply.text, route: completedRoute });
           send('done', {
             text: reply.text,
             route: completedRoute,
@@ -943,7 +930,9 @@ app.post('/chat/api', async (c) => {
     const gatewayCaller = await gatewayCallerForRequest(c);
     let route: JevRoute;
     try {
-      route = await classifyWithJev(prompt, c.req.raw.signal, routingContext, gatewayCaller);
+      route = prompt === LEARNING_RECAP_PROMPT
+        ? 'direct_answer'
+        : await classifyWithJev(prompt, c.req.raw.signal, routingContext, gatewayCaller);
     } catch (error) {
       route = 'direct_answer';
       console.error(JSON.stringify({ message: 'Jev chat route failed; using direct answer', error: error instanceof Error ? error.message : String(error) }));
@@ -966,8 +955,7 @@ app.post('/chat/api', async (c) => {
         visual_url: visualUrl(c, session.id),
       });
     }
-    const result = await runAgent(prompt, conversationId, route, gatewayCaller);
-    await archiveAssistantTurn(c, { conversationId: result.conversationId, prompt, answer: result.text, route: result.route || route });
+    const result = await runAgent(chatTurnPrompt(messages), conversationId, route, gatewayCaller);
     return c.json({ answer: result.text, conversation_id: conversationId, route: result.route });
   } catch (error) {
     console.error(JSON.stringify({ message: 'Flue chat failed', error: error instanceof Error ? error.message : String(error) }));

@@ -1,6 +1,7 @@
 // Learning-session types define the only model-authored values this fixed renderer accepts.
 import type { LearningGuide, LearningSessionMetadata } from './lib/learning-session.ts';
 import { renderTutorMarkdown } from './lib/tutor-markdown.ts';
+import { LEARNING_RECAP_PROMPT, REPOSITORY_STARTER_PROMPTS } from './lib/chat-presets.ts';
 
 /**
  * Input:
@@ -309,20 +310,12 @@ export function renderLearningWaitingPage(metadata: LearningSessionMetadata): st
  * The legacy guide argument is accepted for route compatibility but never rendered.
  */
 export function renderLearningGuidePage(metadata: LearningSessionMetadata, _guide: LearningGuide): string {
-  const learningPrompts = [
-    ['High-level purpose', 'Explain this codebase at a high level: what problem it solves, who uses it, the main runtime entry points, and the 5 most important concepts I should understand first.'],
-    ['Architecture map', 'Map the architecture of this repository. Show the major components, their responsibilities, and how state/data moves between them. Cite the files I should read.'],
-    ['Traffic flow', 'Walk me through the main traffic/request flow from entry point to response. Include API routes, background work, durable/stateful parts, and external services.'],
-    ['API → backend → frontend', 'Explain how the API/backend/frontend pieces map together. For each important user action, show the frontend file, backend route/handler, state/storage used, and response path.'],
-    ['Folder and file tour', 'Teach me the folder and file structure. For each important directory, explain why it exists, what files matter, and what order I should read them in.'],
-    ['Main code walkthrough', 'Teach me the main code files in learning order. For each file: purpose, important functions/classes, key control flow, and beginner-friendly explanation of the syntax and design choices.'],
-    ['Safe change plan', 'If I wanted to make a small feature or fix, where should I start? Give safe extension points, tests/checks to run, and files to avoid changing casually.'],
-  ] as const;
+  const learningPrompts = [...REPOSITORY_STARTER_PROMPTS, ['What I learned · post draft', LEARNING_RECAP_PROMPT]];
   const promptButtons = learningPrompts.map(([title, prompt]) => `<button class="prompt-card" type="button" data-prompt="${escapeHtml(prompt)}">${escapeHtml(title)}</button>`).join('');
   const body = `<main aria-label="Repository tutor">
     <div id="chat-log" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></div>
-    <div class="prompt-grid" role="group" aria-label="Starter prompts">${promptButtons}</div>
     <form class="tutor-form" id="chat-form"><textarea id="question" aria-label="Your question" maxlength="4000" placeholder="Ask about this repository..." rows="2"></textarea><button id="send" type="submit">Send</button></form>
+    <div class="prompt-grid" role="group" aria-label="Starter prompts">${promptButtons}</div>
   </main>`;
   const script = `
     const sessionId=${JSON.stringify(metadata.id)};

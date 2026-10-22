@@ -7,7 +7,15 @@ describe('renderChatPage', () => {
     const html = renderChatPage();
     const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
     expect(html).toContain('/chat/stream');
-    expect(html).toContain('href="/review"');
+    expect(html).not.toContain('href="/review"');
+    expect(html).toContain('What I learned · post draft');
+    expect(html).toContain('id="chat-presets"');
+    expect(html).toContain('savedRepositorySession = data.repositorySession');
+    expect(html).toContain("switchChatMode('general')");
+    expect(html).toContain("switchChatMode('repository')");
+    expect(html).toContain('askRepository(repositorySession.id, content, controller.signal)');
+    expect(html).toContain('id="general-mode"');
+    expect(html).toContain('.slice(-20)');
     expect(html).toContain('How this answer was made');
     expect(html).toContain("sendMessage('Explain this pasted text in plain English:\\n\\n' + data.text)");
     expect(html).toContain("link.rel = 'noreferrer'");

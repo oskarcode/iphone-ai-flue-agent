@@ -1,6 +1,6 @@
 # iPhone AI Flue Agent
 
-A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar correction, public-web research, and temporary code-learning guides for public GitHub repositories.
+A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar correction, web research, and commit-pinned GitHub tutoring in the same chat interface.
 
 ## Start Here (Python/Django Mental Model)
 | This project | Django/Python equivalent |
@@ -18,19 +18,21 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 1. `src/app.ts`: public HTTP contracts, validation, routing, SSE, and service orchestration.
 2. `src/agents/`: durable assistant behavior and lifecycle.
 3. `src/tools/`: Jev routing, web research, and commit-pinned GitHub reads.
-4. `src/lib/learning-session.ts`: one-hour KV state and atomic guide publication.
+4. `src/lib/learning-session.ts`: repository session KV state and atomic setup publication.
 5. `src/chat-page.ts` and `src/learning-page.ts`: fixed self-contained browser interfaces.
 6. `wrangler.jsonc`: production route, bindings, Durable Object migrations, and observability.
 
 ## What This Project Does
 - `POST /v1/ask` routes one-shot requests to direct answers, web research, clarification, or GitHub learning.
-- `POST /v1/correct` performs stateless grammar correction.
+- `POST /v1/correct` performs stateless grammar correction directly through Workers AI, with explicit thinking disabled, input-sized output limits, and `Server-Timing` diagnostics. See [latency investigation](docs/grammar-latency.md).
 - `POST /handoff` moves selected iPhone text into a ten-minute browser chat handoff.
 - Browser chat streams durable follow-up answers from a Flue Durable Object.
-- Public GitHub URLs can produce an escaped, mobile-first learning guide pinned to one commit for one hour.
+- GitHub learning intent switches the main browser chat into repository tutor mode, pinned to one commit. Private repositories require a server-side `GITHUB_TOKEN` with access.
 - Explicit visual explanation requests can produce a temporary, mobile-first interactive SVG explainer page for a technical concept.
-- The existing copy -> iPhone handoff Shortcut -> chat flow treats a copied `github.com/owner/repository` URL as GitHub learning and returns a clickable guide link.
-- Ready guides include a floating repository tutor; selecting guide text prepares bounded, explicitly untrusted context for a follow-up explanation.
+- Repository starter prompts appear under the composer; follow-ups reuse the same tutor. **General chat** replaces the repository view with the general conversation; **Repository tutor** returns to the same tutor. Each mode retains its own transcript, unsent draft, and scroll position. **New chat** resets both browser views.
+- **What I learned · post draft** uses the active conversation to request one cohesive X-style post: a natural opening, concrete lessons, an integrated TypeScript mental model, and a grounded closing. It targets roughly 100–160 words, so it may require X long-post support or adaptation before publishing. The entire post is in one copyable block; nothing posts automatically. Private-source redaction is prompt-based, not a guaranteed publication filter: review drafts before sharing.
+- Review is no longer linked from chat. New conversation turns and automatic social drafts are not copied into the review archive. Historical records, repository setup snapshots, and GitHub action audit records remain; no existing data is deleted.
+- The UI is unified, not the backend: Flue still persists separate assistant/repository agents, and repository setup still publishes an internal payload. This is not browser-only storage.
 
 ## Learning Guide
 - [Detailed learning guide](docs/iphone-ai-flue-agent-learning-guide.html)
@@ -40,32 +42,31 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 ## Architecture At A Glance
 - One Hono Worker is the HTTP entrypoint and fixed HTML renderer.
 - `FlueIphoneAssistantAgent` stores normal conversation history in a Durable Object.
-- `FlueGithubLearningAgent` stores one repository tutor and expires its state after one hour.
-- `CHAT_SESSIONS` KV stores ten-minute handoffs and one-hour learning records/receipts.
+- `FlueGithubLearningAgent` stores one repository tutor without a scheduled expiry.
+- `CHAT_SESSIONS` KV stores ten-minute handoffs and repository records/receipts without a TTL.
 - Workers AI runs through AI Gateway; Cloudflare Web Search (Exa) and Workers AI page conversion support web research.
-- GitHub API and raw content are read-only, bounded, and pinned to a resolved commit SHA.
+- GitHub reads are bounded and pinned to a resolved commit SHA. Private file reads use the authenticated Contents API. Issue creation and branch-only single-file edits require chat permission (prompt-enforced).
 
 ## Traffic Flow (Input -> Output)
 1. Shortcut/chat request -> Cloudflare Access -> Hono route -> Jev classification.
 2. Normal request -> durable assistant -> Workers AI and optional research -> JSON or SSE answer.
-3. GitHub learning request -> resolve repository -> queued KV record -> durable tutor -> atomic ready record -> learning page.
-4. Typed question or selected guide text -> bounded follow-up payload -> same session Durable Object -> commit-pinned answer.
-5. Expiry/manual delete -> KV record and Durable Object storage removed.
+3. GitHub learning request -> resolve repository -> queued KV record -> durable tutor -> ready record -> original question answered inside main chat.
+4. Tutor follow-up -> bounded payload -> same repository Durable Object -> formatted answer. Legacy `/learn/:id` links still work.
+5. Manual delete API -> repository KV record and tutor Durable Object storage removed. New chat only resets the browser UI.
 
 ## Hosting and Deployment
 - Runtime: Cloudflare Workers at `https://iphoneai.oskarcode.com`.
 - Deploy command: `npm run deploy`.
 - Verification command: `npm run check`.
-- Current deployed version: `f81164ed-cb17-43d0-9e75-950d8bdb4658`.
-- Copied GitHub repository URLs now route from the existing handoff chat to a clickable temporary learning guide.
-- The floating mobile tutor is deployed; health and Access ingress passed smoke checks. Its authenticated selection interaction still needs a browser smoke test.
+- Use Wrangler deployment output for the current production version.
+- Automated checks cover recap routing, repository handoff, setup polling, cancellation, and safe rendering. Authenticated browser/private-repository interactions need a separate smoke test.
 
 ## Security Model
 - Auth boundary: Cloudflare Access is expected to protect AI/chat ingress; the Worker has no application auth middleware.
-- Public learning links: opaque UUIDs, one-hour expiry, and explicit deletion; anyone with an allowed link can use that session.
-- Secret name: optional `GITHUB_TOKEN` raises GitHub API limits; never commit its value.
-- Repository controls: public repositories only, immutable commit SHA, allowlisted paths, fixed GitHub hosts, timeouts, and byte limits.
-- Rendering controls: model content is schema-validated and escaped; browser chat answers use `textContent`.
+- Learning links use opaque UUIDs and explicit deletion, not expiry or owner-bound authorization. Verify Access protection on `/learn/*` and legacy `/review/*`, especially before private-repository use.
+- Secret name: `GITHUB_TOKEN` enables authenticated GitHub access; never commit its value.
+- Repository controls: immutable read commit SHA, allowlisted paths, fixed GitHub hosts, timeouts, and byte limits.
+- Rendering controls: model HTML is not trusted; main chat uses DOM text nodes, and the legacy tutor uses an escaped Markdown subset.
 - Follow-up controls: question, selection, and section context are independently bounded; selected guide text is labeled untrusted in both the HTTP prompt and tutor system instructions.
 - Demo limitation: there is no application-level rate limit or creator-bound authorization for learning sessions.
 
@@ -78,7 +79,7 @@ A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar corre
 | `POST /handoff`, `POST /v1/chat-session` | Create ten-minute browser handoff |
 | `GET /chat`, `GET /chat/session/:id` | Browser UI and one-time handoff consumption |
 | `POST /chat/stream`, `POST /chat/api` | Streaming or complete durable answers |
-| `GET /learn/:id`, `/status`, `/events` | Guide page and generation lifecycle |
+| `GET /learn/:id`, `/status`, `/events` | Legacy tutor page and shared setup lifecycle |
 | `GET /visual/:id` | Temporary interactive visual explainer page |
 | `POST /learn/:id/chat` | Commit-pinned tutor follow-up with a question and optional selected guide context |
 | `DELETE /v1/learning-sessions/:id` | Immediate KV and Durable Object cleanup |
@@ -99,7 +100,7 @@ Remote AI and Browser bindings can use account resources during local developmen
 - If GitHub creation returns `502`, inspect GitHub URL/repository visibility, API limits, and `resolveGithubRepository()`.
 - If a guide stays queued, inspect `/learn/:id/status`, `/events`, Durable Object logs, and submission receipt KV state.
 - If a guide fails, reload `/learn/:id`; terminal errors are stored and polling stops.
-- If selection context is missing, highlight text outside the tutor panel; the selection controls remain disabled until context is captured.
+- To leave repository mode or learn a different repository, choose **General chat** first. The recap preset uses the current conversation; review its wording and source privacy before posting.
 - If deployment fails, inspect `wrangler.jsonc`, then run `npm run types` and `npm run check`.
 - Live logs: `npx wrangler tail iphone-ai-flue-agent`.
 

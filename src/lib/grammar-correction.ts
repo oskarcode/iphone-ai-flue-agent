@@ -11,6 +11,14 @@ export function grammarModelFromConfiguredModel(configuredModel?: string): strin
   return model ? model.replace(/^cloudflare\//, '') : DEFAULT_GRAMMAR_MODEL;
 }
 
+/** Keeps short edits bounded, while retaining the existing ceiling for long text.
+ * UTF-8 bytes are a conservative token estimate, including non-English input.
+ */
+export function grammarCompletionBudget(text: string): number {
+  const bytes = new TextEncoder().encode(text).length;
+  return Math.min(GRAMMAR_MAX_COMPLETION_TOKENS, Math.max(256, Math.ceil(bytes * 1.5) + 128));
+}
+
 /** Builds the deterministic, stateless model input used by POST /v1/correct. */
 export function createGrammarRequest(text: string) {
   return {
@@ -19,8 +27,11 @@ export function createGrammarRequest(text: string) {
       { role: 'user' as const, content: text },
     ],
     temperature: 0,
-    max_completion_tokens: GRAMMAR_MAX_COMPLETION_TOKENS,
+    max_completion_tokens: grammarCompletionBudget(text),
     reasoning_effort: 'none' as const,
+    // Live GLM-5.2 responses still contained reasoning with reasoning_effort alone.
+    // Explicitly disabling it in the chat template removed that work in A/B tests.
+    chat_template_kwargs: { enable_thinking: false },
   };
 }
 

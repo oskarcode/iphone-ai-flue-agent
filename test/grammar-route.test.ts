@@ -39,6 +39,7 @@ describe('POST /v1/correct', () => {
     process.env.MODEL = 'cloudflare/@cf/zai-org/glm-5.2';
     process.env.AI_GATEWAY_ID = 'iphone-flue-shortcut';
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'info').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -55,10 +56,13 @@ describe('POST /v1/correct', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ corrected_text: 'This is a test.' });
+    expect(response.headers.get('server-timing')).toMatch(/identity;dur=\d+, inference;dur=\d+, total;dur=\d+/);
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining('"inferenceMs":'));
+    expect(console.info).not.toHaveBeenCalledWith(expect.stringContaining('this are test.'));
     expect(run).toHaveBeenCalledOnce();
     expect(run).toHaveBeenCalledWith(
       '@cf/zai-org/glm-5.2',
-      expect.objectContaining({ temperature: 0, reasoning_effort: 'none' }),
+      expect.objectContaining({ temperature: 0, reasoning_effort: 'none', chat_template_kwargs: { enable_thinking: false }, max_completion_tokens: 256 }),
       expect.objectContaining({ gateway: expect.objectContaining({ id: 'iphone-flue-shortcut', skipCache: true }) }),
     );
   });

@@ -1,3 +1,6 @@
+import { LEARNING_RECAP_PROMPT, REPOSITORY_STARTER_PROMPTS } from './lib/chat-presets.ts';
+import { askRepositoryTutor } from './lib/repository-chat.ts';
+
 /**
  * Input:
  * - No arguments; the page calls same-origin Worker routes at runtime.
@@ -215,8 +218,12 @@ export function renderChatPage() {
       background: var(--canvas);
       border: 1px solid var(--line);
       font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-      white-space: pre-wrap;
+      white-space: pre;
     }
+    .answer .code-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; color:var(--muted); font-size:.75rem; }
+    .answer .code-toolbar button { min-height:32px; font-size:.75rem; }
+    .answer .table-scroll { max-width:100%; overflow-x:auto; }
+    .answer blockquote { margin:12px 0; padding:8px 14px; border-left:3px solid var(--teal); background:var(--mint); }
     .answer table { width: 100%; margin: .9em 0; border-collapse: collapse; font-size: .88rem; }
     .answer th, .answer td { padding: 8px 9px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
     .answer th { color: var(--navy); background: var(--mint); }
@@ -233,10 +240,8 @@ export function renderChatPage() {
     .message-foot { display: flex; gap: 10px; padding: 8px 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: .72rem; }
 
     /* Sticky composer respects iPhone safe areas */
+    .composer-area { position:sticky; bottom:0; z-index:3; background:var(--paper); }
     form {
-      position: sticky;
-      bottom: 0;
-      z-index: 3;
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 10px;
@@ -260,6 +265,9 @@ export function renderChatPage() {
     textarea:focus { outline: 3px solid color-mix(in srgb, var(--teal) 22%, transparent); border-color: var(--teal); }
     .primary { min-width: 72px; border-color: var(--navy); background: var(--navy); color: var(--paper); font-weight: 800; }
     button:disabled, textarea:disabled { opacity: .58; cursor: not-allowed; }
+    .chat-presets { display:flex; gap:8px; overflow-x:auto; padding:8px 16px max(12px,env(safe-area-inset-bottom)); }
+    .chat-presets button { flex:none; font-size:.8rem; min-height:44px; }
+    #general-mode[hidden], #repo-mode[hidden] { display:none; }
     @media (max-width: 600px) {
       #messages { padding-inline: 10px; }
       article, article.assistant { max-width: 98%; width: auto; }
@@ -276,9 +284,9 @@ export function renderChatPage() {
   <header>
     <div class="brand">
       <div class="mark">AI</div>
-      <div><h1>iPhone AI Assistant</h1><p>Flue agent · Jev routing · live execution</p></div>
+      <div><h1>iPhone AI Assistant</h1><p id="chat-mode" aria-live="polite">General chat</p></div>
     </div>
-    <div class="header-actions"><a class="header-link" href="/review">Review</a><button id="new-chat">New chat</button></div>
+    <div class="header-actions"><button id="general-mode" hidden>General chat</button><button id="repo-mode" hidden>Repository tutor</button><button id="new-chat">New chat</button></div>
   </header>
 
   <!-- Messages and agent activity are rendered here by the local script -->
@@ -290,17 +298,27 @@ export function renderChatPage() {
   </section>
 
   <!-- Primary chat input; Enter submits and Shift+Enter adds a line -->
-  <form id="composer">
+  <div class="composer-area"><form id="composer">
     <textarea id="input" placeholder="Ask, paste, or share something…" required></textarea>
     <button class="primary" id="send">Send</button>
   </form>
+  <div class="chat-presets" id="chat-presets" role="group" aria-label="Conversation prompts"></div></div>
 </main>
 <script>
   // Browser-only conversation state. Flue persists the corresponding server conversation by ID.
-  const messages = [];
+  const generalMessages = [];
+  let repositoryMessages = [];
+  let messages = generalMessages;
+  const composerDrafts = { general: '', repository: '' };
+  const scrollPositions = { general: 0, repository: 0 };
+  let savedRepositorySession = null;
   let conversationId = crypto.randomUUID();
   let activeController = null;
   let renderPending = false;
+  let repositorySession = null;
+  const recapPrompt = ${JSON.stringify(LEARNING_RECAP_PROMPT)};
+  const repositoryPrompts = ${JSON.stringify(REPOSITORY_STARTER_PROMPTS)};
+  const askRepository = ${askRepositoryTutor.toString()};
   const messagesEl = document.querySelector('#messages');
   const inputEl = document.querySelector('#input');
   const sendEl = document.querySelector('#send');
@@ -309,10 +327,58 @@ export function renderChatPage() {
   const routeNames = {
     direct_answer: 'Direct answer',
     web_research: 'Web research',
-    github_learning: 'GitHub learning guide',
+    github_learning: 'Repository tutor',
     clarification: 'Clarify request',
   };
   const toolNames = { web_research: 'Research the web' };
+
+  function updateMode() {
+    document.querySelector('#chat-mode').textContent = repositorySession
+      ? 'Repository tutor · ' + repositorySession.repository + (repositorySession.private ? ' · Private' : '')
+      : 'General chat';
+    document.querySelector('#general-mode').hidden = !repositorySession;
+    document.querySelector('#repo-mode').hidden = Boolean(repositorySession) || !savedRepositorySession;
+    inputEl.maxLength = repositorySession ? 4000 : 24000;
+    inputEl.placeholder = repositorySession ? 'Ask about this repository…' : 'Ask, paste, or share something…';
+    const presets = document.querySelector('#chat-presets');
+    presets.replaceChildren();
+    const options = [['What I learned · post draft', recapPrompt], ...(repositorySession ? repositoryPrompts : [])];
+    for (const [label, prompt] of options) {
+      const button = document.createElement('button');
+      button.type = 'button';button.textContent = label;button.disabled = Boolean(activeController);
+      button.addEventListener('click', () => {
+        if (activeController) return;
+        inputEl.value = prompt;
+        inputEl.dispatchEvent(new Event('input'));
+        inputEl.focus();
+      });
+      presets.append(button);
+    }
+  }
+
+  function setComposerBusy(busy) {
+    inputEl.disabled = busy;sendEl.disabled = busy;
+    sendEl.textContent = busy ? 'Thinking…' : 'Send';
+    document.querySelector('#general-mode').disabled = busy;
+    document.querySelector('#repo-mode').disabled = busy;
+    document.querySelectorAll('#chat-presets button').forEach(button => button.disabled = busy);
+  }
+
+  // Each mode owns its transcript and unsent draft; switching replaces the view.
+  function switchChatMode(mode) {
+    if (activeController || (mode === 'repository' && !savedRepositorySession)) return;
+    const previous = repositorySession ? 'repository' : 'general';
+    composerDrafts[previous] = inputEl.value;
+    scrollPositions[previous] = window.scrollY || 0;
+    repositorySession = mode === 'repository' ? savedRepositorySession : null;
+    messages = mode === 'repository' ? repositoryMessages : generalMessages;
+    inputEl.value = composerDrafts[mode];
+    inputEl.dispatchEvent(new Event('input'));
+    updateMode();
+    render(false);
+    window.scrollTo({ top: scrollPositions[mode], behavior: 'instant' });
+    inputEl.focus({ preventScroll: true });
+  }
 
   /**
    * Input:
@@ -486,6 +552,7 @@ export function renderChatPage() {
     for (let index = 0; index < lines.length; index++) {
       const line = lines[index];
       if (line.startsWith(fence)) {
+        const language = line.slice(fence.length).trim() || 'code';
         const code = [];
         index++;
         while (index < lines.length && !lines[index].startsWith(fence)) {
@@ -494,7 +561,20 @@ export function renderChatPage() {
         }
         const pre = document.createElement('pre');
         pre.textContent = code.join('\\n');
-        host.append(pre);
+        const toolbar = document.createElement('div');
+        toolbar.className = 'code-toolbar';
+        const label = document.createElement('span');
+        label.textContent = language;
+        const copy = document.createElement('button');
+        const copyLabel = language === 'text' ? 'Copy text' : 'Copy code';
+        copy.type = 'button';copy.textContent = copyLabel;
+        copy.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(pre.textContent);copy.textContent = 'Copied'; }
+          catch { copy.textContent = 'Copy failed'; }
+          setTimeout(() => copy.textContent = copyLabel, 1800);
+        });
+        toolbar.append(label, copy);
+        host.append(toolbar, pre);
         list = null;
         continue;
       }
@@ -532,11 +612,18 @@ export function renderChatPage() {
         }
         index--;
         table.append(tbody);
-        host.append(table);
+        const scroll = document.createElement('div');
+        scroll.className = 'table-scroll';scroll.tabIndex = 0;
+        scroll.setAttribute('role', 'region');scroll.setAttribute('aria-label', 'Answer table');
+        scroll.append(table);host.append(scroll);
         list = null;
         continue;
       }
 
+      if (line.startsWith('> ')) {
+        const quote = document.createElement('blockquote');
+        appendInline(quote, line.slice(2));host.append(quote);list = null;continue;
+      }
       const heading = line.match(/^(#{1,3}) (.+)$/);
       if (heading) {
         const element = document.createElement(heading[1].length === 1 ? 'h2' : heading[1].length === 2 ? 'h3' : 'h4');
@@ -578,7 +665,7 @@ export function renderChatPage() {
    * What this function does:
    * - Renders user text, assistant route/activity metadata, formatted answers, and usage details.
    */
-  function render() {
+  function render(scroll = true) {
     messagesEl.replaceChildren();
     if (!messages.length) {
       const empty = document.createElement('div');
@@ -673,7 +760,7 @@ export function renderChatPage() {
       }
       messagesEl.append(article);
     }
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    if (scroll) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
 
   /**
@@ -759,7 +846,24 @@ export function renderChatPage() {
       assistant.content = data.text || assistant.content;
       assistant.route = data.route || assistant.route;
       assistant.meta = data.metadata || null;
-      assistant.streaming = false;
+      if (data.repositorySession) {
+        // Move only the repository launch turn out of general chat, not its history.
+        const index = generalMessages.indexOf(assistant);
+        const originalQuestion = index > 0 ? generalMessages[index - 1] : null;
+        if (index > 0) generalMessages.splice(index - 1, 2);
+        savedRepositorySession = data.repositorySession;
+        repositorySession = savedRepositorySession;
+        repositoryMessages = originalQuestion ? [originalQuestion, assistant] : [assistant];
+        messages = repositoryMessages;
+        composerDrafts.repository = '';
+        scrollPositions.general = window.scrollY || 0;
+        scrollPositions.repository = 0;
+        assistant.repositorySession = data.repositorySession;
+        assistant.privateSource = data.repositorySession.private;
+        if (originalQuestion && data.repositorySession.private) originalQuestion.privateSource = true;
+        updateMode();
+      }
+      assistant.streaming = Boolean(data.repositorySession);
       for (const activity of assistant.activities) {
         if (activity.state === 'running') activity.state = 'complete';
       }
@@ -782,41 +886,60 @@ export function renderChatPage() {
    */
   async function sendMessage(value) {
     const content = value.trim();
-    if (!content) return;
+    if (!content || activeController) return;
 
-    messages.push({ role: 'user', content });
+    messages.push({ role: 'user', content, privateSource: Boolean(repositorySession?.private) });
     const assistant = { role: 'assistant', content: '', activities: [], streaming: true, route: '', meta: null };
     messages.push(assistant);
     render();
     inputEl.value = '';
+    composerDrafts[repositorySession ? 'repository' : 'general'] = '';
     inputEl.style.height = 'auto';
-    inputEl.disabled = true;
-    sendEl.disabled = true;
-    sendEl.textContent = 'Streaming…';
-    activeController = new AbortController();
+    const controller = new AbortController();
+    activeController = controller;
+    setComposerBusy(true);
 
     try {
+      if (repositorySession) {
+        assistant.route = 'github_learning';
+        assistant.privateSource = repositorySession.private;
+        upsertActivity(assistant, 'repository', 'Repository tutor', 'running', '');
+        assistant.content = await askRepository(repositorySession.id, content, controller.signal);
+        assistant.streaming = false;
+        upsertActivity(assistant, 'repository', 'Repository tutor', 'complete', '');
+        return;
+      }
       const history = messages
-        .filter((message) => message !== assistant)
-        .map((message) => ({ role: message.role, content: message.content }));
+        .filter((message) => message !== assistant && !message.error)
+        .slice(-20)
+        .map((message) => ({ role: message.role, content: (message.privateSource ? '[Private repository discussion: do not include identifiers or source material in public drafts.]\\n' : '') + message.content }));
       const response = await fetch('/chat/stream', {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
         body: JSON.stringify({ conversation_id: conversationId, messages: history }),
-        signal: activeController.signal,
+        signal: controller.signal,
       });
-      await consumeEvents(response, (event, data) => handleChatEvent(assistant, event, data));
+      await consumeEvents(response, (event, data) => {
+        if (!controller.signal.aborted) handleChatEvent(assistant, event, data);
+      });
+      if (assistant.repositorySession && !controller.signal.aborted) {
+        upsertActivity(assistant, 'repository', 'Preparing repository tutor', 'running', '');
+        assistant.content = await askRepository(assistant.repositorySession.id, content, controller.signal);
+        assistant.streaming = false;
+        upsertActivity(assistant, 'repository', 'Repository tutor ready', 'complete', '');
+      }
     } catch (error) {
       assistant.streaming = false;
       assistant.error = true;
       assistant.content = error instanceof Error ? error.message : String(error);
       if (!(error instanceof DOMException && error.name === 'AbortError')) scheduleRender();
     } finally {
-      activeController = null;
-      inputEl.disabled = false;
-      sendEl.disabled = false;
-      sendEl.textContent = 'Send';
-      inputEl.focus();
+      if (activeController === controller) {
+        activeController = null;
+        setComposerBusy(false);
+        scheduleRender();
+        inputEl.focus();
+      }
     }
   }
 
@@ -875,14 +998,27 @@ export function renderChatPage() {
   /** Input: New chat click. Output: none. Cancels work and resets local conversation state. */
   document.querySelector('#new-chat').addEventListener('click', () => {
     activeController?.abort();
+    activeController = null;
+    repositorySession = null;
+    savedRepositorySession = null;
+    generalMessages.splice(0);
+    repositoryMessages = [];
+    messages = generalMessages;
+    composerDrafts.general = composerDrafts.repository = '';
+    scrollPositions.general = scrollPositions.repository = 0;
+    inputEl.value = '';
+    inputEl.dispatchEvent(new Event('input'));
     conversationId = crypto.randomUUID();
-    messages.splice(0);
+    setComposerBusy(false);
+    updateMode();
     render();
     inputEl.focus();
   });
+  document.querySelector('#general-mode').addEventListener('click', () => switchChatMode('general'));
+  document.querySelector('#repo-mode').addEventListener('click', () => switchChatMode('repository'));
   /** Input: textarea key event. Output: none. Submits Enter while preserving Shift+Enter. */
   inputEl.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       document.querySelector('#composer').requestSubmit();
     }
@@ -893,6 +1029,7 @@ export function renderChatPage() {
     inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + 'px';
   });
 
+  updateMode();
   render();
   const sessionId = readSessionIdFromUrl();
   if (sessionId) void loadSession(sessionId);

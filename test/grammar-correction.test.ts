@@ -6,6 +6,7 @@ import {
   DEFAULT_GRAMMAR_MODEL,
   GRAMMAR_MAX_COMPLETION_TOKENS,
   grammarModelFromConfiguredModel,
+  grammarCompletionBudget,
 } from '../src/lib/grammar-correction.ts';
 import { GRAMMAR_CORRECTION_PROMPT } from '../src/prompts.ts';
 
@@ -20,9 +21,22 @@ describe('grammar correction', () => {
         { role: 'user', content: 'this are a test' },
       ],
       temperature: 0,
-      max_completion_tokens: GRAMMAR_MAX_COMPLETION_TOKENS,
+      max_completion_tokens: 256,
       reasoning_effort: 'none',
+      chat_template_kwargs: { enable_thinking: false },
     });
+  });
+
+  it('scales output allowance with UTF-8 input size without reducing the long-text ceiling', () => {
+    expect(grammarCompletionBudget('short')).toBe(256);
+    expect(grammarCompletionBudget('x'.repeat(1000))).toBe(1628);
+    expect(grammarCompletionBudget('学'.repeat(1000))).toBe(4628);
+    expect(grammarCompletionBudget('x'.repeat(30000))).toBe(GRAMMAR_MAX_COMPLETION_TOKENS);
+    expect(grammarCompletionBudget('学'.repeat(30000))).toBe(GRAMMAR_MAX_COMPLETION_TOKENS);
+  });
+
+  it('returns only the correction, never any separate provider reasoning', () => {
+    expect(correctedTextFromAi({ choices: [{ finish_reason: 'stop', message: { content: 'Corrected.', reasoning_content: 'Internal reasoning must not be returned.' } }] })).toBe('Corrected.');
   });
 
   it.each([
