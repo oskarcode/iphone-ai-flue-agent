@@ -1,6 +1,7 @@
 // Pi events stay server-side; only allowlisted operational labels cross the UI boundary.
 import type { AgentEvent, SubmissionRecord } from "@earendil-works/pi-durable";
 import type { TurnActivity, ActivityStep } from "./contracts.ts";
+import { routingLabel, type RoutingDecision } from "../tools/jev-router.ts";
 
 // Never display arbitrary provider errors, arguments, output, reasoning or credentials.
 const TOOL_LABELS: Record<string, string> = {
@@ -53,6 +54,30 @@ export class ActivityJournal {
       JSON.stringify(turn),
     );
   }
+  /** Input: submission identity and server routing result; optional passive-entry ID. Output: durable routing step.
+   * What this function does: prepends one truthful decision, preserves it on retries, and supports non-chat handoffs.
+   */
+  routing(id: string, decision?: RoutingDecision, entryId?: string) {
+    const label = routingLabel(decision);
+    const turn = this.get(id);
+    if (turn.steps.some((step) => step.id === "routing")) return;
+    if (entryId) {
+      turn.entryId = entryId;
+      turn.status = "done";
+      turn.routingOnly = true;
+    }
+    turn.steps.unshift({
+      id: "routing",
+      label,
+      status: "done",
+      at: new Date().toISOString(),
+    });
+    if (turn.steps.length > 80) {
+      turn.steps = [turn.steps[0], ...turn.steps.slice(-79)];
+      turn.truncated = true;
+    }
+    this.save(turn);
+  }
   /** Input: a committed Pi submission. Output: updated turn lifecycle.
    * What this function does: attaches the actual input entry ID; never infers ownership from message order.
    */
@@ -102,7 +127,13 @@ export class ActivityJournal {
       } else
         turn.steps.push({ id, label, status, at: new Date().toISOString() });
       if (turn.steps.length > 80) {
-        turn.steps = turn.steps.slice(-80);
+        const routing = turn.steps.find((step) => step.id === "routing");
+        turn.steps = routing
+          ? [
+              routing,
+              ...turn.steps.filter((step) => step.id !== "routing").slice(-79),
+            ]
+          : turn.steps.slice(-80);
         turn.truncated = true;
       }
       this.save(turn);

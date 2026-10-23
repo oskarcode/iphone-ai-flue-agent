@@ -1,13 +1,13 @@
 // Hono dispatches HTTP; signed identity and session contracts define the trust boundary.
 import { Hono, type Context } from "hono";
 import { verifyIdentity, type Identity } from "./runtime/auth.ts";
-import {
-  SESSION_ID,
-  type SessionMetadata,
-} from "./runtime/contracts.ts";
+import { SESSION_ID, type SessionMetadata } from "./runtime/contracts.ts";
 import { projectLegacyMessages } from "./runtime/legacy.ts";
 // Compatibility adapters retain the Shortcut payloads while delegating learning work to Pi.
-import { classifyWithJev, type JevRoute } from "./tools/jev-router.ts";
+import {
+  classifyRequest as classify,
+  type JevRoute,
+} from "./tools/jev-router.ts";
 import {
   resolveGithubRepository,
   parseGithubRepositoryRequest,
@@ -29,7 +29,6 @@ import {
   grammarModelFromConfiguredModel,
 } from "./lib/grammar-correction.ts";
 import { gatewayMetadata } from "./lib/gateway-metadata.ts";
-import { LEARNING_RECAP_PROMPT } from "./lib/chat-presets.ts";
 import { learningArchiveStub } from "./lib/learning-archive.ts";
 import { renderReviewDetailPage } from "./review-page.ts";
 
@@ -197,20 +196,6 @@ function requestId(c: Context<AppEnv>) {
   return value && /^[a-zA-Z0-9:_-]{8,160}$/.test(value)
     ? value
     : crypto.randomUUID();
-}
-/** Input: user text. Output: Jev route.
- * What this function does: recognizes repository URLs first; classifier failure falls back to direct answering.
- */
-async function classify(text: string): Promise<JevRoute> {
-  if (text === LEARNING_RECAP_PROMPT) return "direct_answer";
-  // Deterministic repository recognition also covers .git and explanation-wrapper inputs.
-  if (/https:\/\/github\.com\/[\w.-]+\/[\w.-]+/i.test(text))
-    return "github_learning";
-  try {
-    return await classifyWithJev(text, new AbortController().signal);
-  } catch {
-    return "direct_answer";
-  }
 }
 /** Input: owner context, text, route and optional session ID. Output: durable session ID.
  * What this function does: reuses existing sessions, resolves repository context and retains original shared input.
@@ -445,8 +430,12 @@ app.post("/v1/ask", async (c) => {
       },
       400,
     );
-  const route = await classify(text);
+  const decision = await classify(text);
+  const route = decision.route;
   const id = await create(c, text, route);
+  const retryId = requestId(c);
+  if (route === "github_learning" || route === "visual_explanation")
+    await session(c, id).recordRouting(owner(c), retryId, decision);
   if (route === "github_learning")
     return c.json(
       {
@@ -465,7 +454,7 @@ app.post("/v1/ask", async (c) => {
       expires_in_seconds: VISUAL_SESSION_TTL_SECONDS,
     });
   return c.json({
-    answer: await session(c, id).answer(owner(c), text, requestId(c)),
+    answer: await session(c, id).answer(owner(c), text, retryId, decision),
     route,
   });
 });
@@ -916,13 +905,17 @@ async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
       400,
     );
   const text = String(messages.at(-1)!.content);
-  const route = await classify(text);
+  const decision = await classify(text);
+  const route = decision.route;
+  const retryId = requestId(c);
   if (
     !(await session(c, id).exists(owner(c))) &&
     (await c.env.FLUE_IPHONE_ASSISTANT_AGENT.getByName(id).identity())
   )
     await migrate(c, id, "general", true);
   await create(c, text, route, id);
+  if (route === "github_learning" || route === "visual_explanation")
+    await session(c, id).recordRouting(owner(c), retryId, decision);
   if (!streaming && route === "github_learning") {
     const url = absolute(c, `/learn/${id}`);
     return c.json(
@@ -962,7 +955,7 @@ async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
       };
     }
     return {
-      text: await session(c, id).answer(owner(c), text, requestId(c)),
+      text: await session(c, id).answer(owner(c), text, retryId, decision),
       route,
       conversationId: id,
     };
@@ -1002,14 +995,16 @@ async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
       const work = run()
         .then((result) => send("done", result))
         .catch(() => send("error", { error: "Assistant request failed" }))
-        .finally(/** Input: settled background request. Output: closed stream if still writable.
-         * What this function does: avoids a second close error after client disconnection.
-         */ () => {
-          if (!closed)
-            try {
-              controller.close();
-            } catch {}
-        });
+        .finally(
+          /** Input: settled background request. Output: closed stream if still writable.
+           * What this function does: avoids a second close error after client disconnection.
+           */ () => {
+            if (!closed)
+              try {
+                controller.close();
+              } catch {}
+          },
+        );
       c.executionCtx.waitUntil(work);
     },
   });

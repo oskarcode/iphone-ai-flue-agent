@@ -15,6 +15,7 @@ import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/stora
 import * as v from "valibot";
 import { createLearningHarnessOptions } from "./harness.ts";
 import { ActivityJournal } from "./activity.ts";
+import { routingLabel, type RoutingDecision } from "../tools/jev-router.ts";
 import {
   directoryItem,
   sha256,
@@ -409,8 +410,14 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   /** Input: owner, text and stable request ID. Output: session/submission receipt.
    * What this function does: validates retry identity, persists the wakeup before scheduling Pi, and watches completion.
    */
-  async submit(owner: string, text: string, requestId: string) {
+  async submit(
+    owner: string,
+    text: string,
+    requestId: string,
+    routing?: RoutingDecision,
+  ) {
     this.authorize(owner);
+    routingLabel(routing); // Validate the server-supplied enum before any durable or model work.
     if (
       !text.trim() ||
       text.length > 30_000 ||
@@ -437,6 +444,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       { type: "input", content: text, requestId },
       background,
     );
+    // A deduplicated retry may already be complete and emit no new submission event.
+    this.activity.submission(await submission.status(background));
+    this.activity.routing(String(submission.id), routing);
     this.ctx.storage.sql.exec(
       "UPDATE learning_state SET error=NULL WHERE id=1",
     );
@@ -479,8 +489,13 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   /** Input: owner, text, retry ID. Output: completed visible answer.
    * What this function does: waits on the same durable submission used by asynchronous browser chat.
    */
-  async answer(owner: string, text: string, requestId: string) {
-    const receipt = await this.submit(owner, text, requestId);
+  async answer(
+    owner: string,
+    text: string,
+    requestId: string,
+    routing?: RoutingDecision,
+  ) {
+    const receipt = await this.submit(owner, text, requestId, routing);
     const harness = await this.open();
     const submission = await harness.submission(
       Number(receipt.submissionId) as SubmissionId,
@@ -496,6 +511,57 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     const answer = entry && entryMessage(entry)?.content;
     if (!answer) throw new Error("Empty answer");
     return answer;
+  }
+  /** Input: owner, retry ID and actual classified route. Output: a retained routing-only activity record.
+   * What this function does: records repository/visual handoffs as passive entries without generating a model turn.
+   */
+  async recordRouting(
+    owner: string,
+    requestId: string,
+    decision: RoutingDecision,
+  ) {
+    this.authorize(owner);
+    const label = routingLabel(decision);
+    if (!/^[a-zA-Z0-9:_-]{8,160}$/.test(requestId))
+      throw new Error("Invalid routing request ID");
+    const harness = await this.open();
+    const root = await harness.root(background);
+    await this.wake();
+    const submission = await root.submit(
+      {
+        type: "write",
+        requestId: `routing:${requestId}`,
+        entry: {
+          kind: "learning.routing",
+          data: { route: decision.route, source: decision.source, label },
+        },
+      },
+      background,
+    );
+    const receipt = await submission.wait(background);
+    if (receipt.type !== "write" || receipt.status !== "done")
+      throw new Error("Routing record did not complete");
+    const entry = await harness.commit(
+      (tx) => tx.entry(receipt.entry),
+      background,
+    );
+    if (
+      !entry?.data ||
+      typeof entry.data !== "object" ||
+      Array.isArray(entry.data)
+    )
+      throw new Error("Missing retained routing decision");
+    // Use the first persisted decision if a retry reclassified the request differently.
+    const retained = {
+      route: entry.data.route,
+      source: entry.data.source,
+    } as RoutingDecision;
+    this.activity.routing(
+      `routing:${submission.id}`,
+      retained,
+      String(receipt.entry),
+    );
+    this.notify();
   }
   /** Input: owner and optional opaque cursor. Output: JSON Response containing SessionSnapshot.
    * What this function does: combines committed visible entries, live partial text and application records.

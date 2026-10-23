@@ -74,6 +74,8 @@ export type TurnActivity = {
   status: "queued" | "running" | "done" | "interrupted";
   steps: ActivityStep[];
   truncated?: boolean;
+  /** A classified repository/visual handoff with no conversational input turn. */
+  routingOnly?: boolean;
 };
 /** Browser transport shape: recent visible history, live partial text and source metadata (not source bodies). */
 export type SessionSnapshot = {

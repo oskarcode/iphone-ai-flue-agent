@@ -501,10 +501,18 @@ function App() {
     (message, index, all) =>
       all.findIndex((m) => m.id === message.id) === index,
   );
-  // Latest snapshots override paged copies; entry IDs tie activity to the correct input, including queued turns.
+  // Latest snapshots override paged copies, including passive routing events for repository/visual handoffs.
+  const activities = [
+    ...new Map(
+      [...olderActivity, ...(snapshot?.activity ?? [])].map((turn) => [
+        turn.id,
+        turn,
+      ]),
+    ).values(),
+  ];
   const activityByEntry = new Map(
-    [...olderActivity, ...(snapshot?.activity ?? [])]
-      .filter((turn) => turn.entryId)
+    activities
+      .filter((turn) => turn.entryId && !turn.routingOnly)
       .map((turn) => [turn.entryId!, turn]),
   );
   return (
@@ -717,8 +725,8 @@ function App() {
               </div>
             </article>
           ))}
-          {snapshot?.activity
-            ?.filter(
+          {activities
+            .filter(
               (turn) =>
                 !turn.entryId ||
                 !messages.some((message) => message.id === turn.entryId),

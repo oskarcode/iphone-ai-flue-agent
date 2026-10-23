@@ -18,10 +18,17 @@ test("mobile learning persists through reload, keeps notes and supports library 
     timeout: 90_000,
   });
   const activity = page.locator(".message.user .turn-activity").first();
-  await expect(activity).toHaveAttribute("data-status", "done", { timeout: 90_000 });
+  await expect(activity).toHaveAttribute("data-status", "done", {
+    timeout: 90_000,
+  });
+  await expect(activity.locator("summary")).toContainText(
+    "Direct to Pi tutor — Jev not used",
+  );
   await expect(activity).not.toHaveAttribute("open", "");
   await activity.locator("summary").click();
-  await expect(activity.getByText("Agent started", { exact: true })).toBeVisible();
+  await expect(
+    activity.getByText("Agent started", { exact: true }),
+  ).toBeVisible();
   await activity.locator("summary").click();
   await expect(activity).not.toHaveAttribute("open", "");
   const url = page.url();
@@ -43,7 +50,10 @@ test("mobile learning persists through reload, keeps notes and supports library 
   await expect(page.locator(".message")).toHaveCount(0);
   await page.goto(url);
   await expect(page.locator(".message.assistant .markdown")).toHaveText(answer);
-  await expect(page.locator(".message.user .turn-activity")).toHaveAttribute("data-status", "done");
+  await expect(page.locator(".message.user .turn-activity")).toHaveAttribute(
+    "data-status",
+    "done",
+  );
   const width = await page.evaluate(() => ({
     screen: innerWidth,
     body: document.documentElement.scrollWidth,

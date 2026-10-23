@@ -11,6 +11,7 @@ const STATUS = {
  * What this function does: shows current progress immediately in the summary and retains expandable event history.
  */
 export function TurnActivityPanel({ activity }: { activity?: TurnActivity }) {
+  const routing = activity?.steps.find((step) => step.id === "routing");
   const current = activity?.steps
     .filter((step) => step.status === "running")
     .at(-1);
@@ -20,13 +21,16 @@ export function TurnActivityPanel({ activity }: { activity?: TurnActivity }) {
       data-status={activity?.status ?? "unavailable"}
     >
       <summary>
-        <span>Agent activity</span>
+        <span>
+          {activity?.routingOnly ? "Request routing" : "Agent activity"}
+        </span>
         <span className="activity-status" role="status">
           {activity ? STATUS[activity.status] : "Not recorded"}
           {activity?.status === "running" && current
             ? ` · ${current.label}`
             : ""}
         </span>
+        {routing && <span className="activity-status">{routing.label}</span>}
       </summary>
       {!activity ? (
         <p>Activity was not recorded for this older turn.</p>
@@ -44,7 +48,9 @@ export function TurnActivityPanel({ activity }: { activity?: TurnActivity }) {
             </p>
           )}
           {activity.truncated && (
-            <p className="muted">Showing the latest 80 activity steps.</p>
+            <p className="muted">
+              Showing retained routing and the latest activity steps (80 total).
+            </p>
           )}
           <ol>
             {activity.steps.map((step) => (
