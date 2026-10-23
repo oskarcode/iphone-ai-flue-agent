@@ -6,5 +6,8 @@ dist/
 coverage/
 worker-configuration.d.ts
 .DS_Store
-# The personal Shortcut migration notes remain local; learning handoff artifacts are committed.
+# Local learning artifacts contain machine-specific metadata; keep them on disk, not in Git.
 docs/SHORTCUT_GUIDE.md
+docs/*-learning-guide.html
+docs/learning-agent/
+docs/diagrams/

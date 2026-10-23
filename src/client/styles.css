@@ -1,3 +1,47 @@
+/* Native per-turn progress disclosures: keep long labels contained on narrow phones. */
+.turn-activity {
+  margin: 12px 0;
+  border: 1px solid #d5d9d2;
+  border-radius: 10px;
+  background: #f6f8f3;
+  color: #263c34;
+  max-width: 100%;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+.turn-activity summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 10px 12px;
+}
+.turn-activity summary:focus-visible {
+  outline: 3px solid #609888;
+  outline-offset: 2px;
+}
+.activity-status {
+  display: block;
+  padding-left: 16px;
+  font-size: 0.8rem;
+  color: #456557;
+}
+.turn-activity p {
+  margin: 8px 12px;
+}
+.turn-activity ol {
+  padding: 0 12px 0 30px;
+}
+.turn-activity li {
+  padding: 5px 0;
+}
+.turn-activity li small {
+  display: block;
+  color: #456557;
+}
+.turn-activity li[data-status="error"] small,
+.turn-activity[data-status="interrupted"] .activity-status {
+  color: #923f22;
+}
+/* Base typography and accessible touch/focus defaults. */
 :root {
   font-family:
     Inter,
@@ -60,6 +104,7 @@ textarea {
 a {
   color: #246658;
 }
+/* Viewport frame; history scrolls independently of navigation and composer. */
 .workspace {
   display: flex;
   height: 100dvh;
@@ -211,6 +256,7 @@ header button {
   text-transform: uppercase;
   margin-bottom: 8px;
 }
+/* Renderer-owned Markdown; code/table overflow stays inside local containers. */
 .markdown p {
   margin: 0.5em 0;
 }
@@ -293,6 +339,7 @@ blockquote {
   padding: 3px 10px;
   background: none;
 }
+/* Composition stays reachable; safe-area padding avoids the iPhone home indicator. */
 .composer {
   padding: 12px 24px max(14px, env(safe-area-inset-bottom));
   border-top: 1px solid #e0e3d8;
@@ -333,6 +380,7 @@ blockquote {
   padding: 5px 10px;
   background: none;
 }
+/* Source/note administration is separate from the readable conversation. */
 .details {
   width: 330px;
   overflow: auto;
@@ -403,6 +451,7 @@ blockquote {
   display: block;
   margin: 20px 0;
 }
+/* Dialog layers sit above the Library drawer and scroll large evidence internally. */
 .modal {
   position: fixed;
   inset: 0;
@@ -445,6 +494,7 @@ blockquote {
 .backdrop {
   display: none;
 }
+/* Float details instead of squeezing the main reader on narrow desktops. */
 @media (max-width: 1100px) {
   .details {
     position: fixed;
@@ -456,6 +506,7 @@ blockquote {
     box-shadow: -5px 0 30px #0002;
   }
 }
+/* Phone layout: off-canvas Library and single-column content. */
 @media (max-width: 760px) {
   .library {
     display: none;

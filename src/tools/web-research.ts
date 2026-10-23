@@ -1,7 +1,8 @@
-// Flue exposes one research tool; Cloudflare Web Search and Workers AI provide retrieval.
+// The Pi adapter exposes this neutral tool; Cloudflare Web Search and Workers AI supply evidence.
 import { defineTool } from '../runtime/tool.ts';
 import * as v from 'valibot';
 
+// Character, byte, redirect and timeout limits bound retrieval; they do not prove a dynamic page was fully rendered.
 const MAX_MARKDOWN_CHARACTERS = 96_000;
 const MAX_SEARCH_RESULT_MARKDOWN_CHARACTERS = 16_000;
 const MAX_SEARCH_RESULT_PAGES = 3;
@@ -43,6 +44,9 @@ type WebAiBinding = Ai & {
   }): Promise<Response>;
 };
 
+/** Input: normalized hostname. Output: private/reserved IPv4 classification.
+ * What this function does: blocks literal local, documentation and multicast address ranges before fetch.
+ */
 function isPrivateIpv4(hostname: string): boolean {
   const parts = hostname.split('.').map(Number);
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
@@ -61,6 +65,9 @@ function isPrivateIpv4(hostname: string): boolean {
     || a >= 224;
 }
 
+/** Input: IPv6 literal. Output: eight numeric groups or null.
+ * What this function does: expands compressed addresses before private-range checks.
+ */
 function parseIpv6(hostname: string): number[] | null {
   if (!hostname.includes(':')) return null;
   const halves = hostname.toLowerCase().split('::');
@@ -74,6 +81,9 @@ function parseIpv6(hostname: string): number[] | null {
   return groups.map((group) => Number.parseInt(group, 16));
 }
 
+/** Input: hostname. Output: private IPv6 classification.
+ * What this function does: checks local ranges and embedded IPv4 forms without weakening URL admission.
+ */
 function isPrivateIpv6(hostname: string): boolean {
   const groups = parseIpv6(hostname);
   if (!groups) return false;
@@ -94,6 +104,9 @@ function isPrivateIpv6(hostname: string): boolean {
 }
 
 /** Reject credentials, unusual ports, local names, and literal private-network addresses. */
+/** Input: untrusted URL. Output: admitted HTTP(S) URL or exception.
+ * What this function does: rejects credentials, unusual ports, local hostnames and literal private addresses.
+ */
 export function validatePublicUrl(value: string): URL {
   const url = new URL(value);
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -108,6 +121,9 @@ export function validatePublicUrl(value: string): URL {
 }
 
 /** Preserve the beginning and conclusion when evidence exceeds the model budget. */
+/** Input: extracted text and character cap. Output: bounded evidence with truncation metadata.
+ * What this function does: retains beginning/end where possible and identifies only the actually omitted region.
+ */
 export function boundMarkdown(markdownValue: string, maxCharacters = MAX_MARKDOWN_CHARACTERS) {
   const markdown = markdownValue.trim();
   const sourceCharacters = markdown.length;
@@ -126,6 +142,9 @@ export function boundMarkdown(markdownValue: string, maxCharacters = MAX_MARKDOW
   return { markdown: bounded, sourceCharacters, returnedCharacters: bounded.length, truncated: true, omittedRegion: 'middle' as const };
 }
 
+/** Input: remote response. Output: Blob within the byte cap.
+ * What this function does: checks both advertised length and streamed bytes before conversion.
+ */
 async function readBoundedBlob(response: Response): Promise<Blob> {
   const declared = Number(response.headers.get('content-length') ?? 0);
   if (declared > MAX_RESPONSE_BYTES) throw new Error('External response exceeded the size limit.');
@@ -146,6 +165,9 @@ async function readBoundedBlob(response: Response): Promise<Blob> {
   return new Blob(chunks, { type: response.headers.get('content-type') ?? '' });
 }
 
+/** Input: URL, cancellation and fetch implementation. Output: response plus redirect provenance.
+ * What this function does: validates each redirect, enforces timeout/count bounds and rejects HTTPS downgrade.
+ */
 async function fetchPublicResponse(
   urlValue: string,
   signal: AbortSignal,
@@ -179,6 +201,9 @@ async function fetchPublicResponse(
 }
 
 /** Read one public page with bounded direct fetch and Workers AI document conversion. */
+/** Input: public URL, AI converter and evidence bounds. Output: text with extraction metadata.
+ * What this function does: negotiates Markdown or converts bounded content; it does not execute page JavaScript.
+ */
 export async function readPageWithAi(
   urlValue: string,
   ai: WebAiBinding,
@@ -226,6 +251,9 @@ export async function readPageWithAi(
 }
 
 /** Search with Cloudflare Web Search API through the existing AI Gateway. */
+/** Input: query, AI binding and cancellation. Output: validated public search results.
+ * What this function does: calls Exa through Cloudflare Web Search and drops unusable result URLs.
+ */
 export async function searchPublicWeb(query: string, ai: WebAiBinding, signal: AbortSignal) {
   signal.throwIfAborted();
   if (typeof ai.websearch !== 'function') throw new Error('This Workers runtime does not support Cloudflare Web Search.');
@@ -245,7 +273,11 @@ export async function searchPublicWeb(query: string, ai: WebAiBinding, signal: A
   }
   if (!response.ok) throw new Error(`Cloudflare Web Search returned HTTP ${response.status}: ${responseText.slice(0, 300)}`);
   if (!Array.isArray(body.items)) throw new Error('Cloudflare Web Search returned no result list.');
-  const results: SearchResult[] = body.items.flatMap((value): SearchResult[] => {
+  const results: SearchResult[] = body.items.flatMap(
+    /** Input: one untrusted search result. Output: one normalized public result or no result.
+     * What this function does: drops malformed or unsafe URLs before exposing bounded evidence to the tutor.
+     */
+    (value): SearchResult[] => {
     if (!value || typeof value !== 'object') return [];
     const item = value as Partial<WebSearchItem>;
     if (typeof item.url !== 'string') return [];
@@ -271,11 +303,17 @@ export async function searchPublicWeb(query: string, ai: WebAiBinding, signal: A
   };
 }
 
+/** Input: none. Output: live Cloudflare bindings.
+ * What this function does: defers platform import until a tool actually executes, keeping pure helpers testable.
+ */
 async function runtimeBindings(): Promise<CloudflareBindings & { AI: WebAiBinding }> {
   const { env } = await import('cloudflare:workers');
   return env as unknown as CloudflareBindings & { AI: WebAiBinding };
 }
 
+/** Input: search results and converter. Output: enriched results with successful page-read count.
+ * What this function does: attaches up to three successful bounded page reads, preserving per-result errors.
+ */
 async function addSearchPageEvidence<T extends { provider: string; results: SearchResult[] }>(
   search: T,
   ai: WebAiBinding,
@@ -307,6 +345,9 @@ export const webResearch = defineTool({
     url: v.optional(v.pipe(v.string(), v.trim(), v.minLength(8), v.maxLength(2_000))),
     searchWeb: v.optional(v.boolean()),
   }),
+  /** Input: query, optional URL/search flag and cancellation. Output: page/search evidence envelope.
+   * What this function does: allows partial success when either requested retrieval path succeeds.
+   */
   async run({ data, signal, log }) {
     const shouldSearch = data.searchWeb ?? !data.url;
     if (!data.url && !shouldSearch) throw new Error('Web research requires a URL, web search, or both.');

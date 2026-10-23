@@ -39,14 +39,23 @@ type VisualSessionRecord = {
   explainer: VisualExplainer;
 };
 
+/** Input: legacy visual ID. Output: KV key.
+ * What this function does: preserves the historical storage naming convention.
+ */
 export function visualSessionRecordKey(id: string): string {
   return `${VISUAL_SESSION_KEY_PREFIX}${id}:record`;
 }
 
+/** Input: ISO expiration. Output: epoch seconds for legacy KV.
+ * What this function does: converts finite historical expirations; new durable artifacts do not use this helper.
+ */
 export function visualSessionExpiration(expiresAt: string): number {
   return Math.floor(new Date(expiresAt).getTime() / 1000);
 }
 
+/** Input: KV, metadata and normalized visual. Output: historical expiring record.
+ * What this function does: retains the old write helper; current Pi visual writes use LearningSession.setVisual.
+ */
 export async function putVisualSession(
   kv: KVNamespace,
   metadata: VisualSessionMetadata,
@@ -57,6 +66,9 @@ export async function putVisualSession(
   });
 }
 
+/** Input: KV and visual ID. Output: old record or null.
+ * What this function does: supports old visual URLs while their previously written data still exists.
+ */
 export async function getVisualSession(
   kv: KVNamespace,
   id: string,

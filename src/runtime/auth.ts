@@ -1,10 +1,16 @@
+// jose verifies signed JWTs against the Access issuer's public keys; contracts supplies the single workspace ID.
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { PERSONAL_OWNER } from "./contracts.ts";
 
+// Reuse JWKS clients within an isolate; cached keys are not cached authorization decisions.
 const keys = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+/** Actor identifies the signed caller; owner intentionally maps admitted browser/service actors to one workspace. */
 export type Identity = { owner: string; actor: string; service: boolean };
 /** Access is the personal workspace membership boundary. Browser and the existing
  * signed Shortcut service-token identity intentionally share this one library. */
+/** Input: request and issuer/audience configuration. Output: verified personal-workspace identity.
+ * What this function does: accepts signed assertion/cookie credentials; the development bypass is localhost-only.
+ */
 export async function verifyIdentity(
   request: Request,
   env: { ACCESS_ISSUER: string; ACCESS_AUDIENCE: string; DEV_AUTH?: string },

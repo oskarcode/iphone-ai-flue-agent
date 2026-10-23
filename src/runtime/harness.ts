@@ -1,4 +1,4 @@
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+// Pi registers model/tool behavior; the Agents adapter sends inference through the existing Gateway.
 import { createModels, Type } from "@earendil-works/pi-ai";
 import { createAI } from "agents/models/pi-ai";
 import {
@@ -10,8 +10,10 @@ import {
   type HarnessOptions,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
+// Valibot validates real inputs; JSON Schema only describes tool arguments to the model.
 import { toJsonSchema } from "@valibot/to-json-schema";
 import * as v from "valibot";
+// Application tools/prompts are independent of Pi; RuntimeHost supplies the session's persisted state.
 import { webResearch } from "../tools/web-research.ts";
 import {
   createGithubRepositoryTools,
@@ -24,6 +26,7 @@ import { generateVisualExplainer } from "../lib/visual-explainer.ts";
 import type { SessionMetadata, Source, Approval } from "./contracts.ts";
 import type { defineTool as appTool } from "./tool.ts";
 
+/** Persistence ports implemented by LearningSession. Tools receive capabilities, not raw SQL access. */
 export interface RuntimeHost {
   metadata(): SessionMetadata;
   update(patch: Partial<SessionMetadata>): Promise<void>;
@@ -39,6 +42,7 @@ export interface RuntimeHost {
   actions(): unknown;
 }
 
+// Instructions guide the model; approval, authentication and privacy filtering also require server enforcement.
 const TEACHING = `${EXPLANATION_PROMPT}\n${WEB_RESEARCH_PROMPT}
 You are a personal learning tutor. Answer the actual question directly, never generate a prerequisite guide.
 Teach one focused concept at a time, adapt to the learner, explain unfamiliar syntax, and use small cited code excerpts.
@@ -54,6 +58,9 @@ Private repository names, URLs, code and proprietary facts must not appear in so
 For a visual explanation, call create_visual and link to the returned visual URL. Do not claim artifacts expire.
 `;
 
+/** Input: bindings and session-owned persistence callbacks. Output: Pi HarnessOptions.
+ * What this function does: registers Workers AI, tools and teaching sections with sequential tool execution.
+ */
 export function createLearningHarnessOptions(
   env: CloudflareBindings,
   host: RuntimeHost,
@@ -64,6 +71,9 @@ export function createLearningHarnessOptions(
       .provider,
   );
   const registry = createRegistry();
+  /** Input: framework-neutral tool. Output: replay-safe Pi registration.
+   * What this function does: validates arguments, executes the read and retains its exact evidence.
+   */
   function adapt<S extends v.GenericSchema, O>(
     tool: ReturnType<typeof appTool<S, O>>,
   ): ToolRegistration {
@@ -74,6 +84,9 @@ export function createLearningHarnessOptions(
         toJsonSchema(tool.input, { ignoreActions: ["trim"] }),
       ),
       replay: "safe",
+      /** Input: model arguments and task context. Output: text tool result.
+       * What this function does: runs the validated tool and keys retained evidence by durable task ID.
+       */
       async execute(args, api, context) {
         const data = v.parse(tool.input, args);
         const result = await tool.run({
@@ -95,6 +108,9 @@ export function createLearningHarnessOptions(
         "Resolve a public or accessible private GitHub repository and pin its source context to a commit.",
       parameters: Type.Object({ url: Type.String({ maxLength: 2000 }) }),
       replay: "safe",
+      /** Input: repository URL. Output: commit-pinned repository context.
+       * What this function does: reuses the existing pin for the same repository and conservatively retains privacy.
+       */
       async execute({ url }, _api, context) {
         const requested = parseGithubRepositoryRequest(url);
         const existing = host.metadata().repository;
@@ -137,6 +153,9 @@ export function createLearningHarnessOptions(
           toJsonSchema(template.input, { ignoreActions: ["trim"] }),
         ),
         replay: "safe",
+        /** Input: repository-tool arguments. Output: evidence or pending approval proposal.
+         * What this function does: executes reads but never executes GitHub writes inside model-driven replay.
+         */
         async execute(args, api, context) {
           const repository = host.metadata().repository;
           if (!repository) throw new Error("Open a repository first.");
@@ -194,6 +213,9 @@ export function createLearningHarnessOptions(
         id: Type.Optional(Type.String({ maxLength: 160 })),
       }),
       replay: "safe",
+      /** Input: optional source ID. Output: saved evidence or source list.
+       * What this function does: retrieves session snapshots instead of silently refreshing external content.
+       */
       async execute({ id }) {
         return {
           output: [
@@ -208,6 +230,9 @@ export function createLearningHarnessOptions(
         "Read the persisted approval/execution status of GitHub proposals in this session. This tool never writes to GitHub.",
       parameters: Type.Object({}),
       replay: "safe",
+      /** Input: none. Output: persisted GitHub action statuses.
+       * What this function does: lets the tutor check outcomes without repeating external writes.
+       */
       async execute() {
         return {
           output: [{ type: "text", text: JSON.stringify(host.actions()) }],
@@ -220,6 +245,9 @@ export function createLearningHarnessOptions(
         "Create a retained interactive visual explainer for the current lesson.",
       parameters: Type.Object({ concept: Type.String({ maxLength: 4000 }) }),
       replay: "safe",
+      /** Input: concept and durable task ID. Output: stable visual artifact URL.
+       * What this function does: reuses retained data on replay, otherwise generates, validates and stores a visual.
+       */
       async execute({ concept }, api, context) {
         const artifactId = `visual:${api.taskId}`;
         const saved = host.savedSource(artifactId) as Source | undefined;
@@ -259,6 +287,9 @@ export function createLearningHarnessOptions(
         "Search user-saved public learning notes from other sessions, only when the user asks. Returns nothing if recall is disabled.",
       parameters: Type.Object({ query: Type.String({ maxLength: 500 }) }),
       replay: "safe",
+      /** Input: recall query. Output: matching eligible saved notes.
+       * What this function does: delegates opt-in/private filtering to LearningLibrary.
+       */
       async execute({ query }) {
         return {
           output: [
@@ -273,6 +304,9 @@ export function createLearningHarnessOptions(
     tools,
     sections: [
       section("teaching", () => TEACHING, { tag: false }),
+      /** Input: current repository metadata. Output: bounded prompt context or undefined.
+       * What this function does: exposes the pinned identity and privacy flag, not a full repository clone.
+       */
       section("repository", () => {
         const repo = host.metadata().repository;
         return repo

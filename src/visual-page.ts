@@ -1,5 +1,9 @@
+// Rendering consumes normalized data types; model output never supplies executable page markup.
 import type { VisualExplainer, VisualExplainerPart, VisualSessionMetadata } from './lib/visual-session.ts';
 
+/** Input: untrusted label/text. Output: HTML-safe text.
+ * What this function does: escapes values before interpolation into renderer-owned markup.
+ */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -9,6 +13,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// Fixed geometry belongs to the app; model data selects labels and meaning, not arbitrary SVG.
 const partSlots = [
   { x: 238, y: 332, w: 132, h: 74, tone: 'blue', shape: 'drawer' },
   { x: 410, y: 256, w: 142, h: 78, tone: 'white', shape: 'carriage' },
@@ -20,10 +25,16 @@ const partSlots = [
   { x: 190, y: 428, w: 124, h: 66, tone: 'green', shape: 'panel' },
 ] as const;
 
+/** Input: renderer-owned palette name. Output: CSS classes.
+ * What this function does: keeps part shading connected to fixed palette rules.
+ */
 function toneClass(tone: string): string {
   return `part ${tone}`;
 }
 
+/** Input: fixed geometry slot. Output: three shaded polygons.
+ * What this function does: builds the isometric solid in consistent painter order.
+ */
 function partPath(slot: typeof partSlots[number]): string {
   const x = slot.x;
   const y = slot.y;
@@ -36,6 +47,9 @@ function partPath(slot: typeof partSlots[number]): string {
   ].join('');
 }
 
+/** Input: normalized part and index. Output: escaped interactive SVG group.
+ * What this function does: combines fixed geometry with accessible labels and readout data.
+ */
 function renderPart(part: VisualExplainerPart, index: number): string {
   const slot = partSlots[index % partSlots.length];
   const cx = slot.x + slot.w * 0.5;
@@ -47,15 +61,24 @@ function renderPart(part: VisualExplainerPart, index: number): string {
   </g>`;
 }
 
+/** Input: normalized diagram. Output: ordered flow explanation or empty text.
+ * What this function does: renders explanatory labels without trusting model HTML.
+ */
 function renderFlow(explainer: VisualExplainer): string {
   if (explainer.flow.length === 0) return '';
   return `<section class="flow-card"><h2>How work moves</h2><ol>${explainer.flow.map((item) => `<li><span>${escapeHtml(item.label)}</span></li>`).join('')}</ol></section>`;
 }
 
+/** Input: illustrative code text. Output: escaped code block.
+ * What this function does: displays the mental model without executing it.
+ */
 function renderCode(code: string): string {
   return `<section class="code-card"><h2>TypeScript mental model</h2><pre><code>${escapeHtml(code)}</code></pre></section>`;
 }
 
+/** Input: retention metadata and normalized visual. Output: self-contained interactive HTML.
+ * What this function does: assembles fixed SVG/CSS/script with escaped model data and accurate retention wording.
+ */
 export function renderVisualExplainerPage(metadata: VisualSessionMetadata, explainer: VisualExplainer): string {
   const parts = explainer.parts.map(renderPart).join('');
   const partList = explainer.parts.map((part) => `<button class="part-button" type="button" data-label="${escapeHtml(part.label)}" data-meaning="${escapeHtml(part.meaning)}" data-role="${escapeHtml(part.role)}"><strong>${escapeHtml(part.label)}</strong><span>${escapeHtml(part.role)}</span></button>`).join('');
@@ -104,7 +127,7 @@ pre { max-width:100%; overflow:auto; padding:16px; border:1px solid var(--line);
 </style>
 </head>
 <body><div class="shell">
-<header><div class="eyebrow">Visual tech explainer</div><h1>${escapeHtml(explainer.title)}</h1><p class="subtitle">${escapeHtml(explainer.summary)}</p><div class="chips"><span class="chip">${escapeHtml(explainer.concept)}</span><span class="chip">${escapeHtml(explainer.analogy)}</span><span class="chip">expires ${escapeHtml(new Date(metadata.expiresAt).toLocaleTimeString())}</span></div></header>
+<header><div class="eyebrow">Visual tech explainer</div><h1>${escapeHtml(explainer.title)}</h1><p class="subtitle">${escapeHtml(explainer.summary)}</p><div class="chips"><span class="chip">${escapeHtml(explainer.concept)}</span><span class="chip">${escapeHtml(explainer.analogy)}</span><span class="chip">${metadata.expiresAt.startsWith('9999-') ? 'Saved until deleted' : `expires ${escapeHtml(new Date(metadata.expiresAt).toLocaleTimeString())}`}</span></div></header>
 <main>
 <section class="visual-card"><div class="visual-header"><div class="eyebrow">Interactive anatomy</div><h2>${escapeHtml(explainer.analogy)}</h2><p>${escapeHtml(explainer.caption)}</p></div><div class="visual-wrap"><svg id="visual" viewBox="0 0 1000 640" role="img" aria-label="${escapeHtml(explainer.title)}"><ellipse cx="510" cy="514" rx="330" ry="58" fill="#020617" opacity=".22"/><polygon class="base-top" points="210,360 545,170 805,320 470,512"/><polygon class="base-left" points="210,360 470,512 470,548 210,396"/><polygon class="base-right" points="470,512 805,320 805,356 470,548"/><path class="wire" d="M300 420 C390 345 478 304 560 270 S710 255 760 340"/><path class="wire" d="M714 392 C632 448 530 492 398 496 S247 477 235 438"/><polygon class="arrow" points="760,340 744,337 753,353"/>${parts}</svg></div><div class="readout" id="readout"><strong>Tap a part</strong><span>Each physical part maps to one responsibility in the concept.</span></div><div class="parts-grid">${partList}</div></section>
 ${renderFlow(explainer)}

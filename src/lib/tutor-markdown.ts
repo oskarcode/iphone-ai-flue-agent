@@ -2,9 +2,17 @@
  * Model text is escaped; only renderer-owned tags are emitted. No images or links
  * are loaded, so private repository answers cannot trigger external requests.
  */
+/** Input: untrusted message text. Output: escaped renderer-owned HTML.
+ * What this function does: recognizes code, tables, lists and emphasis without executing HTML or loading remote images.
+ */
 export function renderTutorMarkdown(text: string): string {
   const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const inline = (value: string): string => value.split(/(`[^`]+`)/g).map((part) => {
+  // Escape ordinary text before adding supported inline tags; code spans take precedence.
+  const inline = (value: string): string => value.split(/(`[^`]+`)/g).map(
+    /** Input: one inline-code or prose segment. Output: escaped, application-owned markup.
+     * What this function does: preserves code literally and applies emphasis only to escaped prose.
+     */
+    (part) => {
     if (part.startsWith('`') && part.endsWith('`')) return '<code>' + escape(part.slice(1, -1)) + '</code>';
     return escape(part).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
   }).join('');

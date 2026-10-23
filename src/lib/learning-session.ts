@@ -1,4 +1,4 @@
-// This module owns the learning-session record shared by HTTP routes and the durable learning agent.
+// Historical KV schema and compatibility helpers. New canonical sessions live in runtime/session.ts.
 import type { GithubRepository } from '../tools/github-repository.ts';
 export const LEARNING_SESSION_TTL_SECONDS = 0;
 export const LEARNING_SESSION_KEY_PREFIX = 'learning-session:';
@@ -49,6 +49,9 @@ export type LearningSessionRecord = {
   guide?: LearningGuide;
 };
 
+/** Input: legacy KV and session ID. Output: record or null.
+ * What this function does: translates only the obsolete missing-guide failure into ready state for migration.
+ */
 export async function getLearningSessionRecord(kv: KVNamespace, id: string): Promise<LearningSessionRecord | null> {
   const record = await kv.get<LearningSessionRecord>(learningSessionRecordKey(id), 'json');
   if (!record) return null;
@@ -96,7 +99,7 @@ export function learningSessionSubmissionKey(id: string): string {
  * - An absolute Unix timestamp accepted by Workers KV.
  *
  * What this function does:
- * - Gives all related keys the same one-hour expiry boundary.
+ * - Converts a finite legacy timestamp; current Pi sessions do not use expiration.
  */
 export function learningSessionExpiration(expiresAt: string): number {
   return Math.floor(new Date(expiresAt).getTime() / 1000);
@@ -132,7 +135,9 @@ export async function putLearningSession(kv: KVNamespace, metadata: LearningSess
   await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ ...existing, metadata }));
 }
 
-/** Create a chat-ready session with its immutable tool context, without an AI setup turn. */
+/** Input: legacy KV, metadata and repository pin. Output: stored compatibility record.
+ * What this function does: retains the old guide-free admission helper; Pi uses LearningSession.create instead.
+ */
 export async function putRepositoryTutorSession(kv: KVNamespace, metadata: LearningSessionMetadata, repository: GithubRepository): Promise<void> {
   await kv.put(learningSessionRecordKey(metadata.id), JSON.stringify({ metadata, repository }));
 }

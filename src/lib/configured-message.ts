@@ -1,6 +1,7 @@
+// The legacy decoder uses a runtime guard, not TypeScript assertions, for persisted caller metadata.
 import { isGatewayCallerMetadata, type GatewayCallerMetadata } from './gateway-metadata.ts';
 
-// Flue receives one string, so this shape describes the trusted metadata encoded before the visible prompt.
+// Historical Flue envelope only. Pi imports visible prompt text and never treats these fields as new instructions.
 export type ConfiguredMessage = {
   prompt: string;
   routingContext?: string;
@@ -77,6 +78,9 @@ export function decodeConfiguredMessage(value: string): ConfiguredMessage | null
 }
 
 /** Finds the most recent app-owned caller identity in a serialized model request. */
+/** Input: serialized historical model request. Output: latest verified-shape caller metadata, if any.
+ * What this function does: scans content parts from newest to oldest without trusting arbitrary identity headers.
+ */
 export function gatewayCallerFromModelInput(input: unknown): GatewayCallerMetadata | undefined {
   if (!input || typeof input !== 'object' || !('messages' in input) || !Array.isArray(input.messages)) return undefined;
   for (let index = input.messages.length - 1; index >= 0; index -= 1) {

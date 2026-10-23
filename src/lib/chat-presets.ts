@@ -17,6 +17,9 @@ Return the entire post in one fenced text block for a single copy action, with t
 Do not include private repository names, links, paths, code, credentials, or internal details in the public post. For private material, share only generic conceptual lessons and put a brief privacy reminder outside the copyable block. Do not re-fetch sources, open a new repository session, create GitHub changes, or post anything. This is a draft for me to edit and copy, not a session transcript.`;
 
 /** Include the active conversation's visible evidence for a recap; ordinary turns are unchanged. */
+/** Input: visible message history. Output: bounded textual context for legacy callers.
+ * What this function does: keeps the latest user request distinct from quoted prior turns.
+ */
 export function chatTurnPrompt(messages: { role: string; content: string }[]): string {
   const latest = messages.at(-1)?.content || '';
   if (latest !== LEARNING_RECAP_PROMPT) return latest;

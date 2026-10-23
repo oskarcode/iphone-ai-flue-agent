@@ -1,3 +1,4 @@
+// Run durable-state tests in workerd with real SQLite, but no remote inference bindings.
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 export default defineConfig({

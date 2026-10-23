@@ -1,3 +1,4 @@
+// Preserve Cloudflare class identities while decoding only visible legacy messages.
 import { DurableObject } from "cloudflare:workers";
 import { decodeConfiguredMessage } from "../lib/configured-message.ts";
 import type { Message } from "./contracts.ts";
@@ -5,6 +6,9 @@ import type { Message } from "./contracts.ts";
 /** Keep the original class identities/bindings, but never run Flue or replay tools.
  * All original tables remain untouched and can be exported during the rollback window. */
 class LegacyReader extends DurableObject<CloudflareBindings> {
+  /** Input: none. Output: original identity JSON or null.
+   * What this function does: resolves opaque DO inventory IDs without initializing a Flue runtime.
+   */
   identity(): string | null {
     if (
       !this.ctx.storage.sql
@@ -22,6 +26,9 @@ class LegacyReader extends DurableObject<CloudflareBindings> {
         .toArray()[0]?.identity_json ?? null
     );
   }
+  /** Input: prior rowid. Output: up to 50 decoded batches and continuation rowid.
+   * What this function does: reassembles spill chunks, rejecting incomplete evidence rather than silently losing text.
+   */
   exportPage(after = 0) {
     if (
       !this.ctx.storage.sql
@@ -43,7 +50,11 @@ class LegacyReader extends DurableObject<CloudflareBindings> {
       )
       .toArray();
     return JSON.stringify({
-      rows: rows.map((row) => {
+      rows: rows.map(
+      /** Input: one historical batch row. Output: its complete serialized records.
+       * What this function does: joins stored chunks and rejects incomplete batches instead of silently losing history.
+       */
+      (row) => {
         let data = row.data;
         if (data.startsWith("{")) {
           const count = JSON.parse(data).$flueChunkCount;
@@ -70,6 +81,9 @@ class LegacyReader extends DurableObject<CloudflareBindings> {
     });
   }
   /** Only called for an explicitly confirmed permanent session deletion. */
+  /** Input: confirmed deletion from LearningSession. Output: erased legacy rows/keys.
+   * What this function does: clears only known legacy tables; migration itself never calls this method.
+   */
   async purge() {
     await this.ctx.storage.deleteAlarm();
     const tables = this.ctx.storage.sql
@@ -89,6 +103,9 @@ class LegacyReader extends DurableObject<CloudflareBindings> {
     const keys = await this.ctx.storage.list();
     if (keys.size) await this.ctx.storage.delete([...keys.keys()]);
   }
+  /** Input: obsolete Flue alarm. Output: alarm removed.
+   * What this function does: prevents historical executions from restarting after migration.
+   */
   async alarm() {
     await this.ctx.storage.deleteAlarm();
   }
@@ -98,6 +115,9 @@ export class FlueGithubLearningAgent extends LegacyReader {}
 
 /** Import only visible text; keep tool history/reasoning in the read-only original.
  * Called over all pages so a text block spanning batches is reconstructed correctly. */
+/** Input: complete ordered legacy record sequence. Output: visible user/assistant messages.
+ * What this function does: deduplicates records, stitches completed text deltas and strips old configured envelopes.
+ */
 export function projectLegacyMessages(
   records: Record<string, unknown>[],
 ): Message[] {

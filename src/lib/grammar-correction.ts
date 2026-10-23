@@ -1,3 +1,4 @@
+// Keep grammar independent of Pi tools, session storage and intent routing.
 import { GRAMMAR_CORRECTION_PROMPT } from '../prompts.ts';
 
 type JsonRecord = Record<string, unknown>;
@@ -5,7 +6,9 @@ type JsonRecord = Record<string, unknown>;
 export const DEFAULT_GRAMMAR_MODEL = '@cf/zai-org/glm-5.2';
 export const GRAMMAR_MAX_COMPLETION_TOKENS = 32_768;
 
-/** Converts Flue's provider-qualified model selector into an AI binding model name. */
+/** Input: configured provider/model selector. Output: Workers AI model ID.
+ * What this function does: removes the provider prefix and supplies the grammar default.
+ */
 export function grammarModelFromConfiguredModel(configuredModel?: string): string {
   const model = configuredModel?.trim();
   return model ? model.replace(/^cloudflare\//, '') : DEFAULT_GRAMMAR_MODEL;
@@ -14,12 +17,17 @@ export function grammarModelFromConfiguredModel(configuredModel?: string): strin
 /** Keeps short edits bounded, while retaining the existing ceiling for long text.
  * UTF-8 bytes are a conservative token estimate, including non-English input.
  */
+/** Input: original text. Output: bounded completion-token budget.
+ * What this function does: estimates from UTF-8 bytes so short edits avoid the maximum allocation.
+ */
 export function grammarCompletionBudget(text: string): number {
   const bytes = new TextEncoder().encode(text).length;
   return Math.min(GRAMMAR_MAX_COMPLETION_TOKENS, Math.max(256, Math.ceil(bytes * 1.5) + 128));
 }
 
-/** Builds the deterministic, stateless model input used by POST /v1/correct. */
+/** Input: unmodified text. Output: deterministic Workers AI request.
+ * What this function does: disables thinking explicitly without involving durable conversation state.
+ */
 export function createGrammarRequest(text: string) {
   return {
     messages: [
@@ -35,7 +43,9 @@ export function createGrammarRequest(text: string) {
   };
 }
 
-/** Returns corrected text from supported Workers AI response envelopes. */
+/** Input: untrusted AI response. Output: non-empty corrected text.
+ * What this function does: accepts supported envelopes but rejects truncation and abnormal finish reasons.
+ */
 export function correctedTextFromAi(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Workers AI returned a non-object grammar response.');

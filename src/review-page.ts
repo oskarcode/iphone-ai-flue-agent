@@ -1,6 +1,10 @@
+// Historical archive DTOs only: current Library pages are rendered by React, not this compatibility renderer.
 import type { LearningArchiveEvent, LearningArchiveSessionDetail, LearningArchiveSessionSummary } from './lib/learning-archive.ts';
 import type { ShareDraft } from './lib/share-draft.ts';
 
+/** Input: archived text. Output: escaped HTML text.
+ * What this function does: prevents stored model/user content from becoming executable markup.
+ */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -10,15 +14,24 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/** Input: commit SHA. Output: 12-character display label.
+ * What this function does: shortens presentation without changing the stored immutable pin.
+ */
 function shortSha(sha: string): string {
   return sha.slice(0, 12);
 }
 
+/** Input: stored timestamp. Output: readable date or original invalid value.
+ * What this function does: keeps older imperfect records renderable.
+ */
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+/** Input: title and already-rendered body. Output: historical review HTML.
+ * What this function does: supplies local styling and copy controls, never model-authored scripts.
+ */
 function shell(title: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -59,14 +72,23 @@ ul { padding-left:1.2rem; }
 </html>`;
 }
 
+/** Input: archive event type. Output: readable label.
+ * What this function does: replaces storage separators for timeline presentation.
+ */
 function eventLabel(type: LearningArchiveEvent['type']): string {
   return type.replace(/_/g, ' ');
 }
 
+/** Input: archive payload. Output: formatted JSON text.
+ * What this function does: prepares evidence for escaping in a preformatted block.
+ */
 function payloadText(payload: unknown): string {
   return JSON.stringify(payload, null, 2) ?? '';
 }
 
+/** Input: unknown event payload. Output: compatibility type guard.
+ * What this function does: identifies old draft-shaped records before rendering their fields.
+ */
 function isShareDraft(value: unknown): value is ShareDraft {
   if (!value || typeof value !== 'object') return false;
   const draft = value as Record<string, unknown>;
@@ -75,11 +97,18 @@ function isShareDraft(value: unknown): value is ShareDraft {
     && typeof draft.topic === 'string';
 }
 
+/** Input: archive events. Output: up to three old draft cards.
+ * What this function does: presents previously stored copyable drafts; it creates no new social posts.
+ */
 function renderShareDrafts(events: LearningArchiveEvent[]): string {
   const drafts = events.filter((event) => event.type === 'share_draft' && isShareDraft(event.payload));
   if (!drafts.length) return '';
   const newest = [...drafts].reverse().slice(0, 3);
-  const cards = newest.map((event) => {
+  const cards = newest.map(
+    /** Input: one archived draft event. Output: an escaped copyable draft panel.
+     * What this function does: renders historical text and tags without publishing or executing stored content.
+     */
+    (event) => {
     const draft = event.payload as ShareDraft;
     const tags = draft.hashtags.join(' ');
     return `<div class="share-box"><div class="eyebrow">${escapeHtml(draft.source === 'guide' ? 'Guide share draft' : 'Follow-up share draft')}</div><h3>${escapeHtml(draft.topic)}</h3><p class="muted">Created ${escapeHtml(formatDate(event.createdAt))}</p><label>X draft<textarea class="share-text" readonly>${escapeHtml(`${draft.x}\n\n${tags}`)}</textarea></label><button class="copy" type="button" data-copy>Copy</button><label>LinkedIn draft<textarea class="share-text" readonly>${escapeHtml(`${draft.linkedin}\n\n${tags}`)}</textarea></label><button class="copy" type="button" data-copy>Copy</button></div>`;
@@ -87,6 +116,9 @@ function renderShareDrafts(events: LearningArchiveEvent[]): string {
   return `<section class="card"><div class="eyebrow">Share what you learned</div><h2>Ready-to-edit drafts</h2><p class="muted">Short drafts are generated automatically from the guide and tutor follow-ups. Review before posting.</p><div class="share-grid">${cards}</div></section>`;
 }
 
+/** Input: historical summaries. Output: escaped archive index HTML.
+ * What this function does: retains an old renderer; the current /review route redirects to React.
+ */
 export function renderReviewIndexPage(sessions: LearningArchiveSessionSummary[]): string {
   const rows = sessions.map((session) => `<div class="session">
     <div><strong><a href="/review/${encodeURIComponent(session.id)}">${escapeHtml(session.repository)}</a></strong><p class="muted">${escapeHtml(session.title || 'Learning guide')}</p><span class="badge">${escapeHtml(shortSha(session.commitSha))}</span></div>
@@ -97,6 +129,9 @@ export function renderReviewIndexPage(sessions: LearningArchiveSessionSummary[])
   return shell('Learning archive', `<section class="header"><div class="eyebrow">Learning archive</div><h1>Saved assistant sessions</h1><p class="muted">Temporary pages and chats can expire, but this archive keeps learning guides, web research, direct answers, visual explainers, follow-up tutor answers, and share drafts for later review.</p></section><section class="card">${rows}</section>`);
 }
 
+/** Input: archive detail. Output: escaped guide/event timeline.
+ * What this function does: supports old review URLs when a Pi session is not already available.
+ */
 export function renderReviewDetailPage(session: LearningArchiveSessionDetail): string {
   const guide = session.guide;
   const guideHtml = guide ? `<section class="card"><div class="eyebrow">Published guide</div><h2>${escapeHtml(guide.title)}</h2><p class="muted">${escapeHtml(guide.subtitle)}</p><h3>Overview</h3><p>${escapeHtml(guide.overview)}</p><h3>Sections</h3><ul>${guide.sections.map((section) => `<li><strong>${escapeHtml(section.title)}</strong><br><span class="muted">${escapeHtml(section.summary)}</span><br><code>${section.evidence.map(escapeHtml).join('</code>, <code>')}</code></li>`).join('')}</ul></section>` : '<section class="card"><p class="muted">No published guide was archived for this session.</p></section>';

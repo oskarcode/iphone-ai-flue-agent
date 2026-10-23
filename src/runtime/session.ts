@@ -1,3 +1,4 @@
+// Cloudflare owns object lifetime; Pi/Chord own durable tasks, entries and background execution.
 import { DurableObject } from "cloudflare:workers";
 import { BACKGROUND_CONTEXT as background } from "@earendil-works/chord/context";
 import {
@@ -7,10 +8,13 @@ import {
   type EntryRecord,
   type EntryId,
   type SubmissionId,
+  type AgentEventStream,
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
+// Application contracts, tool schemas and the harness adapter connect persisted state to model work.
 import * as v from "valibot";
 import { createLearningHarnessOptions } from "./harness.ts";
+import { ActivityJournal } from "./activity.ts";
 import {
   directoryItem,
   sha256,
@@ -26,6 +30,10 @@ import {
   type GithubRepository,
 } from "../tools/github-repository.ts";
 
+/** Input: a committed Pi entry.
+ * Output: visible user/assistant text, or undefined.
+ * What this function does: excludes reasoning/tool blocks and projects passive imports for the UI.
+ */
 export function entryMessage(entry: EntryRecord): Message | undefined {
   if (entry.kind === "learning.import") {
     const data = entry.data as {
@@ -61,11 +69,19 @@ export function entryMessage(entry: EntryRecord): Message | undefined {
 
 /** One Pi storage owner per learning UUID. Browser connections never own generation. */
 export class LearningSession extends DurableObject<CloudflareBindings> {
+  // These process-local handles can disappear on eviction; SQL remains authoritative.
   private opening?: Promise<Harness>;
   private harness?: Harness;
   private watched = new Set<string>();
+  private activity: ActivityJournal;
+  private activityStream?: AgentEventStream;
+  /** Input: Cloudflare context and bindings.
+   * Output: initialized object instance.
+   * What this function does: creates application tables and marks interrupted external writes uncertain.
+   */
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
+    this.activity = new ActivityJournal(ctx.storage.sql);
     ctx.storage.sql
       .exec(`CREATE TABLE IF NOT EXISTS learning_state (id INTEGER PRIMARY KEY CHECK(id=1), metadata TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, dirty INTEGER NOT NULL DEFAULT 1, deleted INTEGER NOT NULL DEFAULT 0, error TEXT);
       CREATE TABLE IF NOT EXISTS learning_sources (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -82,6 +98,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
         });
     }
   }
+  /** Input: none. Output: singleton SQL row, if present.
+   * What this function does: reads lifecycle flags without opening Pi.
+   */
   private state() {
     return this.ctx.storage.sql
       .exec<{
@@ -93,16 +112,25 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       }>("SELECT * FROM learning_state WHERE id=1")
       .toArray()[0];
   }
+  /** Input: none. Output: live session metadata.
+   * What this function does: rejects missing/deleted state before decoding JSON.
+   */
   private metadata(): SessionMetadata {
     const row = this.state();
     if (!row || row.deleted) throw new Error("Session not found");
     return JSON.parse(row.metadata);
   }
+  /** Input: verified workspace owner. Output: matching metadata.
+   * What this function does: prevents cross-owner reads and mutations at the RPC boundary.
+   */
   private authorize(owner: string) {
     const metadata = this.metadata();
     if (metadata.owner !== owner) throw new Error("Session not found");
     return metadata;
   }
+  /** Input: an allowlisted application table. Output: decoded records of type T.
+   * What this function does: keeps dynamic SQL table names separate from untrusted request values.
+   */
   private rows<T>(
     table: "learning_sources" | "learning_notes" | "learning_approvals",
   ): T[] {
@@ -111,6 +139,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       .toArray()
       .map((r) => JSON.parse(r.data));
   }
+  /** Input: allowlisted table, record ID and JSON data. Output: none.
+   * What this function does: upserts one record and marks the Library projection stale.
+   */
   private store(
     table: "learning_sources" | "learning_notes" | "learning_approvals",
     id: string,
@@ -123,11 +154,17 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     );
     this.dirty();
   }
+  /** Input: none. Output: incremented durable revision.
+   * What this function does: records that the Library must be synchronized again.
+   */
   private dirty() {
     this.ctx.storage.sql.exec(
       "UPDATE learning_state SET dirty=1,revision=revision+1 WHERE id=1",
     );
   }
+  /** Input: none. Output: changed messages to connected browsers.
+   * What this function does: invalidates snapshots without sending private reasoning or credentials.
+   */
   private notify() {
     for (const socket of this.ctx.getWebSockets()) {
       try {
@@ -135,11 +172,17 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       } catch {}
     }
   }
+  /** Input: none. Output: persisted recovery alarm.
+   * What this function does: schedules work within 30 seconds without postponing an earlier alarm.
+   */
   private async wake() {
     const current = await this.ctx.storage.getAlarm();
     if (current === null || current > Date.now() + 30_000)
       await this.ctx.storage.setAlarm(Date.now() + 30_000);
   }
+  /** Input: initial session metadata. Output: created or existing session.
+   * What this function does: forbids resurrection, persists identity, then synchronizes the Library.
+   */
   async create(metadata: SessionMetadata) {
     const row = this.state();
     if (row?.deleted) throw new Error("Session was deleted");
@@ -154,16 +197,25 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.wake();
     await this.syncLibrary();
   }
+  /** Input: owner. Output: tombstone membership.
+   * What this function does: lets deletion retries avoid reopening erased history.
+   */
   async isDeleted(owner: string) {
     const row = this.state();
     return Boolean(row?.deleted && JSON.parse(row.metadata).owner === owner);
   }
+  /** Input: owner. Output: whether live matching state exists.
+   * What this function does: distinguishes a reusable session from absent or deleted storage.
+   */
   async exists(owner: string) {
     const row = this.state();
     return Boolean(
       row && !row.deleted && JSON.parse(row.metadata).owner === owner,
     );
   }
+  /** Input: partial metadata. Output: updated durable metadata.
+   * What this function does: advances revision/time, schedules projection and invalidates browser snapshots.
+   */
   private async update(patch: Partial<SessionMetadata>) {
     const meta = {
       ...this.metadata(),
@@ -177,15 +229,25 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.wake();
     this.notify();
   }
+  /** Input: none. Output: one shared open Harness promise.
+   * What this function does: lazily attaches Pi to this object's SQLite and wires source/proposal callbacks.
+   * Concurrent callers share opening; a failed harness aborts this instance so recovery can reopen it.
+   */
   private async open(): Promise<Harness> {
     if (this.harness) return this.harness;
     if (this.opening) return this.opening;
+    /** Input: this object's bindings/state. Output: an opened Pi harness.
+     * What this function does: shares initialization across concurrent callers and installs persistence callbacks.
+     */
     this.opening = (async () => {
       const harness = await Harness.open(
         await openDurableObjectSqliteStorage(this.ctx.storage),
         createLearningHarnessOptions(this.env, {
           metadata: () => this.metadata(),
           update: (patch) => this.update(patch),
+          /** Input: retrieved evidence. Output: retained hashed record.
+           * What this function does: enforces the byte cap and schedules retryable directory synchronization.
+           */
           source: async (id, title, content) => {
             const source: Source = {
               id,
@@ -200,6 +262,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
             this.store("learning_sources", id, source);
             await this.wake();
           },
+          /** Input: durable tool-task ID and exact arguments. Output: existing/new pending proposal.
+           * What this function does: persists repository context without executing any external mutation.
+           */
           proposal: async (id, tool, args) => {
             const existing = this.rows<Approval>("learning_approvals").find(
               (a) => a.id === id,
@@ -242,12 +307,50 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
         background,
       );
       this.harness = harness;
-      await harness.root(background);
+      const root = await harness.root(background);
+      this.activityStream = await watchEvents(harness, root.id, background);
+      /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
+       * What this function does: restores active/queued submission identity before processing resumed events.
+       */
+      const restoreActivity = async (
+        snapshot: typeof this.activityStream.snapshot,
+      ) => {
+        const ids = new Set([
+          ...(snapshot.run?.inputs ?? []),
+          ...snapshot.inbox.map((item) => item.id),
+          ...this.activity
+            .list([], true)
+            .map((turn) => Number(turn.id) as SubmissionId),
+        ]);
+        for (const id of ids) {
+          const submission = await harness.submission(id, background);
+          if (submission)
+            this.activity.submission(await submission.status(background));
+        }
+      };
+      await restoreActivity(this.activityStream.snapshot);
+      this.activity.record([this.activityStream.snapshot]);
+      /** Input: committed agent events. Output: persisted sanitized progress and browser invalidations.
+       * What this function does: streams operational updates through the existing authorized snapshot channel.
+       */
+      this.activityStream.start(async (events) => {
+        if (this.state()?.deleted) return;
+        for (const event of events)
+          if (event.type === "snapshot") await restoreActivity(event);
+        this.activity.record(events);
+        this.notify();
+      });
+      /** Input: Pi commit publication. Output: dirty projection and browser invalidation.
+       * What this function does: marks entry changes for synchronization after canonical commit.
+       */
       harness.subscribeCommits((publication) => {
         if (publication.changes.some((change) => change.type === "entry"))
           this.dirty();
         this.notify();
       });
+      /** Input: harness close result. Output: isolate abort on failure.
+       * What this function does: lets a fresh object instance reopen persisted work after a failed runtime.
+       */
       void harness.closed.then((end) => {
         if (end.reason === "failed") this.ctx.abort("Learning harness failed");
       });
@@ -259,9 +362,15 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       this.opening = undefined;
     }
   }
+  /** Input: none. Output: this owner's Library RPC stub.
+   * What this function does: routes projection writes to the shared personal directory.
+   */
   private library() {
     return this.env.LEARNING_LIBRARY.getByName(this.metadata().owner);
   }
+  /** Input: current dirty state. Output: versioned Library projection.
+   * What this function does: indexes recent text/sources/notes, clearing dirty only if its revision still matches.
+   */
   private async syncLibrary() {
     const row = this.state();
     if (!row || !row.dirty || row.deleted) return;
@@ -297,6 +406,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       row.revision,
     );
   }
+  /** Input: owner, text and stable request ID. Output: session/submission receipt.
+   * What this function does: validates retry identity, persists the wakeup before scheduling Pi, and watches completion.
+   */
   async submit(owner: string, text: string, requestId: string) {
     this.authorize(owner);
     if (
@@ -335,10 +447,16 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       sessionId: this.metadata().id,
     };
   }
+  /** Input: Pi submission ID. Output: background completion watcher.
+   * What this function does: records unanswered outcomes, reconciles state and schedules recovery on failure.
+   */
   private watchSubmission(id: string) {
     if (this.watched.has(id)) return;
     this.watched.add(id);
     this.ctx.waitUntil(
+      /** Input: watched submission ID. Output: completion/error state and reconciliation.
+       * What this function does: waits in Cloudflare background work rather than attaching generation to a browser.
+       */
       (async () => {
         const submission = await (
           await this.open()
@@ -358,6 +476,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
         .finally(() => this.watched.delete(id)),
     );
   }
+  /** Input: owner, text, retry ID. Output: completed visible answer.
+   * What this function does: waits on the same durable submission used by asynchronous browser chat.
+   */
   async answer(owner: string, text: string, requestId: string) {
     const receipt = await this.submit(owner, text, requestId);
     const harness = await this.open();
@@ -376,6 +497,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     if (!answer) throw new Error("Empty answer");
     return answer;
   }
+  /** Input: owner and optional opaque cursor. Output: JSON Response containing SessionSnapshot.
+   * What this function does: combines committed visible entries, live partial text and application records.
+   */
   async snapshot(owner: string, cursor?: string): Promise<Response> {
     const metadata = this.authorize(owner);
     const harness = await this.open();
@@ -397,11 +521,19 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     const snapshot: SessionSnapshot = {
       metadata,
       messages: page.items
-        .flatMap((entry) => {
-          const m = entryMessage(entry);
-          return m ? [m] : [];
-        })
+        .flatMap(
+          /** Input: committed entry. Output: zero or one visible message.
+           * What this function does: excludes non-display records before reversing the recent page.
+           */ (entry) => {
+            const m = entryMessage(entry);
+            return m ? [m] : [];
+          },
+        )
         .reverse(),
+      activity: this.activity.list(
+        page.items.map((entry) => String(entry.id)),
+        !cursor,
+      ),
       partial,
       busy: Boolean(live.run || live.inbox.length),
       error: this.state()?.error ?? undefined,
@@ -414,9 +546,15 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     };
     return Response.json(snapshot);
   }
+  /** Input: owner. Output: authorized metadata.
+   * What this function does: exposes metadata without opening conversation history.
+   */
   async getMetadata(owner: string) {
     return this.authorize(owner);
   }
+  /** Input: owner and resolved repository. Output: updated session context.
+   * What this function does: pins repository context while retaining any prior private classification.
+   */
   async attachRepository(owner: string, repository: GithubRepository) {
     this.authorize(owner);
     await this.update({
@@ -425,6 +563,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       private: this.metadata().private || repository.private,
     });
   }
+  /** Input: owner, serialized archive and optional repository. Output: retained archive source.
+   * What this function does: preserves historical evidence under a bounded, hashed record without replaying tools.
+   */
   async retainLegacy(
     owner: string,
     content: string,
@@ -448,6 +589,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     });
     await this.wake();
   }
+  /** Input: historical source identity, content and timestamp. Output: hashed retained record.
+   * What this function does: stores separate archive/tool evidence with a 900 KB byte guard.
+   */
   async retainLegacySource(
     owner: string,
     id: string,
@@ -468,6 +612,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     });
     await this.wake();
   }
+  /** Input: owner and original shared text. Output: shared-input source.
+   * What this function does: preserves handoff evidence independently of the temporary KV envelope.
+   */
   async retainInput(owner: string, text: string) {
     this.authorize(owner);
     const source: Source = {
@@ -481,6 +628,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     this.store("learning_sources", source.id, source);
     await this.wake();
   }
+  /** Input: owner and normalized visual. Output: immutable artifact ID.
+   * What this function does: retains a hashed version and updates the current visual shortcut.
+   */
   async setVisual(
     owner: string,
     visual: NonNullable<SessionMetadata["visual"]>,
@@ -502,12 +652,18 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     });
     return id;
   }
+  /** Input: owner and source ID. Output: exact retained source, if found.
+   * What this function does: retrieves evidence without silently refetching a changed page.
+   */
   async source(owner: string, id: string) {
     this.authorize(owner);
     return this.rows<Source>("learning_sources").find(
       (source) => source.id === id,
     );
   }
+  /** Input: owner and title/pin/archive patch. Output: synchronized metadata.
+   * What this function does: allowlists editable fields; archiving never deletes history.
+   */
   async edit(
     owner: string,
     patch: { title?: string; archived?: boolean; pinned?: boolean },
@@ -524,6 +680,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.update(safe);
     await this.syncLibrary();
   }
+  /** Input: owner, note text, evidence entry ID and optional note ID. Output: saved note.
+   * What this function does: verifies evidence in this conversation before storing and projecting the note.
+   */
   async note(
     owner: string,
     text: string,
@@ -560,6 +719,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.syncLibrary();
     this.notify();
   }
+  /** Input: owner and note ID. Output: removed note and refreshed projection.
+   * What this function does: deletes only the note, not its evidence message.
+   */
   async deleteNote(owner: string, id: string) {
     this.authorize(owner);
     this.ctx.storage.sql.exec("DELETE FROM learning_notes WHERE id=?", id);
@@ -567,6 +729,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.wake();
     await this.syncLibrary();
   }
+  /** Input: owner, proposal ID and explicit accept/reject decision. Output: persisted action status.
+   * What this function does: claims exact stored arguments before GitHub writes; ambiguous failures become uncertain.
+   */
   async approve(owner: string, id: string, accept: boolean) {
     this.authorize(owner);
     const proposal = this.rows<Approval & { repository: GithubRepository }>(
@@ -625,11 +790,17 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     this.notify();
     return Response.json(proposal);
   }
+  /** Input: owner. Output: aborted current run.
+   * What this function does: asks Pi to stop, then reconciles retained state rather than deleting it.
+   */
   async stop(owner: string) {
     this.authorize(owner);
     await (await (await this.open()).root(background)).abort(background);
     await this.reconcile();
   }
+  /** Input: owner and import summary. Output: completion marker and Library update.
+   * What this function does: records counts and historical creation time after passive entries are saved.
+   */
   async markImported(
     owner: string,
     summary: {
@@ -658,6 +829,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       });
     await this.syncLibrary();
   }
+  /** Input: owner, batch ID and visible historical messages. Output: passive Pi entries.
+   * What this function does: deduplicates imports with stable IDs; type write never requests model generation.
+   */
   async importMessages(owner: string, batchId: string, messages: Message[]) {
     this.authorize(owner);
     if (
@@ -694,6 +868,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.wake();
     await this.syncLibrary();
   }
+  /** Input: owner and optional cursor. Output: serialized page with continuation cursor.
+   * What this function does: exports all Pi entries; sources, notes and approvals appear on the first page.
+   */
   async exportPage(owner: string, cursor?: string) {
     this.authorize(owner);
     const root = await (await this.open()).root(background);
@@ -710,8 +887,15 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       sources: cursor ? [] : this.rows<Source>("learning_sources"),
       notes: cursor ? [] : this.rows<Note>("learning_notes"),
       approvals: cursor ? [] : this.rows<Approval>("learning_approvals"),
+      activity: this.activity.list(
+        page.items.map((entry) => String(entry.id)),
+        false,
+      ),
     });
   }
+  /** Input: owner. Output: revoked session and attempted cleanup.
+   * What this function does: persists deletion before stopping work, closing sockets and erasing stored copies.
+   */
   async remove(owner: string) {
     const row = this.state();
     if (!row) return;
@@ -719,11 +903,15 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     if (metadata.owner !== owner) throw new Error("Session not found");
     this.ctx.storage.sql.exec("UPDATE learning_state SET deleted=1 WHERE id=1");
     await this.wake();
+    if (this.activityStream) await this.activityStream.stop();
     if (this.harness) await this.harness.close(background);
     for (const socket of this.ctx.getWebSockets())
       socket.close(1000, "Deleted");
     await this.finishDeletion(metadata);
   }
+  /** Input: deleted session metadata. Output: content removed, minimal tombstone retained.
+   * What this function does: cleans Library, legacy storage, archive, KV and known Pi tables; alarms retry interruptions.
+   */
   private async finishDeletion(metadata: SessionMetadata) {
     await this.env.LEARNING_LIBRARY.getByName(metadata.owner).remove(
       metadata.id,
@@ -752,6 +940,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       "learning_approvals",
       "learning_requests",
       "learning_imports",
+      "learning_activity",
     ])
       this.ctx.storage.sql.exec(`DELETE FROM ${table}`);
     // Pi 1.2's data tables only. Never touch platform or test-runner tables.
@@ -775,6 +964,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
         this.ctx.storage.sql.exec(`DELETE FROM ${name}`);
     }
   }
+  /** Input: durable lifecycle/task state. Output: resumed work or completed cleanup.
+   * What this function does: handles tombstones first, resumes Pi, synchronizes Library and manages recovery alarms.
+   */
   private async reconcile() {
     const row = this.state();
     if (!row) return;
@@ -803,14 +995,23 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     if (!inspection.tasks.length && !this.state()?.dirty)
       await this.ctx.storage.deleteAlarm();
   }
+  /** Input: Cloudflare alarm delivery. Output: reconciled durable state.
+   * What this function does: continues work without requiring an open browser.
+   */
   async alarm() {
     await this.reconcile();
   }
+  /** Input: Worker-forwarded WebSocket request. Output: upgrade or 426.
+   * What this function does: uses fetch rather than structured-clone RPC for the socket Response.
+   */
   override async fetch(request: Request) {
     if (request.headers.get("Upgrade") !== "websocket")
       return new Response("WebSocket required", { status: 426 });
     return this.connectBrowser(request.headers.get("X-Learning-Owner") ?? "");
   }
+  /** Input: owner injected by the authenticated Worker. Output: 101 WebSocket upgrade.
+   * What this function does: accepts a hibernatable socket, invalidates once and resumes pending work.
+   */
   private async connectBrowser(owner: string) {
     this.authorize(owner);
     const pair = new WebSocketPair();
@@ -819,6 +1020,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.reconcile();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
+  /** Input: an accepted socket message. Output: changed notification.
+   * What this function does: requests a fresh authorized snapshot rather than accepting chat over the socket.
+   */
   async webSocketMessage(socket: WebSocket) {
     socket.send('{"type":"changed"}');
   }

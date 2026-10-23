@@ -1,5 +1,32 @@
 # Pi Durable release verification — 2026-10-23
 
+## Per-turn activity update
+
+- Current deployed version: `2932eccc-718a-48e4-b509-329b7492c5eb`.
+- Each new input has a collapsed **Agent activity** disclosure. Pi event batches
+  update a session-local SQLite journal, with submission-to-entry association,
+  tool status, generation status, retries and compaction summaries. The existing
+  authorized WebSocket/snapshot channel delivers live updates.
+- Journals retain the latest 80 steps per turn, survive reload/eviction, appear in
+  paged exports and are purged by permanent session deletion. They are operational
+  summaries, not complete raw traces or exactly-once audit records. Older turns
+  without recorded events are labelled **Not recorded**.
+- No raw reasoning, tool arguments/results, provider errors or credentials are
+  projected into activity panels. No Shortcut contracts, Access policies, Worker
+  bindings or historical migration tags changed.
+- Supported-Node typecheck/build passed; **89 pure + 18 workerd + 3 mobile browser
+  tests passed (110 total)**. Tests cover real Pi event batches, privacy, correct
+  turn association, bounded retention, failure/queued recovery, deletion, live web
+  tool updates, two independent turns and reload/collapse behavior.
+- Authenticated production mobile smoke verified a real web-research tool turn,
+  39 received WebSocket frames, completion and correct input association, retained
+  activity after reload, exported activity, no JavaScript errors and no horizontal
+  page overflow. The smoke session was deleted (204), then read as missing (404).
+- Production browser checks used an existing signed cookie. Physical iPhone
+  execution, fresh Access login and real GitHub writes were not retested.
+
+The sections below retain the original migration release evidence.
+
 ## Published application
 
 - Worker: `iphone-ai-flue-agent`

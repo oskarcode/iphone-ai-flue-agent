@@ -1,27 +1,41 @@
+// Prompt/model helpers and shared visual types turn untrusted model JSON into renderer-owned data.
 import { VISUAL_EXPLANATION_PROMPT } from '../prompts.ts';
 import { grammarModelFromConfiguredModel } from './grammar-correction.ts';
 import type { VisualExplainer, VisualExplainerFlow, VisualExplainerPart } from './visual-session.ts';
 
 type JsonRecord = Record<string, unknown>;
 
+// Bound both model work and renderer input; output never supplies executable HTML or SVG.
 const MAX_VISUAL_COMPLETION_TOKENS = 8_192;
 const MAX_PARTS = 8;
 const MAX_FLOWS = 8;
 
+/** Input: unknown value. Output: object type guard.
+ * What this function does: excludes null and arrays before property access.
+ */
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Input: possible text, fallback and cap. Output: short non-empty string.
+ * What this function does: safely defaults cosmetic labels without accepting unbounded output.
+ */
 function boundedText(value: unknown, fallback: string, maxLength: number): string {
   const text = typeof value === 'string' ? value.trim() : '';
   return (text || fallback).slice(0, maxLength);
 }
 
+/** Input: label and fallback. Output: bounded identifier.
+ * What this function does: normalizes diagram references to lowercase letters, numbers and hyphens.
+ */
 function slugId(value: string, fallback: string): string {
   const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
   return slug || fallback;
 }
 
+/** Input: unknown model part and index. Output: normalized part or null.
+ * What this function does: supplies readable defaults and bounds all displayed part fields.
+ */
 function normalizePart(value: unknown, index: number): VisualExplainerPart | null {
   if (!isRecord(value)) return null;
   const label = boundedText(value.label, `Part ${index + 1}`, 42);
@@ -33,6 +47,9 @@ function normalizePart(value: unknown, index: number): VisualExplainerPart | nul
   };
 }
 
+/** Input: unknown flow item. Output: normalized from/to/label or null.
+ * What this function does: keeps model data inside the renderer's known shape.
+ */
 function normalizeFlow(value: unknown): VisualExplainerFlow | null {
   if (!isRecord(value)) return null;
   return {
@@ -42,6 +59,9 @@ function normalizeFlow(value: unknown): VisualExplainerFlow | null {
   };
 }
 
+/** Input: requested concept. Output: no-thinking structured-output prompt.
+ * What this function does: requests JSON data, not model-generated page code.
+ */
 export function createVisualExplainerRequest(text: string) {
   return {
     messages: [
@@ -55,6 +75,9 @@ export function createVisualExplainerRequest(text: string) {
   };
 }
 
+/** Input: AI envelope. Output: non-empty model text.
+ * What this function does: rejects truncated/abnormal responses before JSON parsing.
+ */
 function textFromAi(value: unknown): string {
   if (!isRecord(value)) throw new Error('Workers AI returned a non-object visual explainer response.');
   const choices = Array.isArray(value.choices) ? value.choices : [];
@@ -75,6 +98,9 @@ function textFromAi(value: unknown): string {
   return output;
 }
 
+/** Input: model JSON text. Output: object or exception.
+ * What this function does: strips optional Markdown fences but does not execute returned text.
+ */
 function parseJsonObject(text: string): JsonRecord {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   const parsed: unknown = JSON.parse(trimmed);
@@ -82,6 +108,9 @@ function parseJsonObject(text: string): JsonRecord {
   return parsed;
 }
 
+/** Input: model response. Output: normalized VisualExplainer.
+ * What this function does: requires at least three parts and bounds parts, flows and descriptive text.
+ */
 export function visualExplainerFromAi(value: unknown): VisualExplainer {
   const object = parseJsonObject(textFromAi(value));
   const parts = Array.isArray(object.parts)
@@ -103,6 +132,9 @@ export function visualExplainerFromAi(value: unknown): VisualExplainer {
   };
 }
 
+/** Input: AI binding, concept, cancellation and Gateway metadata. Output: normalized diagram data.
+ * What this function does: performs inference, then validates the response before callers retain it.
+ */
 export async function generateVisualExplainer(
   ai: { run(model: string, input: unknown, options: unknown): Promise<unknown> },
   text: string,

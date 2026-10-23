@@ -227,6 +227,9 @@ async function readRepositoryFile(repository: GithubRepository, path: string, si
     : bounded;
 }
 
+/** Input: edited Unicode text. Output: base64-encoded UTF-8 bytes.
+ * What this function does: prepares GitHub's content API payload without corrupting non-ASCII code.
+ */
 function base64Utf8(value: string): string {
   const bytes = new TextEncoder().encode(value);
   let binary = '';
@@ -296,7 +299,7 @@ export function createGithubRepositoryTools(
     input: v.object({ path: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(500)) }),
     /**
      * Input:
-     * - One allowlisted repository path and Flue cancellation signal.
+     * - One allowlisted repository path and request cancellation signal.
      *
      * Output:
      * - Pinned commit metadata, bounded source text, and an untrusted-evidence reminder.
@@ -320,6 +323,9 @@ export function createGithubRepositoryTools(
     name: 'create_github_issue',
     description: 'Create a GitHub issue in the session repository only after the user explicitly asks or confirms in chat.',
     input: issueSchema,
+    /** Input: server-approved issue arguments. Output: confirmed issue URL/number.
+     * What this function does: writes to the pinned repository; only LearningSession.approve calls it in the live app.
+     */
     async run({ data, signal }) {
       if (!process.env.GITHUB_TOKEN?.trim()) throw new Error('GITHUB_TOKEN is required to create GitHub issues.');
       const evidencePaths = (data.evidencePaths ?? []).filter((path) => repository.files.includes(path));
@@ -348,6 +354,9 @@ export function createGithubRepositoryTools(
     name: 'create_github_file_change',
     description: 'Create a new branch and commit one edited repository file after the user explicitly asks or confirms in chat. Does not modify the default branch directly.',
     input: fileEditSchema,
+    /** Input: approved file edit. Output: branch and commit/content URLs.
+     * What this function does: rejects stale HEAD, creates a new branch and commits one allowlisted file there.
+     */
     async run({ data, signal }) {
       if (!process.env.GITHUB_TOKEN?.trim()) throw new Error('GITHUB_TOKEN is required to create GitHub file changes.');
       if (!repository.files.includes(data.path) || !isReadableRepositoryPath(data.path)) throw new Error('Path is not in the readable repository tree.');

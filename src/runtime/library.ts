@@ -1,8 +1,12 @@
+// Cloudflare supplies isolated SQL storage; contracts describe the rebuildable directory records.
 import { DurableObject } from "cloudflare:workers";
 import type { DirectoryItem, Note } from "./contracts.ts";
 
 /** Rebuildable, owner-scoped index. Never the canonical conversation store. */
 export class LearningLibrary extends DurableObject<CloudflareBindings> {
+  /** Input: object context/bindings. Output: initialized directory tables.
+   * What this function does: creates sessions, notes, preferences and permanent deletion tombstones.
+   */
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
     ctx.storage.sql
@@ -11,6 +15,9 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
       CREATE TABLE IF NOT EXISTS preferences (id INTEGER PRIMARY KEY CHECK(id=1), text TEXT NOT NULL, recall INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS notes (session_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(session_id,id));`);
   }
+  /** Input: session projection, revision, searchable text and notes. Output: atomic projection update.
+   * What this function does: rejects tombstoned or older versions, then replaces that session's projected notes.
+   */
   upsert(
     item: DirectoryItem,
     version: number,
@@ -23,6 +30,9 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
         .toArray().length
     )
       return;
+    /** Input: one versioned projection. Output: atomically replaced session and notes.
+     * What this function does: ignores an older revision and keeps its index row consistent with projected notes.
+     */
     this.ctx.storage.transactionSync(() => {
       const rows = this.ctx.storage.sql
         .exec<{
@@ -50,6 +60,9 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
         );
     });
   }
+  /** Input: literal query, archive filter and offset. Output: up to 50 directory items.
+   * What this function does: escapes LIKE wildcards, sorts pinned/recent entries and detects a next page.
+   */
   list(
     query = "",
     archived = false,
@@ -72,7 +85,13 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
       ...(rows.length > 50 ? { nextOffset: offset + 50 } : {}),
     };
   }
+  /** Input: session ID. Output: directory/notes removed and tombstone retained.
+   * What this function does: prevents delayed projection writes from resurrecting deleted sessions.
+   */
   remove(id: string) {
+    /** Input: deleted session ID. Output: a tombstone without directory content.
+     * What this function does: atomically revokes future upserts and removes the corresponding notes and index row.
+     */
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec(
         "INSERT OR IGNORE INTO tombstones VALUES(?)",
@@ -82,6 +101,9 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
       this.ctx.storage.sql.exec("DELETE FROM sessions WHERE id=?", id);
     });
   }
+  /** Input: none. Output: preferences with recall disabled by default.
+   * What this function does: reads the owner's one settings row.
+   */
   preferences() {
     return (
       this.ctx.storage.sql
@@ -92,6 +114,9 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
         .toArray()[0] ?? { text: "", recall: 0 }
     );
   }
+  /** Input: teaching text and recall flag. Output: saved settings.
+   * What this function does: bounds text and stores the boolean as SQLite 0/1.
+   */
   setPreferences(text: string, recall: boolean) {
     this.ctx.storage.sql.exec(
       "INSERT INTO preferences VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET text=excluded.text,recall=excluded.recall",
@@ -99,6 +124,9 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
       recall ? 1 : 0,
     );
   }
+  /** Input: question and current session ID. Output: at most five public saved-note matches.
+   * What this function does: requires opt-in, excludes current/private notes and uses literal keyword matching.
+   */
   recall(query: string, excludeId: string) {
     if (!this.preferences().recall) return [];
     const words =

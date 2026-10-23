@@ -1,11 +1,12 @@
+// Hono dispatches HTTP; signed identity and session contracts define the trust boundary.
 import { Hono, type Context } from "hono";
 import { verifyIdentity, type Identity } from "./runtime/auth.ts";
 import {
-  PERSONAL_OWNER,
   SESSION_ID,
   type SessionMetadata,
 } from "./runtime/contracts.ts";
 import { projectLegacyMessages } from "./runtime/legacy.ts";
+// Compatibility adapters retain the Shortcut payloads while delegating learning work to Pi.
 import { classifyWithJev, type JevRoute } from "./tools/jev-router.ts";
 import {
   resolveGithubRepository,
@@ -18,9 +19,7 @@ import {
 } from "./lib/learning-session.ts";
 import {
   getVisualSession,
-  putVisualSession,
   VISUAL_SESSION_TTL_SECONDS,
-  type VisualSessionMetadata,
 } from "./lib/visual-session.ts";
 import { generateVisualExplainer } from "./lib/visual-explainer.ts";
 import { renderVisualExplainerPage } from "./visual-page.ts";
@@ -34,6 +33,7 @@ import { LEARNING_RECAP_PROMPT } from "./lib/chat-presets.ts";
 import { learningArchiveStub } from "./lib/learning-archive.ts";
 import { renderReviewDetailPage } from "./review-page.ts";
 
+// Request-local identity/timing are separate from Cloudflare's deployment bindings.
 type AppEnv = {
   Bindings: CloudflareBindings;
   Variables: { identity: Identity; startedAt: number; identityMs: number };
@@ -47,6 +47,9 @@ const library = (c: Context<AppEnv>) =>
 const absolute = (c: Context<AppEnv>, path: string) =>
   new URL(path, c.req.url).toString();
 
+/** Input: request context and next handler. Output: hardened response.
+ * What this function does: measures elapsed time, disables private caching and nonces application HTML scripts.
+ */
 app.use("*", async (c, next) => {
   c.set("startedAt", Date.now());
   await next();
@@ -67,6 +70,9 @@ app.use("*", async (c, next) => {
     );
     c.res = new HTMLRewriter()
       .on("script", {
+        /** Input: original HTML script element. Output: nonce/data-cfasync attributes.
+         * What this function does: admits application scripts under the per-response CSP.
+         */
         element(element) {
           element.setAttribute("nonce", nonce);
           element.setAttribute("data-cfasync", "false");
@@ -78,6 +84,9 @@ app.use("*", async (c, next) => {
 app.get("/health", (c) =>
   c.json({ status: "ok", framework: "pi-durable", router: "jev" }),
 );
+/** Input: request headers/URL. Output: admitted request, login redirect, 401 or 403.
+ * What this function does: verifies Access before private routes and rejects cross-origin browser mutations.
+ */
 app.use("*", async (c, next) => {
   if (c.req.path.startsWith("/assets/")) return next();
   const identityStarted = Date.now();
@@ -108,6 +117,9 @@ app.use("*", async (c, next) => {
     return c.json({ error: "Origin not allowed" }, 403);
   await next();
 });
+/** Input: uncaught route error. Output: redacted 404/502 JSON.
+ * What this function does: logs metadata, not private request bodies or production stack traces.
+ */
 app.onError((error, c) => {
   if (new URL(c.req.url).hostname === "localhost") console.error(error);
   console.error(
@@ -128,6 +140,9 @@ app.onError((error, c) => {
   );
 });
 
+/** Input: request and byte cap. Output: parsed value or null.
+ * What this function does: bounds streamed bytes even when Content-Length is missing; T is not runtime validation.
+ */
 async function json<T>(
   c: Context<AppEnv>,
   maxBytes = 200_000,
@@ -161,6 +176,9 @@ async function json<T>(
     reader.releaseLock();
   }
 }
+/** Input: JSON request and whitespace policy. Output: validated text or null.
+ * What this function does: enforces the common 30,000-character Shortcut limit.
+ */
 async function textBody(c: Context<AppEnv>, preserve = false) {
   const body = await json<{ text?: unknown }>(c);
   if (
@@ -171,12 +189,18 @@ async function textBody(c: Context<AppEnv>, preserve = false) {
     return null;
   return preserve ? body.text : body.text.trim();
 }
+/** Input: Idempotency-Key header. Output: acceptable key or new UUID.
+ * What this function does: supplies stable retry identity without treating it as authentication.
+ */
 function requestId(c: Context<AppEnv>) {
   const value = c.req.header("Idempotency-Key");
   return value && /^[a-zA-Z0-9:_-]{8,160}$/.test(value)
     ? value
     : crypto.randomUUID();
 }
+/** Input: user text. Output: Jev route.
+ * What this function does: recognizes repository URLs first; classifier failure falls back to direct answering.
+ */
 async function classify(text: string): Promise<JevRoute> {
   if (text === LEARNING_RECAP_PROMPT) return "direct_answer";
   // Deterministic repository recognition also covers .git and explanation-wrapper inputs.
@@ -188,6 +212,9 @@ async function classify(text: string): Promise<JevRoute> {
     return "direct_answer";
   }
 }
+/** Input: owner context, text, route and optional session ID. Output: durable session ID.
+ * What this function does: reuses existing sessions, resolves repository context and retains original shared input.
+ */
 async function create(
   c: Context<AppEnv>,
   text: string,
@@ -238,6 +265,9 @@ async function create(
   await stub.retainInput(owner(c), text);
   return id;
 }
+/** Input: legacy ID/kind and discovery provenance. Output: imported Pi session.
+ * What this function does: copies bounded visible history and evidence without replaying generation or GitHub actions.
+ */
 async function migrate(
   c: Context<AppEnv>,
   id: string,
@@ -348,6 +378,9 @@ async function migrate(
     createdAt: messages[0]?.createdAt,
   });
 }
+/** Input: context and session ID. Output: authorized session stub.
+ * What this function does: checks current state and attempts passive legacy recovery when needed.
+ */
 async function ensure(c: Context<AppEnv>, id: string) {
   if (!SESSION_ID.test(id)) throw new Error("Session not found");
   if (!(await session(c, id).exists(owner(c)))) await migrate(c, id);
@@ -355,6 +388,9 @@ async function ensure(c: Context<AppEnv>, id: string) {
 }
 
 // Compatibility boundary: these URL paths and response fields remain unchanged.
+/** Input: text JSON. Output: corrected_text JSON and timing header.
+ * What this function does: calls Workers AI directly with no thinking; creates no learning state.
+ */
 app.post("/v1/correct", async (c) => {
   const started = c.get("startedAt");
   const text = await textBody(c, true);
@@ -396,6 +432,9 @@ app.post("/v1/correct", async (c) => {
   );
   return c.json({ corrected_text: corrected });
 });
+/** Input: text JSON. Output: answer, repository link (202), or visual link.
+ * What this function does: preserves the one-shot Shortcut contract while creating retained learning state.
+ */
 app.post("/v1/ask", async (c) => {
   const text = await textBody(c);
   if (!text)
@@ -430,6 +469,9 @@ app.post("/v1/ask", async (c) => {
     route,
   });
 });
+/** Input: prompt and session. Output: version-specific visual URL.
+ * What this function does: normalizes model JSON and persists an immutable source before returning its link.
+ */
 async function visual(c: Context<AppEnv>, id: string, prompt: string) {
   const explainer = await generateVisualExplainer(
     c.env.AI,
@@ -441,6 +483,9 @@ async function visual(c: Context<AppEnv>, id: string, prompt: string) {
   const artifact = await session(c, id).setVisual(owner(c), explainer);
   return absolute(c, `/visual/${id}?artifact=${encodeURIComponent(artifact)}`);
 }
+/** Input: selected text JSON. Output: chat_url with a 600-second handoff envelope.
+ * What this function does: retains input in the session before writing temporary KV delivery state.
+ */
 async function handoff(c: Context<AppEnv>) {
   const text = await textBody(c);
   if (!text)
@@ -462,6 +507,9 @@ async function handoff(c: Context<AppEnv>) {
 }
 app.post("/handoff", handoff);
 app.post("/v1/chat-session", handoff);
+/** Input: handoff ID. Output: text JSON or 404.
+ * What this function does: consumes the legacy KV envelope; the underlying session does not expire.
+ */
 app.get("/chat/session/:id", async (c) => {
   const id = c.req.param("id");
   if (!SESSION_ID.test(id))
@@ -474,6 +522,9 @@ app.get("/chat/session/:id", async (c) => {
   await c.env.CHAT_SESSIONS.delete(key);
   return c.json({ text });
 });
+/** Input: session ID and optional artifact ID. Output: escaped interactive HTML or 404.
+ * What this function does: reads immutable Pi artifacts first, then retained legacy visual KV records.
+ */
 app.get("/visual/:id", async (c) => {
   const id = c.req.param("id");
   if (!SESSION_ID.test(id))
@@ -506,16 +557,25 @@ app.get("/visual/:id", async (c) => {
     ? c.html(renderVisualExplainerPage(old.metadata, old.explainer))
     : c.json({ error: "Visual not found" }, 404);
 });
+/** Input: legacy learning ID. Output: ready JSON.
+ * What this function does: admits/imports the session without requiring guide generation.
+ */
 app.get("/learn/:id/status", async (c) => {
   await ensure(c, c.req.param("id"));
   return c.json({ status: "ready", expires_at: "9999-12-31T23:59:59.999Z" });
 });
+/** Input: legacy learning ID. Output: one ready SSE event.
+ * What this function does: keeps old readiness clients compatible; this is not the new chat transport.
+ */
 app.get("/learn/:id/events", async (c) => {
   await ensure(c, c.req.param("id"));
   return new Response('event: ready\ndata: {"status":"ready"}\n\n', {
     headers: { "Content-Type": "text/event-stream" },
   });
 });
+/** Input: question and optional selected text/title. Output: answer JSON.
+ * What this function does: bounds legacy guide selections and submits them as untrusted evidence to Pi.
+ */
 app.post("/learn/:id/chat", async (c) => {
   const body = await json<{
     question?: unknown;
@@ -554,6 +614,9 @@ app.post("/learn/:id/chat", async (c) => {
     ),
   });
 });
+/** Input: session ID and owner. Output: 204 after cleanup.
+ * What this function does: delegates tombstoned deletion and removes compatibility KV envelopes.
+ */
 async function remove(c: Context<AppEnv>, id: string) {
   const stub = session(c, id);
   if (!(await stub.isDeleted(owner(c)))) await ensure(c, id);
@@ -564,6 +627,9 @@ async function remove(c: Context<AppEnv>, id: string) {
 }
 app.delete("/v1/learning-sessions/:id", (c) => remove(c, c.req.param("id")));
 app.get("/review", (c) => c.redirect("/chat"));
+/** Input: archived session ID. Output: current-session redirect, historical HTML, or 404.
+ * What this function does: keeps old review bookmarks readable without executing the former runtime.
+ */
 app.get("/review/:id", async (c) => {
   const id = c.req.param("id");
   if (!SESSION_ID.test(id)) return c.json({ error: "Invalid session" }, 400);
@@ -584,6 +650,9 @@ app.get("/api/sessions", (c) =>
     )
     .then((result) => c.json(result)),
 );
+/** Input: text and optional ID. Output: 201 with id/url.
+ * What this function does: creates or reuses canonical state; sending a message is a separate request.
+ */
 app.post("/api/sessions", async (c) => {
   const body = await json<{ text?: string; id?: string }>(c);
   if (
@@ -604,6 +673,9 @@ app.get("/api/sessions/:id", async (c) =>
     c.req.query("cursor"),
   ),
 );
+/** Input: WebSocket upgrade. Output: 101 or 426.
+ * What this function does: forwards trusted owner identity over DO fetch, not clone-based RPC.
+ */
 app.get("/api/sessions/:id/socket", async (c) => {
   if (c.req.header("Upgrade") !== "websocket")
     return c.json({ error: "WebSocket required" }, 426);
@@ -614,6 +686,9 @@ app.get("/api/sessions/:id/socket", async (c) => {
     }),
   );
 });
+/** Input: text/requestId JSON. Output: 202 receipt.
+ * What this function does: validates retry identifiers and lets the durable session own completion.
+ */
 app.post("/api/sessions/:id/messages", async (c) => {
   const body = await json<{ text?: unknown; requestId?: unknown }>(c);
   if (
@@ -631,10 +706,16 @@ app.post("/api/sessions/:id/messages", async (c) => {
     202,
   );
 });
+/** Input: session ID. Output: ok JSON.
+ * What this function does: aborts current generation without deleting conversation state.
+ */
 app.post("/api/sessions/:id/stop", async (c) => {
   await (await ensure(c, c.req.param("id"))).stop(owner(c));
   return c.json({ ok: true });
 });
+/** Input: metadata patch. Output: ok JSON.
+ * What this function does: delegates allowlisted title/pin/archive changes to the owner-checked session.
+ */
 app.patch("/api/sessions/:id", async (c) => {
   const body = await json<{
     title?: string;
@@ -646,12 +727,18 @@ app.patch("/api/sessions/:id", async (c) => {
   return c.json({ ok: true });
 });
 app.delete("/api/sessions/:id", (c) => remove(c, c.req.param("id")));
+/** Input: session/source IDs. Output: retained source JSON or 404.
+ * What this function does: exposes the evidence actually saved, not a fresh network fetch.
+ */
 app.get("/api/sessions/:id/sources/:source", async (c) => {
   const source = await (
     await ensure(c, c.req.param("id"))
   ).source(owner(c), c.req.param("source"));
   return source ? c.json(source) : c.json({ error: "Source not found" }, 404);
 });
+/** Input: text, evidence entryId and optional note ID. Output: ok JSON.
+ * What this function does: delegates evidence validation and note persistence to the session.
+ */
 app.post("/api/sessions/:id/notes", async (c) => {
   const body = await json<{ text?: unknown; entryId?: unknown; id?: string }>(
     c,
@@ -664,12 +751,18 @@ app.post("/api/sessions/:id/notes", async (c) => {
   ).note(owner(c), body.text, body.entryId, body.id);
   return c.json({ ok: true });
 });
+/** Input: note ID. Output: 204.
+ * What this function does: removes a note and its Library projection without erasing its evidence.
+ */
 app.delete("/api/sessions/:id/notes/:note", async (c) => {
   await (
     await ensure(c, c.req.param("id"))
   ).deleteNote(owner(c), c.req.param("note"));
   return c.body(null, 204);
 });
+/** Input: explicit boolean accept. Output: persisted approval result.
+ * What this function does: executes only the server-stored proposal; callers cannot replace its arguments.
+ */
 app.post("/api/sessions/:id/approvals/:approval", async (c) => {
   const body = await json<{ accept?: unknown }>(c, 1000);
   if (typeof body?.accept !== "boolean")
@@ -680,11 +773,17 @@ app.post("/api/sessions/:id/approvals/:approval", async (c) => {
     body.accept,
   );
 });
+/** Input: session ID. Output: streaming NDJSON attachment.
+ * What this function does: walks every retained entry page instead of exporting only the browser's recent snapshot.
+ */
 app.get("/api/sessions/:id/export", async (c) => {
   const stub = await ensure(c, c.req.param("id"));
   const identity = owner(c);
   // NDJSON pages keep export memory bounded and include the complete retained Pi history.
   const stream = new ReadableStream({
+    /** Input: NDJSON stream controller. Output: ordered exported pages or stream error.
+     * What this function does: follows opaque cursors while keeping one export page in memory.
+     */
     async start(controller) {
       let cursor: string | undefined;
       try {
@@ -710,6 +809,9 @@ app.get("/api/sessions/:id/export", async (c) => {
 app.get("/api/preferences", async (c) =>
   c.json(await library(c).preferences()),
 );
+/** Input: teaching text and recall boolean. Output: ok JSON.
+ * What this function does: persists preferences; enabling recall does not retrain a model.
+ */
 app.put("/api/preferences", async (c) => {
   const body = await json<{ text?: unknown; recall?: unknown }>(c, 20_000);
   if (
@@ -721,6 +823,9 @@ app.put("/api/preferences", async (c) => {
   await library(c).setPreferences(body.text, body.recall);
   return c.json({ ok: true });
 });
+/** Input: legacy namespace kind/object ID. Output: import status and counts.
+ * What this function does: resolves the original session identity before passive migration.
+ */
 app.post("/api/migrate/object", async (c) => {
   const body = await json<{ kind?: unknown; objectId?: unknown }>(c, 2000);
   if (
@@ -750,6 +855,9 @@ app.post("/api/migrate/object", async (c) => {
     recordCount: metadata.legacy?.recordCount,
   });
 });
+/** Input: optional KV cursor. Output: per-session import results and next cursor.
+ * What this function does: discovers repository records; opaque general histories use the operator script instead.
+ */
 app.post("/api/migrate", async (c) => {
   const body = await json<{ cursor?: string }>(c, 2000);
   const page = await c.env.CHAT_SESSIONS.list({
@@ -774,6 +882,9 @@ app.post("/api/migrate", async (c) => {
 });
 
 // Legacy browser JSON/SSE clients retain their accepted payload and response vocabulary.
+/** Input: legacy conversation_id/messages and streaming flag. Output: old JSON or SSE vocabulary.
+ * What this function does: validates history, submits only the newest user turn and adapts repository/visual responses.
+ */
 async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
   const body = await json<{
     conversation_id?: unknown;
@@ -824,6 +935,9 @@ async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
       202,
     );
   }
+  /** Input: validated legacy request captured above. Output: legacy response payload.
+   * What this function does: returns repository readiness, creates a visual, or waits for a durable answer.
+   */
   const run = async () => {
     if (route === "github_learning") {
       const metadata = await session(c, id).getMetadata(owner(c));
@@ -864,8 +978,14 @@ async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
   }
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
+    /** Input: SSE stream controller. Output: accepted then done/error events.
+     * What this function does: keeps completion in waitUntil even if the old browser stream disconnects.
+     */
     start(controller) {
       let closed = false;
+      /** Input: event name and data. Output: encoded SSE frame when open.
+       * What this function does: treats closed clients as transport loss, not generation cancellation.
+       */
       const send = (event: string, data: unknown) => {
         if (!closed)
           try {
@@ -882,7 +1002,9 @@ async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
       const work = run()
         .then((result) => send("done", result))
         .catch(() => send("error", { error: "Assistant request failed" }))
-        .finally(() => {
+        .finally(/** Input: settled background request. Output: closed stream if still writable.
+         * What this function does: avoids a second close error after client disconnection.
+         */ () => {
           if (!closed)
             try {
               controller.close();
@@ -900,13 +1022,22 @@ async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
 }
 app.post("/chat/api", (c) => legacyChat(c, false));
 app.post("/chat/stream", (c) => legacyChat(c, true));
+/** Input: authenticated page request. Output: Vite-built React shell.
+ * What this function does: requests asset root to avoid index.html redirect loops.
+ */
 async function shell(c: Context<AppEnv>) {
   return c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
 }
+/** Input: old learning bookmark. Output: current React shell.
+ * What this function does: restores/imports the session before presenting the workspace.
+ */
 app.get("/learn/:id", async (c) => {
   await ensure(c, c.req.param("id"));
   return shell(c);
 });
+/** Input: stable session bookmark. Output: current React shell.
+ * What this function does: ensures persisted history exists; React then fetches its authorized snapshot.
+ */
 app.get("/sessions/:id", async (c) => {
   await ensure(c, c.req.param("id"));
   return shell(c);

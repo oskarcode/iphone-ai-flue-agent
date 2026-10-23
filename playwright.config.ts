@@ -1,3 +1,4 @@
+// Separate live-model browser checks target a locally built Worker unless an explicit URL overrides it.
 import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./test/browser",

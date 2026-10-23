@@ -18,6 +18,10 @@ ORIGIN = 'https://iphoneai.oskarcode.com'
 
 
 def main():
+    """Input: CLI inventory/apply/report flags.
+    Output: a local ID/count report and exit status.
+    What this function does: inventories legacy storage; writes imports only with --apply.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true', help='Import after inventory; default is read-only inventory')
     parser.add_argument('--report', default='/tmp/pi-learning-migration-report.json')
@@ -32,6 +36,10 @@ def main():
         jwt = candidates[0].read_text().strip()
 
     def request(url, body=None, control=False):
+        """Input: API URL, optional JSON and control-plane choice.
+        Output: decoded response or HTTP/network exception.
+        What this function does: selects the existing credential boundary without printing tokens.
+        """
         headers = {'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/json'}
         if control:
             headers['Authorization'] = 'Bearer ' + oauth

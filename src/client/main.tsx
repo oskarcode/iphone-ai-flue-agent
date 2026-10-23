@@ -1,6 +1,9 @@
+// React owns view state and lifecycle; the server still owns canonical conversations.
 import React, { useState, useEffect, useRef, memo } from "react";
 import { createRoot } from "react-dom/client";
+// Shared rendering, prompts and DTO types keep browser behavior aligned with the Worker.
 import { renderTutorMarkdown } from "../lib/tutor-markdown.ts";
+import { TurnActivityPanel } from "./turn-activity.tsx";
 import {
   LEARNING_RECAP_PROMPT,
   REPOSITORY_STARTER_PROMPTS,
@@ -10,8 +13,12 @@ import type {
   SessionSnapshot,
   Source,
 } from "../runtime/contracts.ts";
+// Vite emits this stylesheet as a static asset alongside the client bundle.
 import "./styles.css";
 
+/** Input: relative API path and fetch options. Output: typed JSON or undefined for 204.
+ * What this function does: surfaces server errors without treating TypeScript's T as response validation.
+ */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -30,6 +37,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 const post = <T,>(path: string, body: unknown) =>
   api<T>(path, { method: "POST", body: JSON.stringify(body) });
+/** Input: local key. Output: value or null.
+ * What this function does: tolerates browsers that block localStorage.
+ */
 const readStored = (key: string) => {
   try {
     return localStorage.getItem(key);
@@ -37,6 +47,9 @@ const readStored = (key: string) => {
     return null;
   }
 };
+/** Input: local key and optional value. Output: best-effort draft storage.
+ * What this function does: removes null values and avoids crashing when storage is unavailable.
+ */
 const store = (key: string, value: string | null) => {
   try {
     value === null
@@ -44,8 +57,13 @@ const store = (key: string, value: string | null) => {
       : localStorage.setItem(key, value);
   } catch {}
 };
+// Scope local keys so sign-out clears this app's drafts, not unrelated browser data.
 const PREFIX = "pi-learning:";
+// Persist before network delivery; retries must reuse both IDs and the exact text.
 type Pending = { sessionId: string; requestId: string; text: string };
+/** Input: stored pending JSON. Output: pending delivery or undefined.
+ * What this function does: recovers a reload-interrupted send without inventing a new retry key.
+ */
 function pending(): Pending | undefined {
   try {
     return JSON.parse(readStored(PREFIX + "pending") ?? "null") ?? undefined;
@@ -53,36 +71,50 @@ function pending(): Pending | undefined {
     return undefined;
   }
 }
+// Stable session links, Shortcut handoffs and Access resume parameters all select the same durable session.
 const initialId =
   location.pathname.match(/^\/(?:sessions|learn)\/([\w-]+)$/)?.[1] ??
   new URLSearchParams(location.search).get("session") ??
   new URLSearchParams(location.search).get("resume") ??
   pending()?.sessionId ??
   "";
+/** Input: model/user text. Output: memoized, escaped Markdown DOM.
+ * What this function does: adds code-copy behavior only to renderer-owned markup; raw model HTML stays escaped.
+ */
 const Markdown = memo(({ text }: { text: string }) => (
   <div
     className="markdown"
-    onClick={(event) => {
-      const button = (event.target as HTMLElement).closest("[data-copy-code]");
-      if (button) {
-        const code =
-          button.closest(".code-block")?.querySelector("code")?.textContent ??
-          "";
-        void navigator.clipboard
-          .writeText(code)
-          .then(() => {
-            button.textContent = "Copied";
-          })
-          .catch(() => {
-            button.textContent = "Copy failed";
-          });
+    onClick={
+      /** Input: rendered Markdown click. Output: clipboard write and button feedback.
+       * What this function does: recognizes only renderer-owned copy buttons and copies visible code text.
+       */ (event) => {
+        const button = (event.target as HTMLElement).closest(
+          "[data-copy-code]",
+        );
+        if (button) {
+          const code =
+            button.closest(".code-block")?.querySelector("code")?.textContent ??
+            "";
+          void navigator.clipboard
+            .writeText(code)
+            .then(() => {
+              button.textContent = "Copied";
+            })
+            .catch(() => {
+              button.textContent = "Copy failed";
+            });
+        }
       }
-    }}
+    }
     dangerouslySetInnerHTML={{ __html: renderTutorMarkdown(text) }}
   />
 ));
 
+/** Input: browser URL and device drafts. Output: the learning workspace React tree.
+ * What this function does: coordinates Library navigation, HTTP snapshots, invalidation sockets and durable sends.
+ */
 function App() {
+  // State values cause re-renders; refs below keep mutable connection/scroll state without re-rendering.
   const [id, setId] = useState(initialId);
   const [snapshot, setSnapshot] = useState<SessionSnapshot>();
   const [items, setItems] = useState<DirectoryItem[]>([]);
@@ -100,6 +132,9 @@ function App() {
   const [source, setSource] = useState<Source>();
   const [prefs, setPrefs] = useState<{ text: string; recall: boolean }>();
   const [older, setOlder] = useState<SessionSnapshot["messages"]>([]);
+  const [olderActivity, setOlderActivity] = useState<
+    NonNullable<SessionSnapshot["activity"]>
+  >([]);
   const [cursor, setCursor] = useState<string>();
   const bottom = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
@@ -110,6 +145,9 @@ function App() {
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  /** Input: append flag and page offset. Output: updated directory view.
+   * What this function does: fetches literal search/archive results and stores their continuation offset.
+   */
   async function loadLibrary(append = false, next = 0) {
     try {
       const page = await api<{ items: DirectoryItem[]; nextOffset?: number }>(
@@ -121,6 +159,9 @@ function App() {
       setError(String(e));
     }
   }
+  /** Input: target session ID. Output: updated current snapshot.
+   * What this function does: ignores stale responses after navigation and scrolls only when already near the bottom.
+   */
   async function refresh(target = id) {
     if (!target) return;
     try {
@@ -140,11 +181,15 @@ function App() {
       if (active.current === target) setError(String(e));
     }
   }
+  /** Input: next session ID, or empty for new learning. Output: selected view and URL.
+   * What this function does: saves the previous draft and resets pagination; it never deletes server state.
+   */
   function select(next: string) {
     store(PREFIX + "draft:" + id, draft);
     setId(next);
     setSnapshot(undefined);
     setOlder([]);
+    setOlderActivity([]);
     setCursor(undefined);
     loadedId.current = "";
     setDraft(readStored(PREFIX + "draft:" + next) ?? "");
@@ -153,44 +198,71 @@ function App() {
     history.pushState({}, "", next ? `/sessions/${next}` : "/chat");
     nearBottom.current = true;
   }
+  /** Input: query/archive changes. Output: debounced Library refresh.
+   * What this function does: cancels the pending timer when filters change again.
+   */
   useEffect(() => {
     const timer = setTimeout(() => void loadLibrary(), 200);
     return () => clearTimeout(timer);
   }, [query, archived]);
+  /** Input: browser history events. Output: restored selected session.
+   * What this function does: installs/removes the popstate listener.
+   */
   useEffect(() => {
     const pop = () =>
       select(location.pathname.match(/^\/sessions\/([\w-]+)$/)?.[1] ?? "");
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, []);
+  /** Input: draft/session changes. Output: device-local draft.
+   * What this function does: persists text independently of server message submission.
+   */
   useEffect(() => {
     store(PREFIX + "draft:" + id, draft);
   }, [draft, id]);
+  /** Input: selected session. Output: reconnecting invalidation subscription.
+   * What this function does: fetches snapshots, backs off reconnects and cleans up listeners/timers on navigation.
+   */
   useEffect(() => {
     if (!id) return;
     let stopped = false;
     let socket: WebSocket | undefined;
     let retry: ReturnType<typeof setTimeout>;
     let delay = 1000;
+    /** Input: invalidation/focus event. Output: one scheduled snapshot fetch.
+     * What this function does: coalesces bursts into a 350 ms refresh window.
+     */
     const scheduleRefresh = () => {
       if (refreshTimer.current) return;
+      /** Input: elapsed refresh debounce. Output: a fresh snapshot request.
+       * What this function does: clears the timer slot before fetching so later invalidations can schedule again.
+       */
       refreshTimer.current = setTimeout(() => {
         refreshTimer.current = undefined;
         void refresh(id);
       }, 350);
     };
+    /** Input: current session URL. Output: new browser WebSocket.
+     * What this function does: retries closes with capped backoff; socket payloads never replace canonical snapshots.
+     */
     const connect = () => {
       setConnection("Connecting…");
       scheduleRefresh();
       socket = new WebSocket(
         `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/sessions/${id}/socket`,
       );
+      /** Input: successful socket handshake. Output: reset backoff and refreshed view.
+       * What this function does: marks the connection saved without claiming queued model work is complete.
+       */
       socket.onopen = () => {
         delay = 1000;
         setConnection("Saved");
         scheduleRefresh();
       };
       socket.onmessage = scheduleRefresh;
+      /** Input: socket close. Output: delayed reconnect unless navigation disposed the effect.
+       * What this function does: doubles delay up to 15 seconds without resubmitting user input.
+       */
       socket.onclose = () => {
         if (!stopped) {
           setConnection("Reconnecting…");
@@ -202,11 +274,17 @@ function App() {
     };
     void refresh(id);
     connect();
+    /** Input: window focus. Output: refreshed conversation and Library.
+     * What this function does: catches updates missed while the phone backgrounded the page.
+     */
     const focus = () => {
       scheduleRefresh();
       void loadLibrary();
     };
     window.addEventListener("focus", focus);
+    /** Input: effect disposal. Output: closed socket and cancelled timers/listener.
+     * What this function does: prevents an old session from reconnecting after navigation.
+     */
     return () => {
       stopped = true;
       socket?.close();
@@ -218,6 +296,9 @@ function App() {
       window.removeEventListener("focus", focus);
     };
   }, [id]);
+  /** Input: saved Pending record. Output: acknowledged send or retryable UI error.
+   * What this function does: creates/reuses state, submits with the stable key and clears only the acknowledged pending record.
+   */
   async function deliver(work: Pending) {
     setSending(true);
     setError("");
@@ -240,6 +321,9 @@ function App() {
       setSending(false);
     }
   }
+  /** Input: composer draft. Output: persisted pending delivery.
+   * What this function does: prevents overlapping unsaved sends and stores IDs before making network requests.
+   */
   async function send() {
     if (!draft.trim() || sending) return;
     const existing = pending();
@@ -256,6 +340,9 @@ function App() {
     if (!id) select(work.sessionId);
     await deliver(work);
   }
+  /** Input: initial URL and pending device state. Output: resumed page or handoff submission.
+   * What this function does: consumes temporary KV once, recovers retained input after ambiguity and reuses handoff request IDs.
+   */
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const visual = params.get("resume_visual");
@@ -271,43 +358,54 @@ function App() {
     const handoff = params.get("session");
     if (handoff) {
       void api<{ text: string }>(`/chat/session/${handoff}`)
-        .then(({ text }) => {
-          const work = {
-            sessionId: handoff,
-            requestId: `handoff:${handoff}`,
-            text,
-          };
-          store(PREFIX + "pending", JSON.stringify(work));
-          history.replaceState({}, "", `/sessions/${handoff}`);
-          return deliver(work);
-        })
-        .catch(async () => {
-          history.replaceState({}, "", `/sessions/${handoff}`);
-          try {
-            const saved = await api<SessionSnapshot>(
-              `/api/sessions/${handoff}`,
-            );
-            if (!saved.messages.length && !saved.busy) {
-              const input = await api<Source>(
-                `/api/sessions/${handoff}/sources/shared-input`,
+        .then(
+          /** Input: consumed handoff text. Output: stable-key pending delivery.
+           * What this function does: persists before sending and replaces the temporary URL with a session link.
+           */ ({ text }) => {
+            const work = {
+              sessionId: handoff,
+              requestId: `handoff:${handoff}`,
+              text,
+            };
+            store(PREFIX + "pending", JSON.stringify(work));
+            history.replaceState({}, "", `/sessions/${handoff}`);
+            return deliver(work);
+          },
+        )
+        .catch(
+          /** Input: ambiguous/expired handoff delivery. Output: restored snapshot or recovered input send.
+           * What this function does: checks committed history before retrying the retained source with the same key.
+           */ async () => {
+            history.replaceState({}, "", `/sessions/${handoff}`);
+            try {
+              const saved = await api<SessionSnapshot>(
+                `/api/sessions/${handoff}`,
               );
-              const work = {
-                sessionId: handoff,
-                requestId: `handoff:${handoff}`,
-                text: input.content,
-              };
-              store(PREFIX + "pending", JSON.stringify(work));
-              await deliver(work);
-            } else await refresh(handoff);
-          } catch (e) {
-            setError(String(e));
-          }
-        });
+              if (!saved.messages.length && !saved.busy) {
+                const input = await api<Source>(
+                  `/api/sessions/${handoff}/sources/shared-input`,
+                );
+                const work = {
+                  sessionId: handoff,
+                  requestId: `handoff:${handoff}`,
+                  text: input.content,
+                };
+                store(PREFIX + "pending", JSON.stringify(work));
+                await deliver(work);
+              } else await refresh(handoff);
+            } catch (e) {
+              setError(String(e));
+            }
+          },
+        );
     } else {
       const work = pending();
       if (work) void deliver(work);
     }
   }, []);
+  /** Input: title/pin/archive patch. Output: refreshed snapshot and Library.
+   * What this function does: leaves field validation and persistence to the Worker/session.
+   */
   async function mutate(patch: unknown) {
     try {
       await api(`/api/sessions/${id}`, {
@@ -320,6 +418,9 @@ function App() {
       setError(String(e));
     }
   }
+  /** Input: answer entry ID. Output: optional saved evidence-linked note.
+   * What this function does: prompts for text and lets the server verify the referenced entry.
+   */
   async function saveNote(entryId: string) {
     const text = prompt("Save a learning note linked to this answer:");
     if (text?.trim())
@@ -330,6 +431,9 @@ function App() {
         setError(String(e));
       }
   }
+  /** Input: Import previous sessions button. Output: refreshed Library and import summary.
+   * What this function does: pages discoverable KV records; opaque legacy objects require the operator migration script.
+   */
   async function importLegacy() {
     setError("");
     try {
@@ -361,6 +465,12 @@ function App() {
     (message, index, all) =>
       all.findIndex((m) => m.id === message.id) === index,
   );
+  // Latest snapshots override paged copies; entry IDs tie activity to the correct input, including queued turns.
+  const activityByEntry = new Map(
+    [...olderActivity, ...(snapshot?.activity ?? [])]
+      .filter((turn) => turn.entryId)
+      .map((turn) => [turn.entryId!, turn]),
+  );
   return (
     <div className="workspace">
       {drawer && (
@@ -370,6 +480,7 @@ function App() {
           onClick={() => setDrawer(false)}
         />
       )}
+      {/* Library navigation changes selection; New learning never deletes another session. */}
       <aside className={drawer ? "library open" : "library"}>
         <div className="brand">
           Learning workspace <span>Pi Durable</span>
@@ -431,11 +542,15 @@ function App() {
             Learning preferences
           </button>
           <button
-            onClick={() => {
-              for (const key of Object.keys(localStorage))
-                if (key.startsWith(PREFIX)) localStorage.removeItem(key);
-              location.href = "/cdn-cgi/access/logout";
-            }}
+            onClick={
+              /** Input: sign-out click. Output: cleared app drafts and Access logout.
+               * What this function does: clears only this app's localStorage prefix before leaving the page.
+               */ () => {
+                for (const key of Object.keys(localStorage))
+                  if (key.startsWith(PREFIX)) localStorage.removeItem(key);
+                location.href = "/cdn-cgi/access/logout";
+              }
+            }
           >
             Sign out & clear device drafts
           </button>
@@ -482,13 +597,18 @@ function App() {
           </div>
         )}
         {snapshot?.error && <div className="error">{snapshot.error}</div>}
+        {/* Visible committed messages, partial generation and explicit approval controls. */}
         <div
           className="conversation"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            nearBottom.current =
-              el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-          }}
+          onScroll={
+            /** Input: conversation scroll event. Output: near-bottom ref.
+             * What this function does: preserves the learner's reading position while new answers arrive.
+             */ (e) => {
+              const el = e.currentTarget;
+              nearBottom.current =
+                el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+            }
+          }
         >
           {cursor && (
             <button
@@ -496,10 +616,18 @@ function App() {
                 void api<SessionSnapshot>(
                   `/api/sessions/${id}?cursor=${encodeURIComponent(cursor)}`,
                 )
-                  .then((page) => {
-                    setOlder((old) => [...page.messages, ...old]);
-                    setCursor(page.nextCursor);
-                  })
+                  .then(
+                    /** Input: earlier history page. Output: prepended messages and next cursor.
+                     * What this function does: pages retained entries without replacing the live recent snapshot.
+                     */ (page) => {
+                      setOlder((old) => [...page.messages, ...old]);
+                      setOlderActivity((old) => [
+                        ...(page.activity ?? []),
+                        ...old,
+                      ]);
+                      setCursor(page.nextCursor);
+                    },
+                  )
                   .catch((e) => setError(String(e)))
               }
             >
@@ -521,6 +649,9 @@ function App() {
                 {message.role === "user" ? "You" : "Learning assistant"}
               </div>
               <Markdown text={message.content} />
+              {message.role === "user" && (
+                <TurnActivityPanel activity={activityByEntry.get(message.id)} />
+              )}
               <div className="message-actions">
                 <button
                   onClick={() =>
@@ -539,6 +670,15 @@ function App() {
               </div>
             </article>
           ))}
+          {snapshot?.activity
+            ?.filter(
+              (turn) =>
+                !turn.entryId ||
+                !messages.some((message) => message.id === turn.entryId),
+            )
+            .map((turn) => (
+              <TurnActivityPanel key={turn.id} activity={turn} />
+            ))}
           {snapshot?.partial && (
             <article className="message assistant">
               <div className="message-label">Learning assistant · writing</div>
@@ -596,6 +736,7 @@ function App() {
           ))}
           <div ref={bottom} />
         </div>
+        {/* Sticky composer and editable presets; pending sends survive reload. */}
         <section className="composer">
           <div className="presets">
             {[
@@ -612,10 +753,14 @@ function App() {
             ))}
           </div>
           <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
+            onSubmit={
+              /** Input: form submit. Output: durable-send workflow.
+               * What this function does: prevents page navigation and delegates draft validation to send.
+               */ (e) => {
+                e.preventDefault();
+                void send();
+              }
+            }
           >
             <textarea
               aria-label="Question"
@@ -629,16 +774,20 @@ function App() {
                 composing.current = false;
               }}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (
-                  e.key === "Enter" &&
-                  (e.metaKey || e.ctrlKey) &&
-                  !composing.current
-                ) {
-                  e.preventDefault();
-                  void send();
+              onKeyDown={
+                /** Input: keyboard event. Output: optional submit.
+                 * What this function does: accepts Ctrl/Command+Enter but avoids sending during text composition.
+                 */ (e) => {
+                  if (
+                    e.key === "Enter" &&
+                    (e.metaKey || e.ctrlKey) &&
+                    !composing.current
+                  ) {
+                    e.preventDefault();
+                    void send();
+                  }
                 }
-              }}
+              }
             />
             <button
               className="primary"
@@ -666,6 +815,7 @@ function App() {
           </small>
         </section>
       </main>
+      {/* Session administration is separate from the readable conversation. */}
       {details && snapshot && (
         <aside className="details">
           <button onClick={() => setDetails(false)}>Close</button>
@@ -676,10 +826,14 @@ function App() {
               : "Sources and answers stay with this session."}
           </p>
           <button
-            onClick={() => {
-              const title = prompt("Session title", snapshot.metadata.title);
-              if (title) void mutate({ title });
-            }}
+            onClick={
+              /** Input: rename click. Output: optional title patch.
+               * What this function does: prompts with the current title and leaves validation to the server.
+               */ () => {
+                const title = prompt("Session title", snapshot.metadata.title);
+                if (title) void mutate({ title });
+              }
+            }
           >
             Rename
           </button>
@@ -718,15 +872,19 @@ function App() {
               <p>{note.text}</p>
               <small>Evidence: message {note.entryId}</small>
               <button
-                onClick={() => {
-                  const text = prompt("Edit note", note.text);
-                  if (text)
-                    void post(`/api/sessions/${id}/notes`, {
-                      id: note.id,
-                      entryId: note.entryId,
-                      text,
-                    }).then(() => refresh());
-                }}
+                onClick={
+                  /** Input: edit-note click. Output: note update with unchanged evidence link.
+                   * What this function does: reuses the note ID instead of creating an unrelated duplicate.
+                   */ () => {
+                    const text = prompt("Edit note", note.text);
+                    if (text)
+                      void post(`/api/sessions/${id}/notes`, {
+                        id: note.id,
+                        entryId: note.entryId,
+                        text,
+                      }).then(() => refresh());
+                  }
+                }
               >
                 Edit
               </button>
@@ -743,23 +901,31 @@ function App() {
           ))}
           <button
             className="danger"
-            onClick={() => {
-              if (
-                confirm(
-                  "Permanently delete this session, its sources, notes and historical copies?",
+            onClick={
+              /** Input: permanent-delete click. Output: confirmed server deletion then new view.
+               * What this function does: asks before erasure and clears only the deleted session's pending/draft state.
+               */ () => {
+                if (
+                  confirm(
+                    "Permanently delete this session, its sources, notes and historical copies?",
+                  )
                 )
-              )
-                void api(`/api/sessions/${id}`, { method: "DELETE" })
-                  .then(() => {
-                    store(PREFIX + "draft:" + id, null);
-                    if (pending()?.sessionId === id)
-                      store(PREFIX + "pending", null);
-                    setDetails(false);
-                    select("");
-                    void loadLibrary();
-                  })
-                  .catch((e) => setError(String(e)));
-            }}
+                  void api(`/api/sessions/${id}`, { method: "DELETE" })
+                    .then(
+                      /** Input: confirmed deletion response. Output: reset current view and refreshed directory.
+                       * What this function does: clears local remnants only after the server accepted deletion.
+                       */ () => {
+                        store(PREFIX + "draft:" + id, null);
+                        if (pending()?.sessionId === id)
+                          store(PREFIX + "pending", null);
+                        setDetails(false);
+                        select("");
+                        void loadLibrary();
+                      },
+                    )
+                    .catch((e) => setError(String(e)));
+              }
+            }
           >
             Permanently delete
           </button>

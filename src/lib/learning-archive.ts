@@ -1,3 +1,4 @@
+// Legacy archive DTOs translate SQL rows for migration and old review pages, not the new Library.
 import type { LearningGuide, LearningSessionMetadata } from './learning-session.ts';
 
 export const LEARNING_ARCHIVE_NAME = 'learning-archive';
@@ -77,10 +78,16 @@ export type ArchiveBindingEnv = {
   LEARNING_ARCHIVE: DurableObjectNamespace;
 };
 
+/** Input: none. Output: current ISO timestamp.
+ * What this function does: gives historical archive writers one timestamp format.
+ */
 export function nowIso() {
   return new Date().toISOString();
 }
 
+/** Input: event payload. Output: bounded serialized text.
+ * What this function does: limits historical event size; truncated payloads are intentionally handled as text by parseJson.
+ */
 export function boundedJson(value: unknown): string {
   const json = JSON.stringify(value);
   return json.length > MAX_EVENT_PAYLOAD_CHARACTERS
@@ -88,6 +95,9 @@ export function boundedJson(value: unknown): string {
     : json;
 }
 
+/** Input: persisted payload text. Output: decoded JSON or original text.
+ * What this function does: keeps old truncated records readable rather than failing the entire archive.
+ */
 export function parseJson(value: string): unknown {
   try {
     return JSON.parse(value);
@@ -96,6 +106,9 @@ export function parseJson(value: string): unknown {
   }
 }
 
+/** Input: archive SQL row. Output: public DTO shape.
+ * What this function does: maps snake_case columns and omits absent optional fields.
+ */
 export function sessionSummary(row: SessionRow): LearningArchiveSessionSummary {
   return {
     id: row.id,
@@ -114,6 +127,9 @@ export function sessionSummary(row: SessionRow): LearningArchiveSessionSummary {
   };
 }
 
+/** Input: event SQL row. Output: decoded event DTO.
+ * What this function does: preserves timestamps and gracefully reads bounded legacy payloads.
+ */
 export function eventFromRow(row: EventRow): LearningArchiveEvent {
   return {
     id: row.id,
@@ -124,10 +140,16 @@ export function eventFromRow(row: EventRow): LearningArchiveEvent {
   };
 }
 
+/** Input: archive binding. Output: singleton archive RPC stub.
+ * What this function does: keeps all historical lookups on the original object name.
+ */
 export function learningArchiveStub(env: ArchiveBindingEnv) {
   return env.LEARNING_ARCHIVE.getByName(LEARNING_ARCHIVE_NAME) as DurableObjectStub & LearningArchiveRpc;
 }
 
+/** Input: optional archive operation and diagnostic context. Output: settled best-effort write.
+ * What this function does: isolates historical archive failures from the caller; new Pi writes use canonical session storage.
+ */
 export async function tryArchive(operation: Promise<unknown> | unknown, context: Record<string, unknown>) {
   try {
     await operation;
