@@ -1,108 +1,132 @@
-# iPhone AI Flue Agent
+# Personal learning workspace · Pi Durable
 
-A Cloudflare Worker for iPhone AI shortcuts, durable browser chat, grammar correction, web research, and commit-pinned GitHub tutoring in the same chat interface.
+An iPhone-first learning assistant on **the existing Worker and domain**:
+<https://iphoneai.oskarcode.com/chat>. General explanations, articles, pasted text,
+GitHub tutoring, saved visual explanations and copyable learning-post drafts share
+one persistent session model. Grammar correction remains a fast, stateless call.
 
-## Start Here (Python/Django Mental Model)
-| This project | Django/Python equivalent |
-|---|---|
-| `src/app.ts` Hono routes | `urls.py` plus `views.py` or FastAPI route decorators |
-| `IphoneAssistant` / `GithubLearningAgent` | Stateful service classes backed by durable persistence |
-| Valibot schemas | Pydantic models or DRF serializers |
-| `wrangler.jsonc` bindings | `settings.py` plus injected service clients |
-| Workers KV | Expiring cache/session storage |
-| Durable Objects | One SQLite-backed actor per conversation/session ID |
-| `package.json` scripts | `pyproject.toml` commands and dependency manifest |
-| Vitest files | pytest modules |
+**Existing Shortcuts do not need changes.** The production hostname, service-token
+headers, request fields, endpoint paths and consumed response fields are retained.
+See [Shortcut contracts](docs/shortcut-contracts.md).
 
-## What You Actually Maintain
-1. `src/app.ts`: public HTTP contracts, validation, routing, SSE, and service orchestration.
-2. `src/agents/`: durable assistant behavior and lifecycle.
-3. `src/tools/`: Jev routing, web research, and commit-pinned GitHub reads.
-4. `src/lib/learning-session.ts`: chat-ready repository snapshots in KV and legacy session compatibility.
-5. `src/chat-page.ts` and `src/learning-page.ts`: fixed self-contained browser interfaces.
-6. `wrangler.jsonc`: production route, bindings, Durable Object migrations, and observability.
+## Architecture
 
-## What This Project Does
-- `POST /v1/ask` routes one-shot requests to direct answers, web research, clarification, or GitHub learning.
-- `POST /v1/correct` performs stateless grammar correction directly through Workers AI, with explicit thinking disabled, input-sized output limits, and `Server-Timing` diagnostics. See [latency investigation](docs/grammar-latency.md).
-- `POST /handoff` moves selected iPhone text into a ten-minute browser chat handoff.
-- Browser chat streams durable follow-up answers from a Flue Durable Object.
-- GitHub learning intent switches the main browser chat into repository tutor mode, pinned to one commit. Private repositories require a server-side `GITHUB_TOKEN` with access.
-- Explicit visual explanation requests can produce a temporary, mobile-first interactive SVG explainer page for a technical concept.
-- Repository starter prompts appear under the composer; follow-ups reuse the same tutor. **General chat** replaces the repository view with the general conversation; **Repository tutor** returns to the same tutor. Each mode retains its own transcript, unsent draft, and scroll position. **New chat** resets both browser views.
-- **What I learned · post draft** uses the active conversation to request one cohesive X-style post: a natural opening, concrete lessons, an integrated TypeScript mental model, and a grounded closing. It targets roughly 100–160 words, so it may require X long-post support or adaptation before publishing. The entire post is in one copyable block; nothing posts automatically. Private-source redaction is prompt-based, not a guaranteed publication filter: review drafts before sharing.
-- Review is no longer linked from chat. New conversation turns and automatic social drafts are not copied into the review archive. Historical records, repository setup snapshots, and GitHub action audit records remain; no existing data is deleted.
-- The UI is unified, not the backend: Flue still persists separate assistant/repository agents. Repository setup stores the resolved commit and file list directly; no model-generated guide or publication step is required. This is not browser-only storage.
-
-## Learning Guide
-- [Detailed learning guide](docs/iphone-ai-flue-agent-learning-guide.html)
-- [Interactive architecture diagram](docs/diagrams/index.html)
-- Local guide agent: `cd "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/local-learning-guide-agent" && .venv/bin/python run_guide_agent.py "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent/docs/iphone-ai-flue-agent-learning-guide.html" --project-root "/Users/oskarablimit/Desktop/Clouddlare SE/Demos (frequently used)/iphone-ai-flue-agent"`
-
-## Architecture At A Glance
-- One Hono Worker is the HTTP entrypoint and fixed HTML renderer.
-- `FlueIphoneAssistantAgent` stores normal conversation history in a Durable Object.
-- `FlueGithubLearningAgent` stores one repository tutor without a scheduled expiry.
-- `CHAT_SESSIONS` KV stores ten-minute handoffs and repository records/receipts without a TTL.
-- Workers AI runs through AI Gateway; Cloudflare Web Search (Exa) and Workers AI page conversion support web research.
-- GitHub reads are bounded and pinned to a resolved commit SHA. Private file reads use the authenticated Contents API. Issue creation and branch-only single-file edits require chat permission (prompt-enforced).
-
-## Traffic Flow (Input -> Output)
-1. Shortcut/chat request -> Cloudflare Access -> Hono route -> Jev classification.
-2. Normal request -> durable assistant -> Workers AI and optional research -> JSON or SSE answer.
-3. GitHub learning request -> resolve repository -> ready KV snapshot -> first question initializes the tutor with that snapshot -> answer inside main chat.
-4. Tutor follow-up -> bounded payload -> same repository Durable Object -> formatted answer. Legacy `/learn/:id` links still work.
-5. Manual delete API -> repository KV record and tutor Durable Object storage removed. New chat only resets the browser UI.
-
-## Hosting and Deployment
-- Runtime: Cloudflare Workers at `https://iphoneai.oskarcode.com`.
-- Deploy command: `npm run deploy`.
-- Verification command: `npm run check`.
-- Use Wrangler deployment output for the current production version.
-- Automated checks cover recap routing, repository handoff, setup polling, cancellation, and safe rendering. Authenticated browser/private-repository interactions need a separate smoke test.
-
-## Security Model
-- Auth boundary: Cloudflare Access is expected to protect AI/chat ingress; the Worker has no application auth middleware.
-- Learning links use opaque UUIDs and explicit deletion, not expiry or owner-bound authorization. Verify Access protection on `/learn/*` and legacy `/review/*`, especially before private-repository use.
-- Secret name: `GITHUB_TOKEN` enables authenticated GitHub access; never commit its value.
-- Repository controls: immutable read commit SHA, allowlisted paths, fixed GitHub hosts, timeouts, and byte limits.
-- Rendering controls: model HTML is not trusted; main chat uses DOM text nodes, and the legacy tutor uses an escaped Markdown subset.
-- Follow-up controls: question, selection, and section context are independently bounded; selected guide text is labeled untrusted in both the HTTP prompt and tutor system instructions.
-- Demo limitation: there is no application-level rate limit or creator-bound authorization for learning sessions.
-
-## APIs and Interfaces
-| Method and path | Purpose |
-|---|---|
-| `GET /health` | Liveness without AI |
-| `POST /v1/ask` | Routed one-shot assistant or learning-session creation |
-| `POST /v1/correct` | Stateless grammar correction |
-| `POST /handoff`, `POST /v1/chat-session` | Create ten-minute browser handoff |
-| `GET /chat`, `GET /chat/session/:id` | Browser UI and one-time handoff consumption |
-| `POST /chat/stream`, `POST /chat/api` | Streaming or complete durable answers |
-| `GET /learn/:id`, `/status`, `/events` | Legacy tutor page and shared setup lifecycle |
-| `GET /visual/:id` | Temporary interactive visual explainer page |
-| `POST /learn/:id/chat` | Commit-pinned tutor follow-up with a question and optional selected guide context |
-| `DELETE /v1/learning-sessions/:id` | Immediate KV and Durable Object cleanup |
-
-## Quick Start
-```bash
-npm install
-npm run check
-npm run dev
+```text
+Access-authenticated browser / existing iPhone Shortcut
+  → Hono Worker router
+  → LearningSession DO per opaque session ID
+      Pi Durable 1.2 + SQLite: canonical entries, tasks, submissions
+      application tables: sources, notes, approval records, metadata
+      alarms: execution recovery and retryable library projection
+  → LearningLibrary DO for the personal workspace
+      session directory, bounded search projection, preferences, saved notes
+  → Workers AI GLM-5.2 + existing AI Gateway
+      read-only web/GitHub tools, visual generation, approval-only write proposals
 ```
 
-Remote AI and Browser bindings can use account resources during local development. Deploy only after `npm run check` passes.
+- **React + Vite** supplies the mobile chat and Library drawer; desktop gets a sidebar.
+- Browser WebSockets carry invalidations, followed by sanitized committed snapshots.
+  Neither thinking traces nor credentials are streamed to the browser.
+- Server state is authoritative. Local storage holds only drafts and a retryable
+  pending submission. Sign out clears those device-local values.
+- UUIDs identify sessions; verified Cloudflare Access admission authorizes this
+  **single personal workspace**. Browser and Shortcut service-token identities
+  deliberately share one library. Do not admit unrelated users to this Access app.
+- Sessions and retained sources have **no TTL**. New learning is not deletion.
+- Compaction bounds model context, not historical storage. Exports page through all
+  retained Pi entries, including records outside the active model context.
+- Flue packages/build plugins are gone. Original DO class names remain as narrow,
+  read-only migration adapters—not active Flue agents. Explicit permanent deletion
+  also removes that session's original stored copies.
 
-## Troubleshooting Jump Table
-- If a request returns `400`, inspect its route contract and bounded body helper in `src/app.ts`.
-- If Access redirects or returns `403`, inspect the Access application and service-token policy.
-- If Jev chooses the wrong route, inspect `QUESTIONS` in `src/tools/jev-router.ts`.
-- If GitHub creation returns `502`, inspect GitHub URL/repository visibility, API limits, and `resolveGithubRepository()`.
-- New repository sessions are ready after GitHub resolution; they do not generate a guide before chat. For older queued sessions, `/learn/:id/events` still follows the original receipt.
-- The exact legacy error “The agent completed without publishing a guide.” is recovered automatically on status/page/chat reads. Other setup failures remain errors; retry a new session from General chat.
-- To leave repository mode or learn a different repository, choose **General chat** first. The recap preset uses the current conversation; review its wording and source privacy before posting.
-- If deployment fails, inspect `wrangler.jsonc`, then run `npm run types` and `npm run check`.
-- Live logs: `npx wrangler tail iphone-ai-flue-agent`.
+## Features
 
-## License
-No open-source license is currently included. Add one before redistribution.
+- Search recent session content, source summaries and saved notes; rename, pin,
+  archive, reopen, export or delete sessions.
+- Saved source snapshots include retrieval time and a content hash. Repository
+  context is commit-pinned, and private GitHub reads use the existing Worker secret.
+- Markdown is HTML-disabled, with copyable code, horizontal tables and no remote images.
+- Save/edit evidence-linked learning notes. Optional requested cross-session recall
+  searches saved **public** notes; private-session notes are excluded.
+- Editable teaching preferences. Discussing a topic does not imply mastery.
+- On-demand X/LinkedIn drafts include the TypeScript mental model in the post.
+  Nothing posts automatically; review every draft before sharing private-derived lessons.
+- GitHub write tools prepare exact proposals. Only an authenticated approval request
+  executes one. Interrupted/uncertain actions are never blindly retried. File changes
+  use a new branch and reject a stale default-branch commit.
+
+## Source map
+
+| Path | Responsibility |
+|---|---|
+| `src/app.ts` | Authenticated routes, stable Shortcut adapters, migration and exports |
+| `src/cloudflare.ts` | Worker and DO exports |
+| `src/runtime/session.ts` | Pi storage owner, recovery, snapshots, sources, notes, approvals |
+| `src/runtime/harness.ts` | Workers AI provider, teaching instructions, Pi tool registration |
+| `src/runtime/library.ts` | Rebuildable directory/search projection and preferences |
+| `src/runtime/auth.ts` | Signed Access JWT verification; local-only development admission |
+| `src/runtime/legacy.ts` | Read-only Flue storage readers and visible-message import |
+| `src/client/` | React mobile workspace |
+| `src/tools/` | Framework-neutral web/GitHub operations and Jev classification |
+| `src/lib/grammar-correction.ts` | Existing direct grammar request, no-thinking flag and budget |
+| `test/worker/` | Real workerd/SQLite isolation, recovery, WebSocket and contract tests |
+| `test/browser/` | Mobile browser reload, notes, Library and Shortcut handoff checks |
+
+## Development and verification
+
+Use Node **22.19+ on the 22.x line, or 24.11+**. Some dependencies reject Node 24.9.
+
+```sh
+npm ci
+cp .dev.vars.example .dev.vars
+npm run types
+npm run dev
+
+npm run check          # typecheck, pure tests, workerd tests, production build
+npm audit             # dependency advisories
+```
+
+Workers AI and Browser Run bindings are remote in local development. Real-model
+smoke/browser tests use the configured account and may incur inference charges;
+unit and recovery fixtures do not depend on live model output.
+
+To run browser checks against a production build locally:
+
+```sh
+npm run build
+npx wrangler dev --config dist/iphone_ai_flue_agent/wrangler.json \
+  --var DEV_AUTH:local --host localhost --port 8792
+# Separate terminal:
+npm run test:browser
+```
+
+`--host localhost` is important: Wrangler otherwise rewrites the Worker request
+hostname to the production custom domain, where the local auth bypass is refused.
+The local override never enters the deployed Wrangler configuration.
+
+```sh
+npm run deploy
+```
+
+The Worker name, custom domain, Gateway ID and existing KV namespace intentionally
+retain their original identifiers. Do not rename them during a runtime migration.
+
+## Migration, privacy and limitations
+
+See [migration/runbook](docs/pi-durable-migration.md) for inventory, replay safety,
+legacy recovery, deployment and rollback constraints. The
+[release verification](docs/pi-durable-release.md) records the deployed version,
+import counts, test results and checks that still require the real iPhone.
+
+- Pi Durable is experimental. Versions are pinned; upgrades require storage/recovery tests.
+- The initial source store uses bounded SQLite records, not R2 or full repository clones.
+- Library search is a bounded projection of recent entries/source excerpts and saved
+  notes, not semantic search over every byte. Complete history remains exportable.
+- Browser-local drafts may contain private text. Use Sign out on shared devices.
+- AI Gateway logging has its own retention; deleting a session does not erase provider
+  logs, GitHub issues/branches or copies previously exported from the application.
+- Imported sessions preserve visible text and archive/guide evidence. Original tool
+  traces stay in the read-only legacy store until explicitly deleted. Expired or
+  previously unretained artifacts cannot be reconstructed by a runtime migration.
+- The older generated HTML learning guide under `docs/` describes the previous Flue
+  architecture and is historical, not the current implementation reference.

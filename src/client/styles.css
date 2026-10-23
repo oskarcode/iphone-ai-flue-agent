@@ -1,0 +1,521 @@
+:root {
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #262b2b;
+  background: #f8f7f3;
+  font-synthesis: none;
+  line-height: 1.6;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+textarea {
+  font: inherit;
+}
+button,
+a {
+  touch-action: manipulation;
+}
+button {
+  cursor: pointer;
+  border: 1px solid #dedfd9;
+  border-radius: 9px;
+  background: #fff;
+  padding: 8px 12px;
+  color: inherit;
+}
+button:hover {
+  background: #f1f3ed;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #609888;
+  outline-offset: 2px;
+}
+input,
+textarea {
+  border: 1px solid #d5d9d2;
+  border-radius: 9px;
+  padding: 10px;
+  background: #fff;
+  color: inherit;
+  min-width: 0;
+}
+a {
+  color: #246658;
+}
+.workspace {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+.library {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 22px 16px;
+  display: flex;
+  gap: 15px;
+  flex-direction: column;
+  background: #efefe8;
+  border-right: 1px solid #dfe0d9;
+}
+.brand {
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.brand span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #788079;
+}
+.primary {
+  background: #285f50;
+  color: white;
+  border-color: #285f50;
+}
+.primary:hover {
+  background: #204d40;
+}
+.library nav {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.session {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  margin-bottom: 7px;
+}
+.session strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session small {
+  display: block;
+  color: #737a72;
+  font-size: 11px;
+}
+.session.active {
+  background: #fff;
+  border-color: #dde2d7;
+}
+footer {
+  display: grid;
+  gap: 6px;
+}
+footer button {
+  background: none;
+  font-size: 12px;
+}
+.muted {
+  font-size: 12px;
+  color: #646e63;
+}
+main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  border-bottom: 1px solid #e5e6df;
+  background: #f8f7f3;
+  flex-shrink: 0;
+}
+header > div {
+  flex: 1;
+  min-width: 0;
+}
+h1 {
+  font-size: 16px;
+  margin: 0;
+  line-height: 1.4;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+header small {
+  font-size: 11px;
+  color: #738072;
+}
+header button {
+  font-size: 12px;
+}
+.mobile {
+  display: none;
+}
+.conversation {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+  min-height: 0;
+  padding: 30px max(24px, calc((100% - 830px) / 2));
+  scroll-padding-bottom: 20px;
+}
+.welcome {
+  padding: 55px 5px;
+  max-width: 520px;
+}
+.welcome h2 {
+  font-weight: 500;
+  font-size: 30px;
+  letter-spacing: -0.04em;
+}
+.welcome p {
+  color: #747c70;
+}
+.message {
+  margin-bottom: 26px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.message.user {
+  background: #eef0e8;
+  padding: 16px 20px;
+  border-radius: 14px;
+}
+.message-label {
+  font-size: 11px;
+  color: #6b796a;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.markdown p {
+  margin: 0.5em 0;
+}
+.markdown h3 {
+  font-size: 17px;
+  margin: 24px 0 9px;
+}
+.markdown code {
+  font-size: 0.87em;
+  background: #e9ece4;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.code-block {
+  border: 1px solid #dce0d5;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 18px 0;
+  background: #f1f3ec;
+}
+.code-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 12px;
+  border-bottom: 1px solid #dce0d5;
+  font:
+    11px ui-monospace,
+    monospace;
+}
+.code-toolbar button {
+  padding: 3px 10px;
+  font-size: 11px;
+}
+.markdown pre {
+  margin: 0;
+  padding: 15px;
+  overflow-x: auto;
+}
+.markdown pre code {
+  background: none;
+  padding: 0;
+  white-space: pre;
+  overflow-wrap: normal;
+  line-height: 1.7;
+}
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 18px 0;
+}
+table {
+  border-collapse: collapse;
+  min-width: 420px;
+  width: 100%;
+  font-size: 14px;
+}
+th,
+td {
+  border: 1px solid #dde1d6;
+  padding: 10px;
+  text-align: left;
+}
+th {
+  background: #eef0e8;
+}
+blockquote {
+  border-left: 3px solid #a7bba7;
+  margin: 15px 0;
+  padding-left: 16px;
+  color: #5a6859;
+}
+.message-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.message-actions button {
+  font-size: 11px;
+  padding: 3px 10px;
+  background: none;
+}
+.composer {
+  padding: 12px 24px max(14px, env(safe-area-inset-bottom));
+  border-top: 1px solid #e0e3d8;
+  background: #f8f7f3;
+}
+.composer form {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  max-width: 830px;
+  margin: auto;
+}
+.composer textarea {
+  resize: vertical;
+  min-height: 65px;
+  max-height: 220px;
+  flex: 1;
+  font-size: 16px;
+}
+.composer > small {
+  display: block;
+  max-width: 830px;
+  margin: 7px auto 0;
+  font-size: 10px;
+  color: #7a8278;
+}
+.presets {
+  display: flex;
+  overflow-x: auto;
+  gap: 7px;
+  max-width: 830px;
+  margin: 0 auto 10px;
+  scrollbar-width: thin;
+}
+.presets button {
+  white-space: nowrap;
+  font-size: 11px;
+  padding: 5px 10px;
+  background: none;
+}
+.details {
+  width: 330px;
+  overflow: auto;
+  padding: 24px;
+  border-left: 1px solid #ddd;
+  background: #f1f2ec;
+  flex-shrink: 0;
+}
+.details h2 {
+  font-size: 20px;
+}
+.details h3 {
+  font-size: 15px;
+}
+.details p {
+  font-size: 13px;
+}
+.details > button,
+.details > a {
+  margin: 5px;
+}
+.details a {
+  display: block;
+}
+.source {
+  display: block;
+  text-align: left;
+  width: 100%;
+  font-size: 12px;
+  word-break: break-word;
+}
+.details small {
+  font-size: 11px;
+  color: #737b70;
+}
+.danger {
+  color: #9d4033 !important;
+}
+.error {
+  background: #fff1e9;
+  padding: 12px 24px;
+  font-size: 13px;
+}
+.error button {
+  margin-left: 10px;
+}
+.working {
+  color: #7e8778;
+  font-size: 13px;
+}
+.approval {
+  background: #fff9e8;
+  border: 1px solid #e3d7b3;
+  padding: 15px;
+  border-radius: 12px;
+  margin: 20px 0;
+}
+.approval pre {
+  max-height: 220px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.approval button {
+  margin: 5px;
+}
+.artifact {
+  display: block;
+  margin: 20px 0;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  background: #0006;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal > section {
+  background: #fafbf5;
+  border-radius: 16px;
+  max-height: 90dvh;
+  overflow: auto;
+  padding: 25px;
+  max-width: 900px;
+  width: 100%;
+}
+.modal pre {
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.modal textarea {
+  width: 100%;
+  min-height: 160px;
+}
+.modal label {
+  display: block;
+  margin: 20px 0;
+}
+.modal button {
+  margin: 5px;
+}
+.modal p {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.backdrop {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .details {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 5;
+    width: min(400px, 100vw);
+    box-shadow: -5px 0 30px #0002;
+  }
+}
+@media (max-width: 760px) {
+  .library {
+    display: none;
+  }
+  .library.open {
+    display: flex;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 7;
+    width: min(320px, 85vw);
+    padding-top: max(22px, env(safe-area-inset-top));
+  }
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: #0005;
+    border: 0;
+    border-radius: 0;
+    z-index: 6;
+  }
+  .mobile {
+    display: block;
+  }
+  header {
+    padding: 12px 14px;
+    padding-top: max(12px, env(safe-area-inset-top));
+    gap: 9px;
+  }
+  header h1 {
+    font-size: 14px;
+  }
+  .conversation {
+    padding: 22px 16px;
+  }
+  .composer {
+    padding: 10px 12px max(12px, env(safe-area-inset-bottom));
+  }
+  .composer form {
+    gap: 7px;
+  }
+  .composer form button {
+    padding: 10px;
+  }
+  .message.user {
+    padding: 13px 15px;
+  }
+  .welcome {
+    padding: 25px 6px;
+  }
+  .welcome h2 {
+    font-size: 26px;
+  }
+  .modal {
+    padding: 10px;
+  }
+  .modal > section {
+    padding: 18px;
+  }
+  .details {
+    width: 100%;
+  }
+}

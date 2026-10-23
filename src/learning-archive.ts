@@ -155,6 +155,13 @@ export class LearningArchive extends DurableObject<ArchiveEnv> {
     this.recordEvent(sessionId, reason === 'expired' ? 'expired' : 'public_deleted', at, { reason });
   }
 
+  purgeSession(id: string): void {
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec('DELETE FROM events WHERE session_id = ?', id);
+      this.ctx.storage.sql.exec('DELETE FROM sessions WHERE id = ?', id);
+    });
+  }
+
   listSessions(limit = 100): LearningArchiveSessionSummary[] {
     const boundedLimit = Math.min(Math.max(Math.floor(limit) || 100, 1), MAX_ARCHIVE_SESSIONS);
     return this.ctx.storage.sql.exec<SessionRow>(

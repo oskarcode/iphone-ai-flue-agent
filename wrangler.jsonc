@@ -1,6 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "iphone-ai-flue-agent",
+  "main": "src/cloudflare.ts",
+  "assets": { "binding": "ASSETS", "directory": "./dist/client", "run_worker_first": true },
   // Production ingress is the Access-protected custom domain, not alternate workers.dev URLs.
   "workers_dev": false,
   "preview_urls": false,
@@ -18,7 +20,9 @@
     "MODEL": "cloudflare/@cf/zai-org/glm-5.2",
     "AI_GATEWAY_ID": "iphone-flue-shortcut",
     "JEV_MODEL": "typesafe/jev",
-    "JEV_SKIP_CACHE": "true"
+    "JEV_SKIP_CACHE": "true",
+    "ACCESS_ISSUER": "https://oskarman.cloudflareaccess.com",
+    "ACCESS_AUDIENCE": "6b76b37f8cf201250eb5cf40e6fcf4b021dd6b5a161481ab599818bee439687a,9ccb2bc95cd828b77a69fe25bf1d16c84b6e8d681461e223bac7c3442d89dd77"
   },
   // Local development uses the account's real Workers AI, Browser Run, and AI Gateway services.
   "ai": {
@@ -29,10 +33,14 @@
     "binding": "BROWSER",
     "remote": true
   },
-  // KV stores ten-minute handoffs plus one-hour learning records; Flue conversation state stays in Durable Objects.
+  // Preserve the Shortcut handoff namespace. New learning state lives in Pi SQLite DOs.
   "durable_objects": {
     "bindings": [
-      { "name": "LEARNING_ARCHIVE", "class_name": "LearningArchive" }
+      { "name": "LEARNING_ARCHIVE", "class_name": "LearningArchive" },
+      { "name": "FLUE_GITHUB_LEARNING_AGENT", "class_name": "FlueGithubLearningAgent" },
+      { "name": "FLUE_IPHONE_ASSISTANT_AGENT", "class_name": "FlueIphoneAssistantAgent" },
+      { "name": "LEARNING_SESSIONS", "class_name": "LearningSession" },
+      { "name": "LEARNING_LIBRARY", "class_name": "LearningLibrary" }
     ]
   },
   "kv_namespaces": [
@@ -41,7 +49,7 @@
       "id": "8bfe929b07e5431fb15a0e185c4d3054"
     }
   ],
-  // Each immutable migration introduces one generated SQLite-backed Flue agent class.
+  // Immutable history: retain the original namespaces, then add Pi-backed session/library classes.
   "migrations": [
     {
       "tag": "v1",
@@ -54,6 +62,10 @@
     {
       "tag": "v3-learning-archive",
       "new_sqlite_classes": ["LearningArchive"]
+    },
+    {
+      "tag": "v4-pi-learning",
+      "new_sqlite_classes": ["LearningSession", "LearningLibrary"]
     }
   ],
   // Full sampling is appropriate for this low-volume demo and aids handoff debugging.

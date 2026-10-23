@@ -2,29 +2,43 @@
   "name": "iphone-ai-flue-agent",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": "^22.19.0 || >=24.11.0" },
   "type": "module",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
     "test": "vitest run",
+    "test:worker": "vitest run --config vitest.worker.config.ts",
+    "test:browser": "playwright test",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "npm run typecheck && npm test && npm run test:worker && npm run build",
     "deploy": "npm run check && wrangler deploy --config dist/iphone_ai_flue_agent/wrangler.json",
     "types": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {
-    "@flue/runtime": "^2.1.0",
+    "@earendil-works/chord": "1.2.0",
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-durable": "1.2.0",
+    "@valibot/to-json-schema": "1.8.0",
+    "agents": "0.28.1",
     "hono": "^4.13.0",
+    "jose": "6.2.12",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "valibot": "^1.4.2"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.50.0",
-    "@flue/cli": "^2.1.0",
-    "@flue/vite": "^2.1.0",
+    "@cloudflare/vitest-plugin": "1.4.1",
+    "@playwright/test": "1.58.2",
     "@types/node": "^22.10.10",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "prettier": "3.8.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.0",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.135.0"
+    "vitest": "5.0.4",
+    "wrangler": "4.150.0"
   }
 }

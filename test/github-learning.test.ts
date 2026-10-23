@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { renderLearningGuidePage, renderLearningWaitingPage } from '../src/learning-page.ts';
 import { renderReviewDetailPage, renderReviewIndexPage } from '../src/review-page.ts';
 import {
   getLearningGuide,
@@ -134,7 +133,6 @@ describe('GitHub learning sessions', () => {
     expect(await getLearningSubmission(kv, metadata.id)).toBeNull();
     await putLearningSession(kv, { ...metadata, status: 'ready' });
     expect((await getLearningSessionRecord(kv, metadata.id))?.repository).toEqual(repository);
-    expect(renderLearningGuidePage(metadata)).toContain('id="chat-form"');
   });
 
   it('recovers only the obsolete missing-guide failure for existing tutors', async () => {
@@ -143,22 +141,6 @@ describe('GitHub learning sessions', () => {
     expect(await getLearningSession(kv, metadata.id)).toMatchObject({ status: 'ready', error: undefined });
     await putLearningSession(kv, { ...metadata, status: 'failed', error: 'GitHub timed out.' });
     expect(await getLearningSession(kv, metadata.id)).toMatchObject({ status: 'failed', error: 'GitHub timed out.' });
-  });
-
-  it('renders executable waiting-page JavaScript', () => {
-    const html = renderLearningWaitingPage({ ...metadata, status: 'queued' });
-    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
-    expect(html).toContain('/events');
-    expect(script).toBeTruthy();
-    expect(() => new Function(script!)).not.toThrow();
-  });
-
-  it('renders terminal failure without a spinner or polling script', () => {
-    const html = renderLearningWaitingPage({ ...metadata, status: 'failed', error: 'GitHub timed out.' });
-    expect(html).toContain('Repository tutor unavailable');
-    expect(html).toContain('GitHub timed out.');
-    expect(html).not.toContain('class="spinner"');
-    expect(html).not.toContain('setInterval');
   });
 
   it('renders learning archive review pages', () => {
@@ -189,34 +171,4 @@ describe('GitHub learning sessions', () => {
     expect(detail).not.toContain('<unsafe>');
   });
 
-  it('renders only chat and starter prompts, with an executable safe answer renderer', () => {
-    const html = renderLearningGuidePage(metadata, {
-      ...guide,
-      overview: '<script>unsafe()</script> **safe**',
-    });
-    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
-    const body = html.split('<body>')[1].split('<script>')[0];
-    expect(body).not.toMatch(/<(header|nav|section|h[1-6]|p)\b/);
-    expect(body).not.toContain('Repository access');
-    expect(body).not.toContain('Delete session');
-    expect(body).not.toContain('cloudflare/workers-sdk');
-    expect(body).toContain('aria-label="Starter prompts"');
-    expect(body).toContain('role="log"');
-    expect(html).not.toContain('<script>unsafe()</script>');
-    expect(html).not.toContain('Runtime walkthrough');
-    expect(html).toContain('High-level purpose');
-    expect(html).toContain('data-prompt=');
-    expect(html).toContain('form.requestSubmit()');
-    expect(html).toContain('class="shell chat-only"');
-    expect(html).toContain('answer.innerHTML=renderAnswer(data.answer)');
-    expect(html).toContain('if(!value||busy)return');
-    expect(html).toContain('!event.isComposing');
-    expect(html).toContain('id="chat-log"');
-    expect(html).toContain('placeholder="Ask about this repository..."');
-    expect(html).toContain('maxlength="4000"');
-    expect(html).not.toContain('class="tutor-panel"');
-    expect(html).not.toContain("document.addEventListener('selectionchange'");
-    expect(script).toBeTruthy();
-    expect(() => new Function(script!)).not.toThrow();
-  });
 });

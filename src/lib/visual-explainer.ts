@@ -51,6 +51,7 @@ export function createVisualExplainerRequest(text: string) {
     temperature: 0.2,
     max_completion_tokens: MAX_VISUAL_COMPLETION_TOKENS,
     reasoning_effort: 'none' as const,
+    chat_template_kwargs: { enable_thinking: false },
   };
 }
 

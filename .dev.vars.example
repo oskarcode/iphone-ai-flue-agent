@@ -1,0 +1,4 @@
+# Local only. Never add this flag to production Wrangler vars.
+DEV_AUTH=local
+# Optional: use a read-scoped token for local private-repository tests.
+# GITHUB_TOKEN=

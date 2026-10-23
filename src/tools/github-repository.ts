@@ -1,8 +1,6 @@
-// Flue supplies typed tool registration; Valibot validates every model-generated tool input.
-import { defineTool } from '@flue/runtime';
+// Framework-neutral tools; Valibot validates every model-generated input before execution.
+import { defineTool } from '../runtime/tool.ts';
 import * as v from 'valibot';
-import { getLearningSession } from '../lib/learning-session.ts';
-import { learningArchiveStub, tryArchive } from '../lib/learning-archive.ts';
 
 // These bounds keep remote repository discovery predictable in Worker memory and model context.
 const GITHUB_API = 'https://api.github.com';
@@ -342,17 +340,6 @@ export function createGithubRepositoryTools(
         },
       );
       if (!response.html_url) throw new Error('GitHub did not return an issue URL.');
-      const { env } = await import('cloudflare:workers');
-      await tryArchive(
-        learningArchiveStub(env as unknown as CloudflareBindings & { LEARNING_ARCHIVE: DurableObjectNamespace }).recordIssueCreated({
-          sessionId,
-          title: data.title,
-          issueUrl: response.html_url,
-          number: response.number,
-          evidencePaths,
-        }),
-        { sessionId, operation: 'recordIssueCreated' },
-      );
       return { output: { issueUrl: response.html_url, number: response.number, evidencePaths } };
     },
   });
@@ -370,7 +357,8 @@ export function createGithubRepositoryTools(
         `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/git/ref/heads/${encodeURIComponent(repository.defaultBranch)}`,
         signal,
       );
-      const baseSha = baseRef.object?.sha || repository.commitSha;
+      const baseSha = baseRef.object?.sha;
+      if (baseSha !== repository.commitSha) throw new Error('The default branch changed since this lesson. Start a fresh repository session before editing.');
       await githubJson(
         `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/git/refs`,
         signal,
@@ -398,17 +386,6 @@ export function createGithubRepositoryTools(
             branch,
           }),
         },
-      );
-      const { env } = await import('cloudflare:workers');
-      await tryArchive(
-        learningArchiveStub(env as unknown as CloudflareBindings & { LEARNING_ARCHIVE: DurableObjectNamespace }).recordFileChangeCreated({
-          sessionId,
-          path: data.path,
-          branch,
-          commitUrl: updated.commit?.html_url,
-          contentUrl: updated.content?.html_url,
-        }),
-        { sessionId, operation: 'recordFileChangeCreated' },
       );
       return { output: { branch, path: data.path, commitUrl: updated.commit?.html_url, contentUrl: updated.content?.html_url } };
     },

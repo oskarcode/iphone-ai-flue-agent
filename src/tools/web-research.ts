@@ -1,5 +1,5 @@
 // Flue exposes one research tool; Cloudflare Web Search and Workers AI provide retrieval.
-import { defineTool } from '@flue/runtime';
+import { defineTool } from '../runtime/tool.ts';
 import * as v from 'valibot';
 
 const MAX_MARKDOWN_CHARACTERS = 96_000;
@@ -328,7 +328,7 @@ export const webResearch = defineTool({
     }
 
     if (shouldSearch) {
-      log.info(`Searching Cloudflare Web Search for: ${data.query}`);
+      log.info('Searching Cloudflare Web Search');
       try {
         search = await addSearchPageEvidence(
           await searchPublicWeb(data.query, bindings.AI, requestSignal),
