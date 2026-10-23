@@ -127,6 +127,7 @@ function App() {
     readStored(PREFIX + "draft:" + initialId) ?? "",
   );
   const [sending, setSending] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [connection, setConnection] = useState("");
   const [source, setSource] = useState<Source>();
@@ -181,11 +182,12 @@ function App() {
       if (active.current === target) setError(String(e));
     }
   }
-  /** Input: next session ID, or empty for new learning. Output: selected view and URL.
-   * What this function does: saves the previous draft and resets pagination; it never deletes server state.
+  /** Input: next session ID and whether to retain the previous draft. Output: selected view and URL.
+   * What this function does: resets pagination without deleting server state; confirmed deletion skips draft retention.
    */
-  function select(next: string) {
-    store(PREFIX + "draft:" + id, draft);
+  function select(next: string, retainDraft = true) {
+    if (retainDraft) store(PREFIX + "draft:" + id, draft);
+    active.current = next;
     setId(next);
     setSnapshot(undefined);
     setOlder([]);
@@ -197,6 +199,40 @@ function App() {
     setDrawer(false);
     history.pushState({}, "", next ? `/sessions/${next}` : "/chat");
     nearBottom.current = true;
+  }
+  /** Input: Delete button for the selected saved session. Output: confirmed deletion or a retryable error.
+   * What this function does: uses the existing owner-checked purge, clears only matching device data,
+   * and avoids closing another workspace if the user navigates while the request is in flight.
+   */
+  async function deleteSession() {
+    if (!id || !snapshot || sending || deleting) return;
+    if (
+      !confirm(
+        "Permanently delete this learning session, including its conversation, sources, notes, activity and historical copies? This cannot be undone.",
+      )
+    )
+      return;
+    const target = id;
+    setDeleting(true);
+    setError("");
+    try {
+      await api(`/api/sessions/${target}`, { method: "DELETE" });
+      store(PREFIX + "draft:" + target, null);
+      if (pending()?.sessionId === target) store(PREFIX + "pending", null);
+      setItems((old) => old.filter((item) => item.id !== target));
+      if (active.current === target) {
+        setDetails(false);
+        setSource(undefined);
+        select("", false);
+      }
+      await loadLibrary();
+    } catch (e) {
+      setError(
+        `Could not confirm deletion. Retry Delete to finish cleanup. ${String(e)}`,
+      );
+    } finally {
+      setDeleting(false);
+    }
   }
   /** Input: query/archive changes. Output: debounced Library refresh.
    * What this function does: cancels the pending timer when filters change again.
@@ -325,7 +361,7 @@ function App() {
    * What this function does: prevents overlapping unsaved sends and stores IDs before making network requests.
    */
   async function send() {
-    if (!draft.trim() || sending) return;
+    if (!draft.trim() || sending || deleting) return;
     const existing = pending();
     if (existing) {
       setError("Retry the pending message before sending another.");
@@ -578,9 +614,20 @@ function App() {
             </small>
           </div>
           {id && (
-            <button onClick={() => setDetails(!details)}>
-              Sources & notes
-            </button>
+            <>
+              <button onClick={() => setDetails(!details)}>
+                Sources & notes
+              </button>
+              <button
+                className="danger delete-session"
+                aria-label="Delete session"
+                title="Permanently delete this learning session"
+                disabled={!snapshot || sending || deleting}
+                onClick={() => void deleteSession()}
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </>
           )}
         </header>
         {error && (
@@ -588,7 +635,7 @@ function App() {
             {error}
             {pending() && (
               <button
-                disabled={sending}
+                disabled={sending || deleting}
                 onClick={() => void deliver(pending()!)}
               >
                 Retry
@@ -791,7 +838,7 @@ function App() {
             />
             <button
               className="primary"
-              disabled={!draft.trim() || sending}
+              disabled={!draft.trim() || sending || deleting}
               type="submit"
             >
               {sending ? "Saving…" : snapshot?.busy ? "Queue" : "Send"}
@@ -901,33 +948,10 @@ function App() {
           ))}
           <button
             className="danger"
-            onClick={
-              /** Input: permanent-delete click. Output: confirmed server deletion then new view.
-               * What this function does: asks before erasure and clears only the deleted session's pending/draft state.
-               */ () => {
-                if (
-                  confirm(
-                    "Permanently delete this session, its sources, notes and historical copies?",
-                  )
-                )
-                  void api(`/api/sessions/${id}`, { method: "DELETE" })
-                    .then(
-                      /** Input: confirmed deletion response. Output: reset current view and refreshed directory.
-                       * What this function does: clears local remnants only after the server accepted deletion.
-                       */ () => {
-                        store(PREFIX + "draft:" + id, null);
-                        if (pending()?.sessionId === id)
-                          store(PREFIX + "pending", null);
-                        setDetails(false);
-                        select("");
-                        void loadLibrary();
-                      },
-                    )
-                    .catch((e) => setError(String(e)));
-              }
-            }
+            disabled={sending || deleting}
+            onClick={() => void deleteSession()}
           >
-            Permanently delete
+            {deleting ? "Deleting…" : "Permanently delete"}
           </button>
         </aside>
       )}

@@ -216,6 +216,11 @@ header small {
 header button {
   font-size: 12px;
 }
+/* Keep the destructive header action reachable without shrinking its touch target. */
+header .delete-session {
+  min-height: 44px;
+  flex-shrink: 0;
+}
 .mobile {
   display: none;
 }
