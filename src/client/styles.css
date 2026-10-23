@@ -385,41 +385,49 @@ blockquote {
   padding: 5px 10px;
   background: none;
 }
-/* Source/note administration is separate from the readable conversation. */
-.details {
-  width: 330px;
-  overflow: auto;
-  padding: 24px;
-  border-left: 1px solid #ddd;
-  background: #f1f2ec;
+/* Keep infrequent session actions out of the reading area. */
+.session-menu {
+  position: relative;
   flex-shrink: 0;
 }
-.details h2 {
-  font-size: 20px;
+.session-menu > summary {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  border: 1px solid #d2d7cb;
+  border-radius: 8px;
+  font-size: 24px;
 }
-.details h3 {
-  font-size: 15px;
+.session-menu > summary::-webkit-details-marker {
+  display: none;
 }
-.details p {
-  font-size: 13px;
+.session-menu > summary:focus-visible {
+  outline: 2px solid #426b3b;
+  outline-offset: 3px;
 }
-.details > button,
-.details > a {
-  margin: 5px;
+.session-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 5;
+  width: 210px;
+  padding: 8px;
+  background: #f1f2ec;
+  border: 1px solid #d2d7cb;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px #0002;
 }
-.details a {
+.session-menu-panel > button,
+.session-menu-panel > a {
   display: block;
-}
-.source {
-  display: block;
-  text-align: left;
   width: 100%;
-  font-size: 12px;
-  word-break: break-word;
-}
-.details small {
-  font-size: 11px;
-  color: #737b70;
+  min-height: 44px;
+  padding: 12px;
+  text-align: left;
+  font-size: 13px;
 }
 .danger {
   color: #9d4033 !important;
@@ -476,11 +484,6 @@ blockquote {
   max-width: 900px;
   width: 100%;
 }
-.modal pre {
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .modal textarea {
   width: 100%;
   min-height: 160px;
@@ -498,18 +501,6 @@ blockquote {
 }
 .backdrop {
   display: none;
-}
-/* Float details instead of squeezing the main reader on narrow desktops. */
-@media (max-width: 1100px) {
-  .details {
-    position: fixed;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 5;
-    width: min(400px, 100vw);
-    box-shadow: -5px 0 30px #0002;
-  }
 }
 /* Phone layout: off-canvas Library and single-column content. */
 @media (max-width: 760px) {
@@ -570,8 +561,5 @@ blockquote {
   }
   .modal > section {
     padding: 18px;
-  }
-  .details {
-    width: 100%;
   }
 }

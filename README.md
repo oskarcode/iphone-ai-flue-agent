@@ -9,7 +9,8 @@ An iPhone-first tutor that turns selected text, questions, web pages and GitHub 
 - Retains source text, retrieval timestamps, hashes and independently addressable visual artifacts.
 - Renders escaped Markdown, copyable code and scrollable tables on phones.
 - Shows a collapsible **Agent activity** panel for each turn: queued/running/completed status, tool activity, retries and context summarization. Recorded progress survives reloads; raw reasoning, tool payloads and provider errors are never sent to this panel. Routing events distinguish actual Jev decisions, deterministic GitHub/recap rules and classifier fallback. Normal workspace turns explicitly say **Jev not used**; repository/visual handoffs retain a separate **Request routing** panel.
-- Saves editable evidence-linked notes and optional teaching preferences. Requested cross-session recall uses eligible saved public notes, not model retraining.
+- Keeps the workspace focused on conversation: no Sources & notes panel or Save note buttons. Rename, pin, archive and export live in the compact **⋯ Session options** menu; Delete stays in the header.
+- Retains teaching preferences, source evidence and existing notes. Note APIs and exports remain compatible; requested cross-session recall uses eligible previously saved public notes, not model retraining.
 - Creates reviewable social-post drafts with an illustrative TypeScript mental model. Nothing publishes automatically.
 - Requires explicit server-side approval before GitHub issue creation or a branch-only file change.
 - Preserves existing Shortcut request paths, fields, service-token headers and response fields. See [Shortcut contracts](docs/shortcut-contracts.md).

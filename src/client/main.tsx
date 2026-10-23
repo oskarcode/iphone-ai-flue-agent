@@ -122,7 +122,6 @@ function App() {
   const [archived, setArchived] = useState(false);
   const [offset, setOffset] = useState<number>();
   const [drawer, setDrawer] = useState(false);
-  const [details, setDetails] = useState(false);
   const [draft, setDraft] = useState(
     readStored(PREFIX + "draft:" + initialId) ?? "",
   );
@@ -130,7 +129,6 @@ function App() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [connection, setConnection] = useState("");
-  const [source, setSource] = useState<Source>();
   const [prefs, setPrefs] = useState<{ text: string; recall: boolean }>();
   const [older, setOlder] = useState<SessionSnapshot["messages"]>([]);
   const [olderActivity, setOlderActivity] = useState<
@@ -221,8 +219,6 @@ function App() {
       if (pending()?.sessionId === target) store(PREFIX + "pending", null);
       setItems((old) => old.filter((item) => item.id !== target));
       if (active.current === target) {
-        setDetails(false);
-        setSource(undefined);
         select("", false);
       }
       await loadLibrary();
@@ -454,19 +450,6 @@ function App() {
       setError(String(e));
     }
   }
-  /** Input: answer entry ID. Output: optional saved evidence-linked note.
-   * What this function does: prompts for text and lets the server verify the referenced entry.
-   */
-  async function saveNote(entryId: string) {
-    const text = prompt("Save a learning note linked to this answer:");
-    if (text?.trim())
-      try {
-        await post(`/api/sessions/${id}/notes`, { text, entryId });
-        await refresh();
-      } catch (e) {
-        setError(String(e));
-      }
-  }
   /** Input: Import previous sessions button. Output: refreshed Library and import summary.
    * What this function does: pages discoverable KV records; opaque legacy objects require the operator migration script.
    */
@@ -623,9 +606,65 @@ function App() {
           </div>
           {id && (
             <>
-              <button onClick={() => setDetails(!details)}>
-                Sources & notes
-              </button>
+              {snapshot && (
+                <details
+                  className="session-menu"
+                  key={id}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.currentTarget.open = false;
+                      event.currentTarget.querySelector("summary")?.focus();
+                    }
+                  }}
+                >
+                  <summary aria-label="Session options" title="Session options">
+                    ⋯
+                  </summary>
+                  <div
+                    className="session-menu-panel"
+                    onClick={(event) => {
+                      // Close after choosing an action; the summary remains keyboard accessible.
+                      const menu = event.currentTarget.closest("details");
+                      if (menu) {
+                        menu.open = false;
+                        menu.querySelector("summary")?.focus();
+                      }
+                    }}
+                  >
+                    <button
+                      disabled={deleting}
+                      onClick={() => {
+                        const title = prompt(
+                          "Session title",
+                          snapshot.metadata.title,
+                        );
+                        if (title) void mutate({ title });
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      disabled={deleting}
+                      onClick={() =>
+                        void mutate({ pinned: !snapshot.metadata.pinned })
+                      }
+                    >
+                      {snapshot.metadata.pinned ? "Unpin" : "Pin"}
+                    </button>
+                    <button
+                      disabled={deleting}
+                      onClick={() =>
+                        void mutate({ archived: !snapshot.metadata.archived })
+                      }
+                    >
+                      {snapshot.metadata.archived ? "Unarchive" : "Archive"}
+                    </button>
+                    <a href={`/api/sessions/${id}/export`}>
+                      Export complete session
+                    </a>
+                  </div>
+                </details>
+              )}
               <button
                 className="danger delete-session"
                 aria-label="Delete session"
@@ -717,11 +756,6 @@ function App() {
                 >
                   Copy
                 </button>
-                {message.role === "assistant" && (
-                  <button onClick={() => void saveNote(message.id)}>
-                    Save note
-                  </button>
-                )}
               </div>
             </article>
           ))}
@@ -870,116 +904,6 @@ function App() {
           </small>
         </section>
       </main>
-      {/* Session administration is separate from the readable conversation. */}
-      {details && snapshot && (
-        <aside className="details">
-          <button onClick={() => setDetails(false)}>Close</button>
-          <h2>Session</h2>
-          <p>
-            {snapshot.metadata.private
-              ? "Private sources — keep identifying details out of public drafts."
-              : "Sources and answers stay with this session."}
-          </p>
-          <button
-            onClick={
-              /** Input: rename click. Output: optional title patch.
-               * What this function does: prompts with the current title and leaves validation to the server.
-               */ () => {
-                const title = prompt("Session title", snapshot.metadata.title);
-                if (title) void mutate({ title });
-              }
-            }
-          >
-            Rename
-          </button>
-          <button
-            onClick={() => void mutate({ pinned: !snapshot.metadata.pinned })}
-          >
-            {snapshot.metadata.pinned ? "Unpin" : "Pin"}
-          </button>
-          <button
-            onClick={() =>
-              void mutate({ archived: !snapshot.metadata.archived })
-            }
-          >
-            {snapshot.metadata.archived ? "Unarchive" : "Archive"}
-          </button>
-          <a href={`/api/sessions/${id}/export`}>Export complete session</a>
-          <h3>Sources ({snapshot.sources.length})</h3>
-          {snapshot.sources.map((s) => (
-            <button
-              className="source"
-              key={s.id}
-              onClick={() =>
-                void api<Source>(
-                  `/api/sessions/${id}/sources/${encodeURIComponent(s.id)}`,
-                )
-                  .then(setSource)
-                  .catch((e) => setError(String(e)))
-              }
-            >
-              {s.title}
-            </button>
-          ))}
-          <h3>Learning notes</h3>
-          {snapshot.notes.map((note) => (
-            <section key={note.id}>
-              <p>{note.text}</p>
-              <small>Evidence: message {note.entryId}</small>
-              <button
-                onClick={
-                  /** Input: edit-note click. Output: note update with unchanged evidence link.
-                   * What this function does: reuses the note ID instead of creating an unrelated duplicate.
-                   */ () => {
-                    const text = prompt("Edit note", note.text);
-                    if (text)
-                      void post(`/api/sessions/${id}/notes`, {
-                        id: note.id,
-                        entryId: note.entryId,
-                        text,
-                      }).then(() => refresh());
-                  }
-                }
-              >
-                Edit
-              </button>
-              <button
-                onClick={() =>
-                  void api(`/api/sessions/${id}/notes/${note.id}`, {
-                    method: "DELETE",
-                  }).then(() => refresh())
-                }
-              >
-                Remove
-              </button>
-            </section>
-          ))}
-          <button
-            className="danger"
-            disabled={sending || deleting}
-            onClick={() => void deleteSession()}
-          >
-            {deleting ? "Deleting…" : "Permanently delete"}
-          </button>
-        </aside>
-      )}
-      {source && (
-        <div
-          className="modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Saved source"
-        >
-          <section>
-            <button onClick={() => setSource(undefined)}>Close</button>
-            <h2>{source.title}</h2>
-            <p>
-              Retrieved {source.createdAt} · SHA-256 {source.hash}
-            </p>
-            <pre>{source.content}</pre>
-          </section>
-        </div>
-      )}
       {prefs && (
         <div
           className="modal"

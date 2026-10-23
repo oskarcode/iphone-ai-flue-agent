@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("mobile learning persists through reload, keeps notes and supports library navigation", async ({
+test("mobile learning persists through reload with a simplified workspace and library navigation", async ({
   page,
 }) => {
   await page.goto("/chat");
@@ -34,17 +34,10 @@ test("mobile learning persists through reload, keeps notes and supports library 
   const url = page.url();
   const answer = await page.locator(".message.assistant .markdown").innerText();
   expect(answer.length).toBeGreaterThan(30);
-  page.once("dialog", (dialog) =>
-    dialog.accept("A union type accepts one of several types."),
-  );
-  await page.getByRole("button", { name: "Save note" }).first().click();
-  await page.getByRole("button", { name: "Sources & notes" }).click();
+  await expect(page.getByRole("button", { name: "Save note" })).toHaveCount(0);
   await expect(
-    page.getByText("A union type accepts one of several types.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+    page.getByRole("button", { name: "Sources & notes" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Open library" }).click();
   await page.getByRole("button", { name: "＋ New learning" }).click();
   await expect(page.locator(".message")).toHaveCount(0);
