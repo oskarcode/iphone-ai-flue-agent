@@ -385,6 +385,36 @@ blockquote {
   padding: 5px 10px;
   background: none;
 }
+/* Coach and Settings replace footer clutter; keep chat mounted so drafts and live work survive tab changes. */
+.coach-page {
+  min-width: 0;
+}
+.coach-content {
+  overflow-y: auto;
+  padding: 20px;
+}
+.coach-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.coach-suggestions button {
+  text-align: left;
+  white-space: normal;
+}
+.coach-turn,
+.coach-observation {
+  border-top: 1px solid #d2d7cb;
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.coach-turn p,
+.coach-observation p {
+  white-space: pre-wrap;
+}
+.coach-observation a {
+  font-size: 12px;
+}
 /* Settings replaces footer clutter; keep the chat mounted so drafts and live work survive tab changes. */
 [hidden] {
   display: none !important;

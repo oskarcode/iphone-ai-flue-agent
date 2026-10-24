@@ -284,7 +284,6 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
           return proposal;
         },
         preferences: async () => (await this.library().preferences()).text,
-        recall: (query) => this.library().recall(query, this.metadata().id),
         actions: () =>
           this.rows<Approval>("learning_approvals").map(
             ({ id, tool, status, result, createdAt }) => ({
@@ -312,9 +311,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       this.harness = harness;
       const root = await harness.root(background);
       // Existing conversations also need the new tools; changing the registry alone does not update their allowlist.
-      if (!(await this.ctx.storage.get("learning:computer-tools:v1"))) {
+      if (!(await this.ctx.storage.get("learning:tools:no-note-recall:v2"))) {
         await root.configure({ tools: options.learningTools }, background);
-        await this.ctx.storage.put("learning:computer-tools:v1", true);
+        await this.ctx.storage.put("learning:tools:no-note-recall:v2", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -409,10 +408,73 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       text,
       notes,
     );
+    if (!(await this.observe(metadata.owner))) return;
     this.ctx.storage.sql.exec(
       "UPDATE learning_state SET dirty=0 WHERE revision=?",
       row.revision,
     );
+  }
+  /** Input: verified owner. Output: projected new visible entries without generating a model turn.
+   * What this function does: catches up a separate coach with bounded pages and stable IDs; never projects raw tools/reasoning.
+   */
+  async observe(owner: string) {
+    const metadata = this.authorize(owner);
+    const coach = this.env.LEARNING_COACH.getByName(owner);
+    if (metadata.private) await coach.redact(owner, metadata.id);
+    const state = await coach.cursor(owner, metadata.id);
+    if (state.deleted) return true;
+    const root = await (await this.open()).root(background);
+    if (state.paused) {
+      const latest = await root.entries(
+        { order: "descending" },
+        1,
+        undefined,
+        background,
+      );
+      await coach.baseline(
+        owner,
+        metadata.id,
+        Number(latest.items[0]?.id ?? 0),
+      );
+      return true;
+    }
+    let cursor: Cursor | undefined;
+    for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
+      const page = await root.entries(
+        { order: "descending" },
+        200,
+        cursor,
+        background,
+      );
+      const newer = page.items.filter((entry) => Number(entry.id) > state.last);
+      if (newer.length)
+        await coach.ingest(
+          owner,
+          metadata.id,
+          newer.flatMap((entry) => {
+            const message = entryMessage(entry);
+            return message
+              ? [
+                  {
+                    sessionId: metadata.id,
+                    entryId: String(entry.id),
+                    role: message.role,
+                    text: metadata.private
+                      ? ""
+                      : message.content.slice(0, 1600),
+                    private: metadata.private,
+                    createdAt: message.createdAt ?? metadata.createdAt,
+                  },
+                ]
+              : [];
+          }),
+        );
+      if (newer.length < page.items.length || !page.next) return true;
+      cursor = page.next;
+    }
+    // No cursor advancement past unexamined history; the next reconciliation retries older pages.
+    await this.wake();
+    return false;
   }
   /** Input: owner, text and stable request ID. Output: session/submission receipt.
    * What this function does: validates retry identity, persists the wakeup before scheduling Pi, and watches completion.
@@ -1005,6 +1067,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
    * What this function does: cleans Library, legacy storage, archive, KV and known Pi tables; alarms retry interruptions.
    */
   private async finishDeletion(metadata: SessionMetadata) {
+    await this.env.LEARNING_COACH.getByName(metadata.owner).forget(
+      metadata.owner,
+      metadata.id,
+    );
     await this.env.LEARNING_LIBRARY.getByName(metadata.owner).remove(
       metadata.id,
     );

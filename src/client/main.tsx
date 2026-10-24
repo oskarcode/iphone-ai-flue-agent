@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { renderTutorMarkdown } from "../lib/tutor-markdown.ts";
 import { TurnActivityPanel } from "./turn-activity.tsx";
 import { Settings } from "./settings.tsx";
+import { Coach } from "./coach.tsx";
 import { api, post } from "./api.ts";
 import type { SkillSummary } from "../lib/skills.ts";
 import type {
@@ -100,6 +101,7 @@ function App() {
   const [offset, setOffset] = useState<number>();
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [coach, setCoach] = useState(false);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [skillError, setSkillError] = useState("");
   const [draft, setDraft] = useState(
@@ -109,7 +111,7 @@ function App() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [connection, setConnection] = useState("");
-  const [prefs, setPrefs] = useState<{ text: string; recall: boolean }>();
+  const [prefs, setPrefs] = useState<{ text: string }>();
   const [older, setOlder] = useState<SessionSnapshot["messages"]>([]);
   const [olderActivity, setOlderActivity] = useState<
     NonNullable<SessionSnapshot["activity"]>
@@ -165,6 +167,7 @@ function App() {
    */
   function select(next: string, retainDraft = true) {
     setSettings(false);
+    setCoach(false);
     if (retainDraft) store(PREFIX + "draft:" + id, draft);
     active.current = next;
     setId(next);
@@ -433,36 +436,6 @@ function App() {
       setError(String(e));
     }
   }
-  /** Input: Import previous sessions button. Output: refreshed Library and import summary.
-   * What this function does: pages discoverable KV records; opaque legacy objects require the operator migration script.
-   */
-  async function importLegacy() {
-    setError("");
-    try {
-      let cursor: string | undefined;
-      let count = 0;
-      const failures: string[] = [];
-      do {
-        const page = await post<{
-          results: { id: string; status: string }[];
-          cursor?: string;
-        }>("/api/migrate", { cursor });
-        count += page.results.filter((r) => r.status === "imported").length;
-        failures.push(
-          ...page.results
-            .filter((r) => r.status !== "imported")
-            .map((r) => r.id),
-        );
-        cursor = page.cursor;
-      } while (cursor);
-      await loadLibrary();
-      alert(
-        `${count} repository sessions imported. ${failures.length} need review. Original storage is retained; histories without a discoverable ID require manual recovery.`,
-      );
-    } catch (e) {
-      setError(String(e));
-    }
-  }
   const messages = [...older, ...(snapshot?.messages ?? [])].filter(
     (message, index, all) =>
       all.findIndex((m) => m.id === message.id) === index,
@@ -568,18 +541,30 @@ function App() {
         )}
         <footer>
           <button
-            aria-current={!settings ? "page" : undefined}
+            aria-current={!settings && !coach ? "page" : undefined}
             onClick={() => {
               setSettings(false);
+              setCoach(false);
               setDrawer(false);
             }}
           >
             Chat
           </button>
           <button
+            aria-current={coach ? "page" : undefined}
+            onClick={() => {
+              setCoach(true);
+              setSettings(false);
+              setDrawer(false);
+            }}
+          >
+            Learning coach
+          </button>
+          <button
             aria-current={settings ? "page" : undefined}
             onClick={() => {
               setSettings(true);
+              setCoach(false);
               setDrawer(false);
             }}
           >
@@ -587,6 +572,15 @@ function App() {
           </button>
         </footer>
       </aside>
+      {coach && (
+        <main className="coach-page">
+          <header>
+            <button onClick={() => setCoach(false)}>Back to chat</button>
+            <h1>Learning coach</h1>
+          </header>
+          <Coach />
+        </main>
+      )}
       {settings && (
         <main className="settings-page">
           <header>
@@ -600,13 +594,10 @@ function App() {
           )}
           <Settings
             preferences={() =>
-              void api<{ text: string; recall: number }>("/api/preferences")
-                .then((p) =>
-                  setPrefs({ text: p.text, recall: Boolean(p.recall) }),
-                )
+              void api<{ text: string }>("/api/preferences")
+                .then((p) => setPrefs({ text: p.text }))
                 .catch((e) => setError(String(e)))
             }
-            importPrevious={importLegacy}
             clearDrafts={() => clearDeviceDrafts()}
             signOut={() => {
               clearDeviceDrafts(false);
@@ -622,7 +613,7 @@ function App() {
           />
         </main>
       )}
-      <main hidden={settings}>
+      <main hidden={settings || coach}>
         <header>
           <button
             className="mobile"
@@ -964,19 +955,9 @@ function App() {
               onChange={(e) => setPrefs({ ...prefs, text: e.target.value })}
               placeholder="For example: explain unfamiliar TypeScript syntax and use small examples."
             />
-            <label>
-              <input
-                type="checkbox"
-                checked={prefs.recall}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, recall: e.target.checked })
-                }
-              />{" "}
-              Allow requested cross-session recall of saved public notes
-            </label>
             <p>
-              Private-session notes are excluded. The assistant does not infer
-              mastery or retrain itself.
+              These instructions shape future teaching. They do not retrain a
+              model or change previous answers.
             </p>
             <button
               onClick={() =>

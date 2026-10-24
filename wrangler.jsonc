@@ -42,7 +42,8 @@
       { "name": "FLUE_IPHONE_ASSISTANT_AGENT", "class_name": "FlueIphoneAssistantAgent" },
       { "name": "LEARNING_SESSIONS", "class_name": "LearningSession" },
       { "name": "LEARNING_LIBRARY", "class_name": "LearningLibrary" },
-      { "name": "LEARNING_SKILLS", "class_name": "LearningSkills" }
+      { "name": "LEARNING_SKILLS", "class_name": "LearningSkills" },
+      { "name": "LEARNING_COACH", "class_name": "LearningCoach" }
     ]
   },
   "kv_namespaces": [
@@ -72,6 +73,10 @@
     {
       "tag": "v5-learning-computer",
       "new_sqlite_classes": ["LearningSkills"]
+    },
+    {
+      "tag": "v6-learning-coach",
+      "new_sqlite_classes": ["LearningCoach"]
     }
   ],
   // Full sampling is appropriate for this low-volume demo and aids handoff debugging.

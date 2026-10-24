@@ -853,21 +853,79 @@ app.get("/api/sessions/:id/export", async (c) => {
     },
   });
 });
+// An owner-scoped coach indexes committed visible learning messages; model work starts only on a question.
+app.get("/api/coach", async (c) => {
+  const coach = c.env.LEARNING_COACH.getByName(owner(c));
+  let offset = 0;
+  for (let i = 0; i < 20; i++) {
+    const page = await library(c).list("", "all", offset);
+    for (const item of page.items) {
+      try {
+        await session(c, item.id).observe(owner(c));
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "Session not found")
+          throw error;
+      }
+    }
+    if (page.nextOffset === undefined) break;
+    offset = page.nextOffset;
+  }
+  return c.json(await coach.view(owner(c)));
+});
+app.post("/api/coach/questions", async (c) => {
+  const body = await json<{ text?: unknown; requestId?: unknown }>(c, 4000);
+  if (
+    typeof body?.text !== "string" ||
+    !body.text.trim() ||
+    body.text.length > 3000 ||
+    typeof body.requestId !== "string"
+  )
+    return c.json({ error: "Invalid coach question" }, 400);
+  return c.json(
+    await c.env.LEARNING_COACH.getByName(owner(c)).ask(
+      owner(c),
+      body.requestId,
+      body.text,
+    ),
+  );
+});
+app.post("/api/coach/clear", async (c) => {
+  await c.env.LEARNING_COACH.getByName(owner(c)).clear(owner(c));
+  return c.json({ ok: true });
+});
+app.post("/api/coach/resume", async (c) => {
+  let offset = 0;
+  for (let i = 0; i < 20; i++) {
+    const page = await library(c).list("", "all", offset);
+    for (const item of page.items) {
+      try {
+        await session(c, item.id).observe(owner(c));
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "Session not found")
+          throw error;
+      }
+    }
+    if (page.nextOffset === undefined) break;
+    offset = page.nextOffset;
+  }
+  await c.env.LEARNING_COACH.getByName(owner(c)).resume(owner(c));
+  return c.json({ ok: true });
+});
 app.get("/api/preferences", async (c) =>
   c.json(await library(c).preferences()),
 );
 /** Input: teaching text and recall boolean. Output: ok JSON.
- * What this function does: persists preferences; enabling recall does not retrain a model.
+ * What this function does: persists teaching preferences and retires note-based recall.
  */
 app.put("/api/preferences", async (c) => {
   const body = await json<{ text?: unknown; recall?: unknown }>(c, 20_000);
   if (
     typeof body?.text !== "string" ||
     body.text.length > 4000 ||
-    typeof body.recall !== "boolean"
+    (body.recall !== undefined && typeof body.recall !== "boolean")
   )
     return c.json({ error: "Invalid preferences" }, 400);
-  await library(c).setPreferences(body.text, body.recall);
+  await library(c).setPreferences(body.text, body.recall ?? false);
   return c.json({ ok: true });
 });
 /** Input: legacy namespace kind/object ID. Output: import status and counts.

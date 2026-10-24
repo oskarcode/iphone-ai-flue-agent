@@ -4,6 +4,7 @@ export { LearningArchive } from "./learning-archive.ts";
 export { LearningSession } from "./runtime/session.ts";
 export { LearningLibrary } from "./runtime/library.ts";
 export { LearningSkills } from "./runtime/skills.ts";
+export { LearningCoach } from "./runtime/coach.ts";
 // Dynamic worker-shell instances use this RPC bridge to the persistent Computer filesystem.
 export { WorkspaceServiceProxy } from "@cloudflare/computer";
 export {

@@ -10,10 +10,18 @@ An iPhone-first tutor that turns selected text, questions, web pages and GitHub 
 - Renders escaped Markdown, copyable code and scrollable tables on phones.
 - Shows a collapsible **Agent activity** panel for each turn: queued/running/completed status, tool activity, retries and context summarization. Recorded progress survives reloads; raw reasoning, tool payloads and provider errors are never sent to this panel. New classification events come only from Jev, including GitHub URLs and recap requests—there are no deterministic routing overrides or fallback classifications. If Jev fails or returns an invalid route, classified APIs return a retryable error without starting a session/answer. Previously saved routing labels remain intact. Normal workspace turns still go directly to Pi and explicitly say **Jev not used**; repository/visual handoffs retain a separate **Request routing** panel.
 - Keeps the workspace focused on conversation: no Sources & notes panel or Save note buttons. Only rename and pin/unpin live in the compact **⋯ Session options** menu; Delete stays in the header. Archive and session-export controls are removed. The Library includes all saved sessions, including previously archived ones, without changing their retained data.
-- Retains teaching preferences, source evidence and existing notes. Note APIs and exports remain compatible; requested cross-session recall uses eligible previously saved public notes, not model retraining.
+- Applies a saved learner profile tailored to a Python/FastAPI/Django developer learning TypeScript, Cloudflare developer products and agent harnesses. The obsolete note-recall checkbox and import control are removed; historical APIs and saved source evidence remain. Legacy recall requests are disabled.
 - Creates reviewable social-post drafts with an illustrative TypeScript mental model. Nothing publishes automatically.
 - Requires explicit server-side approval before GitHub issue creation or a branch-only file change.
 - Preserves existing Shortcut request paths, fields, service-token headers and response fields. See [Shortcut contracts](docs/shortcut-contracts.md).
+
+## Learning coach
+
+The **Learning coach** tab is an owner-scoped SQLite Durable Object, separate from normal sessions. Committed visible user/assistant messages are indexed idempotently by session and entry ID; a dirty projection and alarm replay interrupted cross-object updates. Opening the tab catches up retained sessions, including the existing pinned session. Private repository session content is withheld. Agent reasoning, tools and raw external outputs are not indexed.
+
+The dashboard shows observed questions and evidence links. Ask the coach for suggestions, corrections or a learning plan; it calls Workers AI **only when asked**, and retains its answer for follow-up. Suggested unanswered questions are hypotheses, not an assessment of mastery. The most recent 120 observations (and up to 60 public observations in model context) are shown/considered; older retained entries are not all passed to the model. No timer, autonomous follow-up, cross-session note recall or retraining is involved.
+
+**Clear coach & pause** removes coach observations/answers and stops collection; resuming baselines current entries, so old evidence is not silently rebuilt. Permanently deleting a session tombstones it in the coach and conservatively erases all coach answers that could mention it. Existing learning sessions, skills and historical migration data remain separate. The Settings tab now contains teaching preferences, skills and account controls—not manual import or the retired note-recall switch.
 
 ## Skills, Computer and Settings
 
@@ -57,7 +65,7 @@ The Library is a versioned projection, not a second authoritative transcript. De
 | React + Vite | Mobile workspace and bundled static assets |
 | Hono + Cloudflare Workers | HTTP compatibility boundary, authentication and asset delivery |
 | Pi Durable / Pi AI / Chord 1.2.0 | Durable conversation execution and background task coordination |
-| SQLite-backed Durable Objects | Canonical session state, rebuildable Library and shared Computer |
+| SQLite-backed Durable Objects | Canonical session state, rebuildable Library, shared Computer and owner-scoped learning coach |
 | Cloudflare Computer 0.5.1 + Worker Loader | Persistent skill files and approved worker-shell execution |
 | Workers KV | Ten-minute Shortcut delivery envelopes and retained legacy records |
 | Workers AI + AI Gateway | Tutor/visual inference, stateless grammar and Jev intent classification |
@@ -77,6 +85,7 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 | `src/runtime/session.ts` | Canonical Pi/application state, recovery, approvals and deletion |
 | `src/runtime/library.ts` | Search projection, preferences, note recall and tombstones |
 | `src/runtime/skills.ts`, `src/lib/skills.ts` | Computer filesystem, revision-checked skills, mutation receipts and starter skills |
+| `src/runtime/coach.ts`, `src/lib/coach.ts`, `src/client/coach.tsx` | Cross-session evidence projection and on-demand learning coach |
 | `src/client/settings.tsx`, `api.ts` | Settings, skill editor, Computer explorer/runner and authenticated API helper |
 | `src/runtime/harness.ts` | Models, teaching context and Pi tool adapters |
 | `src/runtime/activity.ts`, `src/client/turn-activity.tsx` | Sanitized persistent per-turn progress and collapsible UI |
@@ -97,6 +106,8 @@ All private interfaces require verified Access admission. The existing service-t
 | Interface | Input / result |
 |---|---|
 | `POST /v1/correct` | `{ "text": "She go yesterday." }` -> `{ "corrected_text": "She went yesterday." }` |
+| `GET /api/coach`, `POST /api/coach/questions` | Evidence-backed coach dashboard and on-demand teacher answers |
+| `POST /api/coach/clear`, `/api/coach/resume` | Clear/pause and resume observation without restoring erased history |
 | `GET /api/skills`, `/api/skills/:slug` | Shared command catalog and full skill instructions/revision |
 | `GET /api/computer`, `/api/computer/file?path=...` | Bounded Computer file listing and preview |
 | `POST /api/computer/actions` | Explicit skill/file/shell mutation with a stable `Idempotency-Key` |

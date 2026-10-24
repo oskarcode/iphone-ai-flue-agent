@@ -1,6 +1,7 @@
 // Cloudflare supplies isolated SQL storage; contracts describe the rebuildable directory records.
 import { DurableObject } from "cloudflare:workers";
 import type { DirectoryItem, Note } from "./contracts.ts";
+import { LEARNING_PREFERENCE } from "../lib/coach.ts";
 
 /** Rebuildable, owner-scoped index. Never the canonical conversation store. */
 export class LearningLibrary extends DurableObject<CloudflareBindings> {
@@ -103,7 +104,7 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
       this.ctx.storage.sql.exec("DELETE FROM sessions WHERE id=?", id);
     });
   }
-  /** Input: none. Output: preferences with recall disabled by default.
+  /** Input: none. Output: teaching preferences (recall remains disabled for legacy clients).
    * What this function does: reads the owner's one settings row.
    */
   preferences() {
@@ -113,49 +114,17 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
           text: string;
           recall: number;
         }>("SELECT text,recall FROM preferences WHERE id=1")
-        .toArray()[0] ?? { text: "", recall: 0 }
+        .toArray()[0] ?? { text: LEARNING_PREFERENCE, recall: 0 }
     );
   }
-  /** Input: teaching text and recall flag. Output: saved settings.
-   * What this function does: bounds text and stores the boolean as SQLite 0/1.
+  /** Input: teaching text and legacy recall flag. Output: saved settings.
+   * What this function does: bounds text and keeps historical recall disabled.
    */
-  setPreferences(text: string, recall: boolean) {
+  setPreferences(text: string, _recall: boolean) {
     this.ctx.storage.sql.exec(
       "INSERT INTO preferences VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET text=excluded.text,recall=excluded.recall",
       text.slice(0, 4000),
-      recall ? 1 : 0,
+      0,
     );
-  }
-  /** Input: question and current session ID. Output: at most five public saved-note matches.
-   * What this function does: requires opt-in, excludes current/private notes and uses literal keyword matching.
-   */
-  recall(query: string, excludeId: string) {
-    if (!this.preferences().recall) return [];
-    const words =
-      query
-        .toLowerCase()
-        .match(/[a-z0-9]{4,}/g)
-        ?.slice(0, 8) ?? [];
-    if (!words.length) return [];
-    const rows = this.ctx.storage.sql
-      .exec<{
-        session_id: string;
-        data: string;
-      }>(
-        "SELECT session_id,data FROM notes WHERE session_id<>? LIMIT 1000",
-        excludeId,
-      )
-      .toArray();
-    return rows
-      .map((row) => ({
-        sessionId: row.session_id,
-        note: JSON.parse(row.data) as Note,
-      }))
-      .filter(
-        (row) =>
-          !row.note.private &&
-          words.some((word) => row.note.text.toLowerCase().includes(word)),
-      )
-      .slice(0, 5);
   }
 }

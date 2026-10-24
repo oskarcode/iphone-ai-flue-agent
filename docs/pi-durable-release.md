@@ -1,8 +1,18 @@
 # Pi Durable release verification — 2026-10-23
 
-## Simplified session controls update
+## Learning coach and teaching preferences update
 
-- Current deployed version: `1a7ed1f6-932d-4c9d-b544-38841ba18933`.
+- Current deployed version: `c7500719-b37a-4285-8e4f-a08352de263a`.
+- Added an owner-scoped `LearningCoach` SQLite Durable Object in additive migration `v6-learning-coach`, without changing existing classes or migrations. Committed visible user/assistant entries are projected with stable IDs; no raw tool traces or private repository content is copied into the coach.
+- The Learning coach tab shows observed questions, session evidence links and an on-demand teacher Q&A for possible gaps, corrections, suggestions and plans. No autonomous model loop is scheduled. Coach answers are bounded and cached by request ID; asking is not treated as proof of mastery.
+- Session deletion tombstones coach evidence and erases all possibly derived coach answers. Clear & pause removes coach evidence/answers and baselines current entries before resuming, without deleting learning sessions or skills. A session becoming private redacts any earlier public projection.
+- Removed the manual Import previous sessions button and retired saved-note recall checkbox/tool. Historical migration routes and saved sources/notes remain; legacy preference writes can no longer enable note recall. The requested learner profile was saved to production: Python/FastAPI/Django familiarity, beginner TypeScript, Cloudflare developer products, agent harnesses and clear English.
+- **118 pure + 35 workerd + 11 serial mobile browser tests passed (164 total)**; typecheck/build, Wrangler dry-run and deploy passed. Dependency audit reported zero vulnerabilities. Local parallel browser tests exposed occasional AI-service interruptions; the serial suite passed.
+- Authenticated production checks confirmed a real lesson projection, coach answer and reload, simplified settings, mobile fit and no JavaScript errors. Disposable session deletion returned 204/404 and retracted its observations/derived answers; the pre-existing pinned session was preserved. Tests used an existing signed Access cookie, not a fresh login or physical Shortcut.
+
+## Simplified session controls update (historical)
+
+- Simplification release version: `1a7ed1f6-932d-4c9d-b544-38841ba18933`.
 - Removed Archive/Unarchive, the Archived sessions filter and the complete-session export link from the UI. Session options now contain Rename and Pin/Unpin; Delete remains in the header.
 - The UI requests `archived=all`, so previously archived sessions remain visible and searchable without altering their data. Existing archive filters and export APIs remain compatible.
 - **117 pure + 32 workerd + 10 mobile browser tests passed (159 total)**, including mixed-archive pagination, literal search and historical-session visibility. Typecheck and production build passed.

@@ -140,7 +140,6 @@ describe("migration and action boundaries", () => {
       update: async () => {},
       source: async () => {},
       preferences: async () => "",
-      recall: async () => [],
       savedSource: () => [],
       actions: () => [],
       proposal: async (id, tool, args) => {
@@ -205,7 +204,7 @@ describe("migration and action boundaries", () => {
       await harness.close(context);
     }
   });
-  it("cross-session recall is opt-in and excludes private notes", async () => {
+  it("retired cross-session note recall cannot be re-enabled through legacy settings", async () => {
     const owner = crypto.randomUUID();
     const library = bindings.LEARNING_LIBRARY.getByName(owner);
     const now = new Date().toISOString();
@@ -236,10 +235,8 @@ describe("migration and action boundaries", () => {
         ],
       );
     }
-    expect(await library.recall("quasar", "other-session")).toEqual([]);
     await library.setPreferences("Explain simply", true);
-    const results = await library.recall("quasar", "other-session");
-    expect(results).toHaveLength(1);
-    expect(results[0].note.private).toBe(false);
+    expect(await library.preferences()).toEqual({ text: "Explain simply", recall: 0 });
+    expect((await library.list('quasar', 'all')).items).toHaveLength(2);
   });
 });

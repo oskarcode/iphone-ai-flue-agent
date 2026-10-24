@@ -10,7 +10,6 @@ const blank = (): Skill => ({
 });
 type Props = {
   preferences(): void;
-  importPrevious(): Promise<void>;
   clearDrafts(): void;
   signOut(): void;
   createWithAgent(): void;
@@ -76,9 +75,6 @@ export function Settings(props: Props) {
       <section className="settings-card">
         <h2>Learning</h2>
         <button onClick={props.preferences}>Learning preferences</button>
-        <button disabled={busy} onClick={() => void run(props.importPrevious)}>
-          Import previous sessions
-        </button>
       </section>
       <section className="settings-card">
         <h2>Skills</h2>
