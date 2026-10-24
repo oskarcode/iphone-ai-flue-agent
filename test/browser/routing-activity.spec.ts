@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 /** Input: a session snapshot with one classified turn and a routing-only handoff. Output: visible, collapsible decisions.
  * What this function does: checks closed summaries, replay on reload and phone-width layout without running models.
  */
-test("shows Jev decisions and bypass provenance in activity summaries", async ({
+test("shows Jev decisions alongside historical bypass labels", async ({
   page,
   request,
 }) => {

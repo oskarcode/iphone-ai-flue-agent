@@ -3,7 +3,6 @@ import {
   gatewayMetadata,
   type GatewayCallerMetadata,
 } from "../lib/gateway-metadata.ts";
-import { LEARNING_RECAP_PROMPT } from "../lib/chat-presets.ts";
 
 export type JevRoute =
   | "direct_answer"
@@ -12,31 +11,26 @@ export type JevRoute =
   | "visual_explanation"
   | "clarification";
 
-/** The selected route plus its actual origin; deterministic bypasses are not Jev model decisions. */
-export type RoutingDecision = {
-  route: JevRoute;
-  source: "jev" | "github_rule" | "recap_rule" | "fallback";
-};
+/** Every newly classified request uses Jev; legacy origins remain readable in saved activity. */
+type JevDecision = { route: JevRoute; source: "jev" };
+export type RoutingDecision =
+  | JevDecision
+  | {
+      route: JevRoute;
+      source: "github_rule" | "recap_rule" | "fallback";
+    };
 
-/** Input: current request and optional classifier implementation. Output: route with truthful provenance.
- * What this function does: preserves deterministic shortcuts and records classifier failures as fallback, not model choices.
+/** Input: current request and optional classifier implementation. Output: Jev's validated route.
+ * What this function does: always calls Jev, including GitHub URLs and recaps; failures propagate without choosing a substitute route.
  */
 export async function classifyRequest(
   prompt: string,
   classifier = classifyWithJev,
-): Promise<RoutingDecision> {
-  if (prompt === LEARNING_RECAP_PROMPT)
-    return { route: "direct_answer", source: "recap_rule" };
-  if (/https:\/\/github\.com\/[\w.-]+\/[\w.-]+/i.test(prompt))
-    return { route: "github_learning", source: "github_rule" };
-  try {
-    return {
-      route: await classifier(prompt, new AbortController().signal),
-      source: "jev",
-    };
-  } catch {
-    return { route: "direct_answer", source: "fallback" };
-  }
+): Promise<JevDecision> {
+  return {
+    route: await classifier(prompt, new AbortController().signal),
+    source: "jev",
+  };
 }
 
 /** Input: routing result, or absent for a direct Pi submission. Output: an allowlisted UI event label.
@@ -54,6 +48,7 @@ export function routingLabel(decision?: RoutingDecision): string {
   if (!Object.hasOwn(labels, decision.route))
     throw new Error("Invalid routing decision");
   const route = `${labels[decision.route]} (${decision.route})`;
+  // Legacy cases only render retained history; they never classify new requests.
   switch (decision.source) {
     case "jev":
       return `Jev decision → ${route}`;
@@ -78,7 +73,7 @@ const QUESTIONS = {
       "Choose the single best execution path for this iPhone assistant request.",
     criteria: {
       direct_answer:
-        "Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from existing Flue context. Do not choose this when the request contains a github.com owner/repository URL.",
+        "Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from provided conversation context. Do not choose this when the request contains a github.com owner/repository URL.",
       web_research:
         "The request contains a non-GitHub URL to read or needs current, recent, live, broader web context, or external verification. Do not choose this for a github.com owner/repository URL.",
       github_learning:
@@ -86,7 +81,7 @@ const QUESTIONS = {
       visual_explanation:
         "The user explicitly asks for a visual, diagram, anatomy, interactive explainer, picture, SVG, visual guide, or visual teaching page for a technical concept. Do not choose this for GitHub repository URLs; github_learning takes priority.",
       clarification:
-        "The request is too ambiguous to answer safely or usefully, and it is not a conversational follow-up with available Flue history.",
+        "The request is too ambiguous to answer safely or usefully, and it is not a conversational follow-up with available conversation history.",
     },
   },
 } as const;
@@ -126,13 +121,14 @@ export function parseJevRoute(value: unknown): JevRoute {
   const route =
     answers && isRecord(answers.route) ? answers.route.choice : undefined;
   if (
+    typeof route !== "string" ||
     ![
       "direct_answer",
       "web_research",
       "github_learning",
       "visual_explanation",
       "clarification",
-    ].includes(String(route))
+    ].includes(route)
   ) {
     throw new Error("Jev returned an invalid route.");
   }

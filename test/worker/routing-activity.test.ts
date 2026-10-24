@@ -13,11 +13,54 @@ import type { SubmissionId } from "@earendil-works/pi-durable";
 
 afterEach(() => vi.restoreAllMocks());
 
-/** Input: a repository Shortcut request. Output: unchanged 202 handoff plus its persisted rule decision.
+/** Input: an unavailable classifier on each classified API. Output: redacted failure before session/model work.
+ * What this function does: proves failures never silently select direct answering or a repository handoff.
+ */
+it.each(["/v1/ask", "/chat/api", "/chat/stream"])(
+  "fails safely without fallback at %s",
+  async (path) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const classify = vi
+      .spyOn(routing, "classifyRequest")
+      .mockRejectedValue(new Error("PRIVATE-PROVIDER-ERROR"));
+    const getByName = vi.fn(() => {
+      throw new Error("Unexpected session access");
+    });
+    const bindings = {
+      ...env,
+      DEV_AUTH: "local",
+      LEARNING_SESSIONS: { getByName },
+    } as unknown as CloudflareBindings;
+    const text = "https://github.com/example/repo";
+    const response = await app.fetch(
+      new Request(`http://localhost${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          path === "/v1/ask"
+            ? { text }
+            : {
+                conversation_id: "routing-session",
+                messages: [{ role: "user", content: text }],
+              },
+        ),
+      }),
+      bindings,
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: "Request failed. Please retry.",
+    });
+    expect(classify).toHaveBeenCalledExactlyOnceWith(text);
+    expect(getByName).not.toHaveBeenCalled();
+  },
+);
+
+/** Input: a repository Shortcut request. Output: unchanged 202 handoff plus its persisted Jev decision.
  * What this function does: covers routing paths that return a URL without submitting an answer turn.
  */
 it("records routing before returning a repository Shortcut handoff", async () => {
-  const decision = { route: "github_learning", source: "github_rule" } as const;
+  const decision = { route: "github_learning", source: "jev" } as const;
   vi.spyOn(routing, "classifyRequest").mockResolvedValue(decision);
   const recordRouting = vi.fn(async () => {});
   const stub = {
@@ -90,7 +133,7 @@ it("retains classified handoff decisions without generating an answer", async ()
   });
   await stub.recordRouting("personal", "routing-request", {
     route: "direct_answer",
-    source: "fallback",
+    source: "jev",
   });
   await evictDurableObject(stub);
   const snap = (await (
@@ -133,7 +176,7 @@ it("keeps routing attached to the right turn and preserves it through truncation
   await runInDurableObject(stub, (_instance, state) => {
     const journal = new ActivityJournal(state.storage.sql);
     journal.routing("1", { route: "web_research", source: "jev" });
-    journal.routing("1", { route: "direct_answer", source: "fallback" });
+    journal.routing("1", { route: "direct_answer", source: "jev" });
     journal.routing("2");
     journal.record([{ type: "run_start", inputs: [1 as SubmissionId] }]);
     for (let i = 0; i < 100; i++)
