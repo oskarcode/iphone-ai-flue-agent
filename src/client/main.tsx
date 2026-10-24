@@ -97,7 +97,6 @@ function App() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot>();
   const [items, setItems] = useState<DirectoryItem[]>([]);
   const [query, setQuery] = useState("");
-  const [archived, setArchived] = useState(false);
   const [offset, setOffset] = useState<number>();
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
@@ -131,7 +130,7 @@ function App() {
   async function loadLibrary(append = false, next = 0) {
     try {
       const page = await api<{ items: DirectoryItem[]; nextOffset?: number }>(
-        `/api/sessions?q=${encodeURIComponent(query)}&archived=${archived}&offset=${next}`,
+        `/api/sessions?q=${encodeURIComponent(query)}&archived=all&offset=${next}`,
       );
       setItems((old) => (append ? [...old, ...page.items] : page.items));
       setOffset(page.nextOffset);
@@ -218,7 +217,7 @@ function App() {
   useEffect(() => {
     const timer = setTimeout(() => void loadLibrary(), 200);
     return () => clearTimeout(timer);
-  }, [query, archived]);
+  }, [query]);
   /** Input: browser history events. Output: restored selected session.
    * What this function does: installs/removes the popstate listener.
    */
@@ -419,7 +418,7 @@ function App() {
       if (work) void deliver(work);
     }
   }, []);
-  /** Input: title/pin/archive patch. Output: refreshed snapshot and Library.
+  /** Input: title/pin patch. Output: refreshed snapshot and Library.
    * What this function does: leaves field validation and persistence to the Worker/session.
    */
   async function mutate(patch: unknown) {
@@ -543,14 +542,6 @@ function App() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <label className="muted">
-          <input
-            type="checkbox"
-            checked={archived}
-            onChange={(e) => setArchived(e.target.checked)}
-          />{" "}
-          Archived sessions
-        </label>
         <nav>
           {items.map((item) => (
             <button
@@ -699,17 +690,6 @@ function App() {
                     >
                       {snapshot.metadata.pinned ? "Unpin" : "Pin"}
                     </button>
-                    <button
-                      disabled={deleting}
-                      onClick={() =>
-                        void mutate({ archived: !snapshot.metadata.archived })
-                      }
-                    >
-                      {snapshot.metadata.archived ? "Unarchive" : "Archive"}
-                    </button>
-                    <a href={`/api/sessions/${id}/export`}>
-                      Export complete session
-                    </a>
                   </div>
                 </details>
               )}

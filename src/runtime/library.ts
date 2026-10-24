@@ -62,10 +62,11 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
   }
   /** Input: literal query, archive filter and offset. Output: up to 50 directory items.
    * What this function does: escapes LIKE wildcards, sorts pinned/recent entries and detects a next page.
+   * The simplified UI requests all sessions; boolean filters remain for compatibility clients.
    */
   list(
     query = "",
-    archived = false,
+    archived: boolean | "all" = false,
     offset = 0,
   ): { items: DirectoryItem[]; nextOffset?: number } {
     // Literal LIKE escaping: user input is never an FTS expression or SQL fragment.
@@ -73,10 +74,11 @@ export class LearningLibrary extends DurableObject<CloudflareBindings> {
     const rows = this.ctx.storage.sql
       .exec<{ metadata: string }>(
         `SELECT metadata FROM sessions WHERE (search_text LIKE ? ESCAPE '\\' OR json_extract(metadata,'$.title') LIKE ? ESCAPE '\\')
-       AND json_extract(metadata,'$.archived')=? ORDER BY json_extract(metadata,'$.pinned') DESC, json_extract(metadata,'$.updatedAt') DESC LIMIT 51 OFFSET ?`,
+       AND (?=1 OR json_extract(metadata,'$.archived')=?) ORDER BY json_extract(metadata,'$.pinned') DESC, json_extract(metadata,'$.updatedAt') DESC LIMIT 51 OFFSET ?`,
         term,
         term,
-        archived ? 1 : 0,
+        archived === "all" ? 1 : 0,
+        archived === true ? 1 : 0,
         Math.max(0, offset),
       )
       .toArray();

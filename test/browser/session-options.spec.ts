@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 /** Input: a saved workspace. Output: compact controls without source/note management.
- * What this function does: checks rename, pin, archive, export, keyboard dismissal and retained evidence on mobile.
+ * What this function does: checks rename, pin, keyboard dismissal and retained evidence, without archive/export controls.
  */
 test("compact session options preserve administration and saved evidence", async ({
   page,
@@ -56,26 +56,20 @@ test("compact session options preserve administration and saved evidence", async
     await expect(
       menu.getByRole("button", { name: "Unpin", exact: true }),
     ).toBeVisible();
-    await menu.getByRole("button", { name: "Archive", exact: true }).click();
-    await toggle.click();
     await expect(
-      menu.getByRole("button", { name: "Unarchive", exact: true }),
-    ).toBeVisible();
+      menu.getByRole("button", { name: /^(Archive|Unarchive)$/ }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("checkbox", { name: "Archived sessions" }),
+    ).toHaveCount(0);
+    await expect(
+      menu.getByRole("link", { name: "Export complete session" }),
+    ).toHaveCount(0);
     await page.reload();
     await page.locator(".session-menu > summary").click();
     await expect(
       menu.getByRole("button", { name: "Unpin", exact: true }),
     ).toBeVisible();
-    await menu.getByRole("button", { name: "Unarchive", exact: true }).click();
-    await toggle.click();
-    await expect(
-      menu.getByRole("button", { name: "Archive", exact: true }),
-    ).toBeVisible();
-    const link = menu.getByRole("link", { name: "Export complete session" });
-    await expect(link).toHaveAttribute("href", `/api/sessions/${id}/export`);
-    expect((await request.get(`/api/sessions/${id}/export`)).status()).toBe(
-      200,
-    );
     const after = await (await request.get(`/api/sessions/${id}`)).json();
     expect(after.sources).toEqual(before.sources);
     expect(after.notes).toEqual(before.notes);

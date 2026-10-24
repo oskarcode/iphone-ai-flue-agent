@@ -499,8 +499,7 @@ blockquote {
   border-radius: 10px;
   box-shadow: 0 8px 30px #0002;
 }
-.session-menu-panel > button,
-.session-menu-panel > a {
+.session-menu-panel > button {
   display: block;
   width: 100%;
   min-height: 44px;

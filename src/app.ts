@@ -690,7 +690,9 @@ app.get("/api/sessions", (c) =>
   library(c)
     .list(
       c.req.query("q") ?? "",
-      c.req.query("archived") === "true",
+      c.req.query("archived") === "all"
+        ? "all"
+        : c.req.query("archived") === "true",
       Number(c.req.query("offset") ?? 0),
     )
     .then((result) => c.json(result)),

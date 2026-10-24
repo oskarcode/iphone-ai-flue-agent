@@ -1,8 +1,17 @@
 # Pi Durable release verification — 2026-10-23
 
-## Shared skills, Computer and Settings update
+## Simplified session controls update
 
-- Current deployed version: `b92935fc-70e6-44ea-97c2-75e89e853d50`.
+- Current deployed version: `1a7ed1f6-932d-4c9d-b544-38841ba18933`.
+- Removed Archive/Unarchive, the Archived sessions filter and the complete-session export link from the UI. Session options now contain Rename and Pin/Unpin; Delete remains in the header.
+- The UI requests `archived=all`, so previously archived sessions remain visible and searchable without altering their data. Existing archive filters and export APIs remain compatible.
+- **117 pure + 32 workerd + 10 mobile browser tests passed (159 total)**, including mixed-archive pagination, literal search and historical-session visibility. Typecheck and production build passed.
+- Production mobile checks confirmed simplified controls, access to an archived fixture through the unified Library, preserved source data and no page errors/overflow. The disposable fixture was deleted (204/404); existing sessions and pin states were unchanged.
+- Checks used a cached signed cookie on a session URL. The edge-protected `/chat` entry redirected that cached client to Access; fresh login and physical-device execution were not tested.
+
+## Shared skills, Computer and Settings update (historical)
+
+- Skills release version: `b92935fc-70e6-44ea-97c2-75e89e853d50`.
 - Cloudflare Computer `0.5.1` (preview) stores shared skill files in a new SQLite-backed `LearningSkills` object. Migration `v5-learning-computer` is additive; earlier migrations and historical class identities are unchanged.
 - Nine editable starter skills replace hardcoded prompt chips. New commands appear after approved creation; selecting one preserves the user's question and does not automatically send it. Skills survive deletion of individual conversations.
 - Agent tools can list/read skills, propose creation/update/removal, inspect files and propose file changes or execution. Exact approval gates mutations. Revision checks reject stale edits; persistent operation receipts prevent duplicate execution and mark interruptions uncertain.
