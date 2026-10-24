@@ -51,6 +51,22 @@ it("persists skills, enforces revision checks, deduplicates edits and does not r
   });
   await evictDurableObject(stub);
   expect(await stub.get("personal", "explain-simply")).toBeNull();
+  const tracker = await stub.get("personal", "feature-bug-tracker");
+  expect(tracker?.markdown).toContain("/workspace/feature-bug-tracker.md");
+  await stub.apply("personal", "delete-tracker-test", "skill.delete", {
+    slug: tracker!.slug,
+    expectedRevision: tracker!.revision,
+  });
+  await evictDurableObject(stub);
+  expect(await stub.get("personal", "feature-bug-tracker")).toBeNull();
+  const coach = await stub.get("personal", "learning-coach");
+  expect(coach?.markdown).toContain("run_learning_coach");
+  await stub.apply("personal", "delete-coach-test", "skill.delete", {
+    slug: coach!.slug,
+    expectedRevision: coach!.revision,
+  });
+  await evictDurableObject(stub);
+  expect(await stub.get("personal", "learning-coach")).toBeNull();
   expect(
     (await stub.tree("personal")).some((entry) =>
       entry.path.endsWith("/test-skill/SKILL.md"),
@@ -95,6 +111,53 @@ it("runs real worker-shell commands and never executes a completed operation twi
   expect(
     (await stub.read("personal", "/workspace/proof.txt")).content.trim(),
   ).toBe("initial\nhello");
+});
+it("seeds the tracker and coach into existing Computers only once, leaving existing skills untouched", async () => {
+  const stub = computer();
+  await runInDurableObject(stub, async (instance) => {
+    await instance.storage().put("skills:seeded:v1", true);
+  });
+  expect((await stub.list("personal")).map((s) => s.slug)).toEqual([
+    "feature-bug-tracker",
+    "learning-coach",
+  ]);
+  await evictDurableObject(stub);
+  expect((await stub.list("personal")).map((s) => s.slug)).toEqual([
+    "feature-bug-tracker",
+    "learning-coach",
+  ]);
+});
+it("saves tracker entries with approved compare-and-swap writes without losing prior notes", async () => {
+  const stub = computer();
+  const path = "/workspace/feature-bug-tracker.md";
+  await stub.apply("personal", "tracker-create", "computer.write", {
+    path,
+    content: "# Tracker\n\nFB-0001 Feature | Inbox | Search\n",
+    expectedRevision: "",
+  });
+  const original = await stub.read("personal", path);
+  expect(original.revision).toMatch(/^[a-f0-9]{64}$/);
+  await stub.apply("personal", "tracker-update", "computer.write", {
+    path,
+    content: original.content + "FB-0002 Bug | Inbox | Login\n",
+    expectedRevision: original.revision,
+  });
+  const staleRejected = await runInDurableObject(stub, async (instance) => {
+    try {
+      await instance.apply("personal", "tracker-stale", "computer.write", {
+        path,
+        content: "# Tracker\n",
+        expectedRevision: original.revision,
+      });
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  expect(staleRejected).toBe(true);
+  await evictDurableObject(stub);
+  expect((await stub.read("personal", path)).content).toContain("FB-0001");
+  expect((await stub.read("personal", path)).content).toContain("FB-0002");
 });
 it("protects HTTP skill actions with existing auth, origin and argument validation", async () => {
   const call = (path: string, body?: unknown, origin?: string) =>

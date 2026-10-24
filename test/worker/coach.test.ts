@@ -103,8 +103,13 @@ it("projects actual committed visible input, retracts it on session deletion, ne
         createdAt: "now",
       },
     ]);
-    await session.observe("personal");
     const coach = bindings.LEARNING_COACH.getByName("personal");
+    expect(
+      (await coach.view("personal")).observations.some(
+        (o) => o.sessionId === id,
+      ),
+    ).toBe(false);
+    await session.observe("personal");
     const view = await coach.view("personal");
     expect(
       view.observations.filter((o) => o.sessionId === id).map((o) => o.text),

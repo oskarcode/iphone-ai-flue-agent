@@ -7,6 +7,10 @@ import { routingLabel, type RoutingDecision } from "../tools/jev-router.ts";
 const TOOL_LABELS: Record<string, string> = {
   list_skills: "Listing saved skills",
   read_skill: "Reading a saved skill",
+  run_learning_coach: "Reviewing learning across sessions",
+  list_learning_sessions: "Finding learning sessions",
+  read_learning_session: "Reading committed lesson entries",
+  read_learning_message: "Reading a lesson excerpt",
   save_skill: "Preparing a skill change for approval",
   delete_skill: "Preparing skill removal for approval",
   computer_files: "Inspecting Computer files",

@@ -1,8 +1,17 @@
 # Pi Durable release verification — 2026-10-23
 
-## Learning coach and teaching preferences update
+## Skill-based learning coach and feature/bug tracker update
 
-- Current deployed version: `c7500719-b37a-4285-8e4f-a08352de263a`.
+- Current deployed version: `480a6816-39d4-409d-923f-4347990466ea` for Worker `iphone-ai-flue-agent` at `iphoneai.oskarcode.com`. No new Durable Object class or migration was added; the existing bindings, routes, Access protection and Shortcut contracts remain intact.
+- Replaced the Learning coach tab with `/learning-coach` in any session. An idempotent task-owned Pi Durable child gets only read-only owner-scoped Library/session RPC tools, including explicit reads of private sessions and bounded message chunks. Root sessions receive the tool allowlist on reopen; deleted sessions are inaccessible. Ordinary turns no longer automatically project evidence into the legacy coach DO, whose authenticated endpoints and old data remain for compatibility.
+- The coach distinguishes observations from inference and cites session/message evidence. As explicitly agreed, an answer in one session remains there if a different cited source session is later deleted; no cross-session answer is retroactively removed.
+- Added `/feature-bug-tracker` with an approval-protected shared Markdown ledger, stable issue IDs, revision-checked writes, review and status updates. One-time per-skill seeding offers both commands to existing Computers without re-creating either after deletion or overwriting edits.
+- **118 pure + 38 workerd + 11 serial mobile browser tests passed (167 total)**; typecheck/build, Wrangler dry-run/deploy and dependency audit passed (zero vulnerabilities). The local browser suite tested real cross-session subagent retrieval and citations.
+- Authenticated production checks confirmed both skill commands, a cited cross-session answer, persistence after reload, simplified mobile navigation, unchanged teaching preferences and zero JavaScript errors. Both disposable sessions were deleted (204/404); the exact pre-existing session inventory, including the one pinned session, remained unchanged. Tests used a cached signed Access cookie; fresh login, physical iPhone/Shortcut and external GitHub writes remain untested.
+
+## Learning coach and teaching preferences update (historical)
+
+- Coach-tab release version: `c7500719-b37a-4285-8e4f-a08352de263a`.
 - Added an owner-scoped `LearningCoach` SQLite Durable Object in additive migration `v6-learning-coach`, without changing existing classes or migrations. Committed visible user/assistant entries are projected with stable IDs; no raw tool traces or private repository content is copied into the coach.
 - The Learning coach tab shows observed questions, session evidence links and an on-demand teacher Q&A for possible gaps, corrections, suggestions and plans. No autonomous model loop is scheduled. Coach answers are bounded and cached by request ID; asking is not treated as proof of mastery.
 - Session deletion tombstones coach evidence and erases all possibly derived coach answers. Clear & pause removes coach evidence/answers and baselines current entries before resuming, without deleting learning sessions or skills. A session becoming private redacts any earlier public projection.

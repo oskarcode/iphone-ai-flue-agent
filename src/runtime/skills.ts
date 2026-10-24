@@ -98,6 +98,35 @@ export class LearningSkills extends Base {
       }
       this.initialized = true;
     }
+    // Introduce this one new default to existing Computers exactly once. Never re-create
+    // a skill the owner removed after it was offered.
+    if (!(await this.ctx.storage.get("skills:seeded:feature-bug-tracker:v2"))) {
+      const tracker = DEFAULT_SKILLS.find(
+        (skill) => skill.slug === "feature-bug-tracker",
+      )!;
+      const dir = `/workspace/skills/${tracker.slug}`;
+      await ws.fs.mkdir(dir, { recursive: true });
+      try {
+        await ws.fs.stat(`${dir}/SKILL.md`);
+      } catch {
+        await ws.fs.writeFile(`${dir}/SKILL.md`, skillFile(tracker));
+      }
+      await this.ctx.storage.put("skills:seeded:feature-bug-tracker:v2", true);
+    }
+    // Offer the coach command to already initialized Computers without overwriting edits.
+    if (!(await this.ctx.storage.get("skills:seeded:learning-coach:v3"))) {
+      const coach = DEFAULT_SKILLS.find(
+        (skill) => skill.slug === "learning-coach",
+      )!;
+      const dir = `/workspace/skills/${coach.slug}`;
+      await ws.fs.mkdir(dir, { recursive: true });
+      try {
+        await ws.fs.stat(`${dir}/SKILL.md`);
+      } catch {
+        await ws.fs.writeFile(`${dir}/SKILL.md`, skillFile(coach));
+      }
+      await this.ctx.storage.put("skills:seeded:learning-coach:v3", true);
+    }
     return ws;
   }
   private async readSkill(slug: string): Promise<Skill | null> {
@@ -172,7 +201,8 @@ export class LearningSkills extends Base {
       const stat = await ws.fs.stat(path);
       if (stat.size > 128000)
         throw new ComputerInputError("File is too large to preview.");
-      return { path, content: await ws.fs.readFile(path, "utf8") };
+      const content = await ws.fs.readFile(path, "utf8");
+      return { path, content, revision: await sha256(content) };
     });
   }
   async apply(
@@ -242,6 +272,23 @@ export class LearningSkills extends Base {
           result = { deleted: args.slug };
         } else if (tool === "computer.write") {
           const path = computerPath(args.path);
+          if (args.expectedRevision !== undefined) {
+            let revision = "";
+            try {
+              revision = await sha256(await ws.fs.readFile(path, "utf8"));
+            } catch (error) {
+              // Only a missing file is an empty revision. Do not mask I/O errors.
+              if (
+                !(error instanceof Error) ||
+                !/not found|no such file|enoent/i.test(error.message)
+              )
+                throw error;
+            }
+            if (revision !== args.expectedRevision)
+              throw new ComputerInputError(
+                "File changed. Read it again before proposing an update.",
+              );
+          }
           await ws.fs.mkdir(path.slice(0, path.lastIndexOf("/")), {
             recursive: true,
           });

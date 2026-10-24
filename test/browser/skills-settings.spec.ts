@@ -16,6 +16,16 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
       page.getByRole("button", { name: "/explain-simply", exact: true }),
     ).toBeVisible();
     await expect(
+      page.getByRole("button", { name: "/feature-bug-tracker", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "/learning-coach", exact: true }),
+    ).toBeVisible();
+    expect(
+      (await (await request.get("/api/skills/feature-bug-tracker")).json())
+        .markdown,
+    ).toContain("/workspace/feature-bug-tracker.md");
+    await expect(
       page.getByRole("button", { name: "Import previous sessions" }),
     ).toHaveCount(0);
     await page.getByLabel("Question").fill("Explain closures");

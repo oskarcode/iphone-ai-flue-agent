@@ -284,6 +284,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
           return proposal;
         },
         preferences: async () => (await this.library().preferences()).text,
+        coachHistory: (owner, cursor) => this.coachHistory(owner, cursor),
+        coachMessage: (owner, entryId, offset) =>
+          this.coachMessage(owner, entryId, offset),
         actions: () =>
           this.rows<Approval>("learning_approvals").map(
             ({ id, tool, status, result, createdAt }) => ({
@@ -314,6 +317,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       if (!(await this.ctx.storage.get("learning:tools:no-note-recall:v2"))) {
         await root.configure({ tools: options.learningTools }, background);
         await this.ctx.storage.put("learning:tools:no-note-recall:v2", true);
+      }
+      if (!(await this.ctx.storage.get("learning:tools:coach-subagent:v3"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:tools:coach-subagent:v3", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -408,7 +415,8 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       text,
       notes,
     );
-    if (!(await this.observe(metadata.owner))) return;
+    // The skill reads canonical sessions on demand. Only legacy /api/coach
+    // clients explicitly request the old projection; ordinary turns no longer copy evidence.
     this.ctx.storage.sql.exec(
       "UPDATE learning_state SET dirty=0 WHERE revision=?",
       row.revision,
@@ -680,6 +688,65 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       nextCursor: page.next ? JSON.stringify(page.next) : undefined,
     };
     return Response.json(snapshot);
+  }
+  /** Input: owner and opaque cursor. Output: one committed entry per page, never tools or live partials.
+   * The small page and message chunk operation avoid silently skipping long histories.
+   */
+  async coachHistory(owner: string, cursor?: string) {
+    const metadata = this.authorize(owner);
+    if (cursor && cursor.length > 2000)
+      throw new Error("Invalid history cursor");
+    const root = await (await this.open()).root(background);
+    const page = await root.entries(
+      { order: "descending" },
+      1,
+      cursor ? (JSON.parse(cursor) as Cursor) : undefined,
+      background,
+    );
+    return {
+      sessionId: metadata.id,
+      title: metadata.title,
+      private: metadata.private,
+      messages: page.items.flatMap((entry) => {
+        const message = entryMessage(entry);
+        return message
+          ? [
+              {
+                ...message,
+                content: message.content.slice(0, 6000),
+                totalCharacters: message.content.length,
+              },
+            ]
+          : [];
+      }),
+      nextCursor: page.next ? JSON.stringify(page.next) : undefined,
+    };
+  }
+  /** Input: owner, exact committed entry and character offset. Output: requested visible text chunk. */
+  async coachMessage(owner: string, entryId: string, offset = 0) {
+    const metadata = this.authorize(owner);
+    if (
+      !/^[1-9]\d{0,15}$/.test(entryId) ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      offset > 500_000
+    )
+      throw new Error("Invalid coach message request");
+    const harness = await this.open();
+    const root = await harness.root(background);
+    const entry = await harness.commit(
+      (tx) => tx.entry(Number(entryId) as EntryId),
+      background,
+    );
+    const message = entry?.conversationId === root.id && entryMessage(entry);
+    if (!message) throw new Error("Message not found");
+    return {
+      sessionId: metadata.id,
+      ...message,
+      content: message.content.slice(offset, offset + 8000),
+      offset,
+      totalCharacters: message.content.length,
+    };
   }
   /** Input: owner. Output: authorized metadata.
    * What this function does: exposes metadata without opening conversation history.

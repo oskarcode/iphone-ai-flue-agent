@@ -37,6 +37,20 @@ describe("Computer boundaries", () => {
     ).not.toThrow();
     expect(() => computerAction("skill.delete", { slug: "test" })).toThrow();
     expect(() => computerAction("computer.run", { command: "" })).toThrow();
+    expect(() =>
+      computerAction("computer.write", {
+        path: "/workspace/feature-bug-tracker.md",
+        content: "New idea",
+        expectedRevision: "",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      computerAction("computer.write", {
+        path: "/workspace/feature-bug-tracker.md",
+        content: "New idea",
+        expectedRevision: "not-a-hash",
+      }),
+    ).toThrow();
     expect(() => computerAction("unknown", {})).toThrow();
   });
   it("bounds UTF-8 rather than just characters", () =>
@@ -54,6 +68,13 @@ describe("Computer boundaries", () => {
       expect(() =>
         computerAction("skill.save", { ...skill, expectedRevision: "" }),
       ).not.toThrow();
+    expect(
+      DEFAULT_SKILLS.find((skill) => skill.slug === "feature-bug-tracker")
+        ?.markdown,
+    ).toContain("write_computer_file");
+    expect(
+      DEFAULT_SKILLS.find((skill) => skill.slug === "learning-coach")?.markdown,
+    ).toContain("run_learning_coach");
     expect(skillFile(DEFAULT_SKILLS.at(-1)!)).toContain(
       "Do not include private repository",
     );

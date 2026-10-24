@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import { renderTutorMarkdown } from "../lib/tutor-markdown.ts";
 import { TurnActivityPanel } from "./turn-activity.tsx";
 import { Settings } from "./settings.tsx";
-import { Coach } from "./coach.tsx";
 import { api, post } from "./api.ts";
 import type { SkillSummary } from "../lib/skills.ts";
 import type {
@@ -101,7 +100,6 @@ function App() {
   const [offset, setOffset] = useState<number>();
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
-  const [coach, setCoach] = useState(false);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [skillError, setSkillError] = useState("");
   const [draft, setDraft] = useState(
@@ -167,7 +165,6 @@ function App() {
    */
   function select(next: string, retainDraft = true) {
     setSettings(false);
-    setCoach(false);
     if (retainDraft) store(PREFIX + "draft:" + id, draft);
     active.current = next;
     setId(next);
@@ -541,30 +538,18 @@ function App() {
         )}
         <footer>
           <button
-            aria-current={!settings && !coach ? "page" : undefined}
+            aria-current={!settings ? "page" : undefined}
             onClick={() => {
               setSettings(false);
-              setCoach(false);
               setDrawer(false);
             }}
           >
             Chat
           </button>
           <button
-            aria-current={coach ? "page" : undefined}
-            onClick={() => {
-              setCoach(true);
-              setSettings(false);
-              setDrawer(false);
-            }}
-          >
-            Learning coach
-          </button>
-          <button
             aria-current={settings ? "page" : undefined}
             onClick={() => {
               setSettings(true);
-              setCoach(false);
               setDrawer(false);
             }}
           >
@@ -572,15 +557,6 @@ function App() {
           </button>
         </footer>
       </aside>
-      {coach && (
-        <main className="coach-page">
-          <header>
-            <button onClick={() => setCoach(false)}>Back to chat</button>
-            <h1>Learning coach</h1>
-          </header>
-          <Coach />
-        </main>
-      )}
       {settings && (
         <main className="settings-page">
           <header>
@@ -613,7 +589,7 @@ function App() {
           />
         </main>
       )}
-      <main hidden={settings || coach}>
+      <main hidden={settings}>
         <header>
           <button
             className="mobile"

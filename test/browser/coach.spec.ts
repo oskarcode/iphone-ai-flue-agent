@@ -1,83 +1,71 @@
 import { test, expect } from "@playwright/test";
 
-test("coach observes a lesson, answers on request, retracts it on deletion and keeps settings simple", async ({
+test("invokes a cross-session Pi Durable learning-coach skill without a separate tab", async ({
   page,
   request,
 }) => {
-  const previous = await (await request.get("/api/preferences")).json();
-  const marker = `Coach fixture ${Date.now()}`;
-  let id: string | undefined;
+  const ids: string[] = [];
   try {
-    const created = await request.post("/api/sessions", {
-      data: { text: marker },
-    });
-    expect(created.status()).toBe(201);
-    ({ id } = await created.json());
-    await page.goto(`/sessions/${id}`);
+    for (const title of ["Coach evidence lesson", "Coach question workspace"]) {
+      const created = await request.post("/api/sessions", {
+        data: { text: title },
+      });
+      expect(created.status()).toBe(201);
+      ids.push((await created.json()).id);
+    }
+    await page.goto(`/sessions/${ids[0]}`);
     await page
       .getByLabel("Question")
-      .fill(`${marker}: Explain one TypeScript union in one sentence.`);
+      .fill("What is a TypeScript union? Answer briefly.");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.locator(".message.assistant")).toBeVisible({
       timeout: 90000,
     });
-    await page.getByRole("button", { name: "Open library" }).click();
-    await page.getByRole("button", { name: "Learning coach" }).click();
+    await page.goto(`/sessions/${ids[1]}`);
     await expect(
-      page.getByRole("heading", { name: "Your learning, across sessions" }),
-    ).toBeVisible();
-    await expect(
-      page.locator(".coach-observation").filter({ hasText: marker }),
+      page.getByRole("button", { name: "/learning-coach", exact: true }),
     ).toBeVisible();
     await page
-      .getByLabel("Coach question")
-      .fill("What question did I just ask about TypeScript? Cite the session.");
-    await page.getByRole("button", { name: "Ask coach" }).click();
-    await expect(page.locator(".coach-turn")).toContainText("TypeScript", {
-      timeout: 90000,
+      .getByLabel("Question")
+      .fill(
+        "What did I ask about TypeScript in my other workspace? Cite the session and message.",
+      );
+    await page
+      .getByRole("button", { name: "/learning-coach", exact: true })
+      .click();
+    await expect(page.getByLabel("Question")).toHaveValue(
+      /^\/learning-coach What did I ask/,
+    );
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const activity = page.locator(".message.user .turn-activity").last();
+    await expect(activity).toHaveAttribute("data-status", "done", {
+      timeout: 110000,
     });
-    await page.screenshot({ path: '.wrangler/mobile-learning-coach.png', fullPage: true });
-    await page.reload();
-    await page.getByRole("button", { name: "Open library" }).click();
-    await page.getByRole("button", { name: "Learning coach" }).click();
+    await expect(page.locator(".message.assistant").last()).toContainText(
+      /TypeScript/i,
+    );
+    await expect(page.locator(".message.assistant").last()).toContainText(
+      ids[0]!,
+    );
+    await activity.locator("summary").click();
     await expect(
-      page.locator(".coach-observation").filter({ hasText: marker }),
+      activity.getByText("Reviewing learning across sessions", { exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Back to chat" }).click();
     await page.getByRole("button", { name: "Open library" }).click();
+    await expect(
+      page.getByRole("button", { name: "Learning coach", exact: true }),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Import previous sessions" }),
     ).toHaveCount(0);
-    await page.getByRole("button", { name: "Learning preferences" }).click();
-    await expect(page.getByLabel("Teaching preferences")).toBeVisible();
-    await expect(page.getByRole("checkbox", { name: /recall/i })).toHaveCount(
-      0,
-    );
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
   } finally {
-    if (id)
+    for (const id of ids)
       expect((await request.delete(`/api/sessions/${id}`)).status()).toBe(204);
-    expect(
-      (
-        await request.put("/api/preferences", {
-          data: { text: previous.text, recall: false },
-        })
-      ).status(),
-    ).toBe(200);
-    if (id) {
-      const coach = await (await request.get("/api/coach")).json();
-      expect(
-        coach.observations.some(
-          (o: { sessionId: string }) => o.sessionId === id,
-        ),
-      ).toBe(false);
-      expect(coach.turns).toEqual([]);
-    }
   }
 });

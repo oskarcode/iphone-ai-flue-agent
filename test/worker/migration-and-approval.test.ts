@@ -140,6 +140,8 @@ describe("migration and action boundaries", () => {
       update: async () => {},
       source: async () => {},
       preferences: async () => "",
+      coachHistory: async () => ({}),
+      coachMessage: async () => ({}),
       savedSource: () => [],
       actions: () => [],
       proposal: async (id, tool, args) => {
@@ -154,6 +156,12 @@ describe("migration and action boundaries", () => {
         return proposal;
       },
     });
+    expect(options.learningTools.map((tool) => tool.name)).toContain(
+      "run_learning_coach",
+    );
+    expect(options.learningTools.map((tool) => tool.name)).not.toContain(
+      "read_learning_session",
+    );
     const models = createModels();
     const faux = fauxProvider();
     models.setProvider(faux.provider);
@@ -236,7 +244,10 @@ describe("migration and action boundaries", () => {
       );
     }
     await library.setPreferences("Explain simply", true);
-    expect(await library.preferences()).toEqual({ text: "Explain simply", recall: 0 });
-    expect((await library.list('quasar', 'all')).items).toHaveLength(2);
+    expect(await library.preferences()).toEqual({
+      text: "Explain simply",
+      recall: 0,
+    });
+    expect((await library.list("quasar", "all")).items).toHaveLength(2);
   });
 });
