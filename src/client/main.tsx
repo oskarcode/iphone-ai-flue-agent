@@ -4,10 +4,9 @@ import { createRoot } from "react-dom/client";
 // Shared rendering, prompts and DTO types keep browser behavior aligned with the Worker.
 import { renderTutorMarkdown } from "../lib/tutor-markdown.ts";
 import { TurnActivityPanel } from "./turn-activity.tsx";
-import {
-  LEARNING_RECAP_PROMPT,
-  REPOSITORY_STARTER_PROMPTS,
-} from "../lib/chat-presets.ts";
+import { Settings } from "./settings.tsx";
+import { api, post } from "./api.ts";
+import type { SkillSummary } from "../lib/skills.ts";
 import type {
   DirectoryItem,
   SessionSnapshot,
@@ -16,27 +15,6 @@ import type {
 // Vite emits this stylesheet as a static asset alongside the client bundle.
 import "./styles.css";
 
-/** Input: relative API path and fetch options. Output: typed JSON or undefined for 204.
- * What this function does: surfaces server errors without treating TypeScript's T as response validation.
- */
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(
-      body?.error ??
-        `Request failed (${response.status}). Refresh to check your login.`,
-    );
-  }
-  return response.status === 204 ? (undefined as T) : response.json();
-}
-const post = <T,>(path: string, body: unknown) =>
-  api<T>(path, { method: "POST", body: JSON.stringify(body) });
 /** Input: local key. Output: value or null.
  * What this function does: tolerates browsers that block localStorage.
  */
@@ -122,6 +100,9 @@ function App() {
   const [archived, setArchived] = useState(false);
   const [offset, setOffset] = useState<number>();
   const [drawer, setDrawer] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [skillError, setSkillError] = useState("");
   const [draft, setDraft] = useState(
     readStored(PREFIX + "draft:" + initialId) ?? "",
   );
@@ -184,6 +165,7 @@ function App() {
    * What this function does: resets pagination without deleting server state; confirmed deletion skips draft retention.
    */
   function select(next: string, retainDraft = true) {
+    setSettings(false);
     if (retainDraft) store(PREFIX + "draft:" + id, draft);
     active.current = next;
     setId(next);
@@ -250,7 +232,7 @@ function App() {
    * What this function does: persists text independently of server message submission.
    */
   useEffect(() => {
-    store(PREFIX + "draft:" + id, draft);
+    store(PREFIX + "draft:" + id, draft || null);
   }, [draft, id]);
   /** Input: selected session. Output: reconnecting invalidation subscription.
    * What this function does: fetches snapshots, backs off reconnects and cleans up listeners/timers on navigation.
@@ -332,19 +314,22 @@ function App() {
    * What this function does: creates/reuses state, submits with the stable key and clears only the acknowledged pending record.
    */
   async function deliver(work: Pending) {
+    const startedIn = active.current;
     setSending(true);
     setError("");
     try {
       await post("/api/sessions", { id: work.sessionId, text: work.text });
+      // Do not publish a reloadable URL until the durable session exists.
+      if (active.current === startedIn && active.current !== work.sessionId)
+        select(work.sessionId);
       await post(`/api/sessions/${work.sessionId}/messages`, {
         text: work.text,
         requestId: work.requestId,
       });
       if (pending()?.requestId === work.requestId)
         store(PREFIX + "pending", null);
-      setDraft("");
+      if (active.current === work.sessionId) setDraft("");
       store(PREFIX + "draft:" + work.sessionId, null);
-      if (active.current !== work.sessionId) select(work.sessionId);
       await refresh(work.sessionId);
       await loadLibrary();
     } catch (e) {
@@ -369,7 +354,6 @@ function App() {
       text: draft.trim(),
     };
     store(PREFIX + "pending", JSON.stringify(work));
-    if (!id) select(work.sessionId);
     await deliver(work);
   }
   /** Input: initial URL and pending device state. Output: resumed page or handoff submission.
@@ -484,6 +468,44 @@ function App() {
     (message, index, all) =>
       all.findIndex((m) => m.id === message.id) === index,
   );
+  async function loadSkills() {
+    try {
+      setSkills((await api<{ skills: SkillSummary[] }>("/api/skills")).skills);
+      setSkillError("");
+    } catch {
+      setSkillError(
+        "Skills unavailable. You can still send a normal question.",
+      );
+    }
+  }
+  useEffect(() => {
+    void loadSkills();
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadSkills();
+    };
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [snapshot?.busy]);
+  function clearDeviceDrafts(ask = true) {
+    if (
+      ask &&
+      !confirm(
+        "Clear unsent drafts on this device? Saved sessions and skills will remain.",
+      )
+    )
+      return;
+    try {
+      for (const key of Object.keys(localStorage))
+        if (key.startsWith(PREFIX)) store(key, null);
+    } catch {
+      /* Storage may be disabled; sign-out must still work. */
+    }
+    setDraft("");
+  }
   // Latest snapshots override paged copies, including passive routing events for repository/visual handoffs.
   const activities = [
     ...new Map(
@@ -554,36 +576,62 @@ function App() {
           </button>
         )}
         <footer>
-          <button onClick={() => void importLegacy()}>
-            Import previous sessions
+          <button
+            aria-current={!settings ? "page" : undefined}
+            onClick={() => {
+              setSettings(false);
+              setDrawer(false);
+            }}
+          >
+            Chat
           </button>
           <button
-            onClick={() =>
+            aria-current={settings ? "page" : undefined}
+            onClick={() => {
+              setSettings(true);
+              setDrawer(false);
+            }}
+          >
+            Settings
+          </button>
+        </footer>
+      </aside>
+      {settings && (
+        <main className="settings-page">
+          <header>
+            <button onClick={() => setSettings(false)}>Back to chat</button>
+            <h1>Settings</h1>
+          </header>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <Settings
+            preferences={() =>
               void api<{ text: string; recall: number }>("/api/preferences")
                 .then((p) =>
                   setPrefs({ text: p.text, recall: Boolean(p.recall) }),
                 )
                 .catch((e) => setError(String(e)))
             }
-          >
-            Learning preferences
-          </button>
-          <button
-            onClick={
-              /** Input: sign-out click. Output: cleared app drafts and Access logout.
-               * What this function does: clears only this app's localStorage prefix before leaving the page.
-               */ () => {
-                for (const key of Object.keys(localStorage))
-                  if (key.startsWith(PREFIX)) localStorage.removeItem(key);
-                location.href = "/cdn-cgi/access/logout";
-              }
-            }
-          >
-            Sign out & clear device drafts
-          </button>
-        </footer>
-      </aside>
-      <main>
+            importPrevious={importLegacy}
+            clearDrafts={() => clearDeviceDrafts()}
+            signOut={() => {
+              clearDeviceDrafts(false);
+              location.href = "/cdn-cgi/access/logout";
+            }}
+            createWithAgent={() => {
+              setSettings(false);
+              setDraft(
+                "Help me create a reusable learning skill. Ask what I want it to do, then propose saving it as a new command.",
+              );
+            }}
+            skillsChanged={() => void loadSkills()}
+          />
+        </main>
+      )}
+      <main hidden={settings}>
         <header>
           <button
             className="mobile"
@@ -791,7 +839,14 @@ function App() {
           )}
           {snapshot?.approvals.map((approval) => (
             <section className="approval" key={approval.id}>
-              <h3>GitHub action · {approval.status}</h3>
+              <h3>
+                {approval.tool.startsWith("skill.")
+                  ? "Skill change"
+                  : approval.tool.startsWith("computer.")
+                    ? "Computer action"
+                    : "GitHub action"}{" "}
+                · {approval.status}
+              </h3>
               <pre>{JSON.stringify(approval.args, null, 2)}</pre>
               {approval.status === "pending" ? (
                 <>
@@ -801,7 +856,10 @@ function App() {
                         `/api/sessions/${id}/approvals/${approval.id}`,
                         { accept: true },
                       )
-                        .then(() => refresh())
+                        .then(async () => {
+                          await refresh();
+                          await loadSkills();
+                        })
                         .catch((e) => setError(String(e)))
                     }
                   >
@@ -828,19 +886,26 @@ function App() {
         {/* Sticky composer and editable presets; pending sends survive reload. */}
         <section className="composer">
           <div className="presets">
-            {[
-              [
-                "Explain simply",
-                "Explain the main idea in plain English with a small example.",
-              ],
-              ...REPOSITORY_STARTER_PROMPTS.slice(0, 3),
-              ["What I learned · post draft", LEARNING_RECAP_PROMPT],
-            ].map(([label, text]) => (
-              <button key={label} onClick={() => setDraft(text)}>
-                {label}
+            {skills.map((skill) => (
+              <button
+                key={skill.slug}
+                title={skill.description}
+                onClick={() => {
+                  setDraft(
+                    `/${skill.slug}${draft.trim() ? " " + draft.replace(/^\/[a-z0-9-]+(?:\s+|$)/, "") : " "}`,
+                  );
+                  document
+                    .querySelector<HTMLTextAreaElement>(
+                      '[aria-label="Question"]',
+                    )
+                    ?.focus();
+                }}
+              >
+                /{skill.slug}
               </button>
             ))}
           </div>
+          {skillError && <small role="status">{skillError}</small>}
           <form
             onSubmit={
               /** Input: form submit. Output: durable-send workflow.

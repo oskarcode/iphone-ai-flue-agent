@@ -42,7 +42,10 @@ test("mobile learning persists through reload with a simplified workspace and li
   await page.getByRole("button", { name: "＋ New learning" }).click();
   await expect(page.locator(".message")).toHaveCount(0);
   await page.goto(url);
-  await expect(page.locator(".message.assistant .markdown")).toHaveText(answer);
+  await expect(page.locator(".message.assistant .markdown")).toHaveText(
+    answer,
+    { useInnerText: true },
+  );
   await expect(page.locator(".message.user .turn-activity")).toHaveAttribute(
     "data-status",
     "done",

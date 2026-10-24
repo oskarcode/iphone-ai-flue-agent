@@ -1,5 +1,11 @@
 // Hono dispatches HTTP; signed identity and session contracts define the trust boundary.
 import { Hono, type Context } from "hono";
+import {
+  ComputerInputError,
+  computerAction,
+  computerPath,
+  skillSlug,
+} from "./lib/skills.ts";
 import { verifyIdentity, type Identity } from "./runtime/auth.ts";
 import { SESSION_ID, type SessionMetadata } from "./runtime/contracts.ts";
 import { projectLegacyMessages } from "./runtime/legacy.ts";
@@ -120,6 +126,8 @@ app.use("*", async (c, next) => {
  * What this function does: logs metadata, not private request bodies or production stack traces.
  */
 app.onError((error, c) => {
+  if (error instanceof ComputerInputError)
+    return c.json({ error: error.message }, 400);
   if (new URL(c.req.url).hostname === "localhost") console.error(error);
   console.error(
     JSON.stringify({
@@ -628,6 +636,54 @@ app.get("/review/:id", async (c) => {
   return old
     ? c.html(renderReviewDetailPage(old))
     : c.json({ error: "Not found" }, 404);
+});
+
+// Skill/Computer routes share verified identity and same-origin mutation protection with sessions.
+app.get("/api/skills", async (c) =>
+  c.json({
+    skills: await c.env.LEARNING_SKILLS.getByName(owner(c)).list(owner(c)),
+  }),
+);
+app.get("/api/skills/:slug", async (c) => {
+  const skill = await c.env.LEARNING_SKILLS.getByName(owner(c)).get(
+    owner(c),
+    skillSlug(c.req.param("slug")),
+  );
+  return skill ? c.json(skill) : c.json({ error: "Skill not found" }, 404);
+});
+app.get("/api/computer", async (c) =>
+  c.json({
+    root: "/workspace",
+    entries: await c.env.LEARNING_SKILLS.getByName(owner(c)).tree(owner(c)),
+  }),
+);
+app.get("/api/computer/file", async (c) =>
+  c.json(
+    await c.env.LEARNING_SKILLS.getByName(owner(c)).read(
+      owner(c),
+      computerPath(c.req.query("path") ?? ""),
+    ),
+  ),
+);
+app.post("/api/computer/actions", async (c) => {
+  const body = await json<{ tool?: unknown; args?: unknown }>(c, 150000);
+  if (
+    !body ||
+    typeof body.tool !== "string" ||
+    !body.args ||
+    typeof body.args !== "object" ||
+    Array.isArray(body.args)
+  )
+    return c.json({ error: "Invalid Computer action" }, 400);
+  const args = computerAction(body.tool, body.args as Record<string, unknown>);
+  return c.json(
+    await c.env.LEARNING_SKILLS.getByName(owner(c)).apply(
+      owner(c),
+      requestId(c),
+      body.tool,
+      args,
+    ),
+  );
 });
 
 app.get("/api/sessions", (c) =>

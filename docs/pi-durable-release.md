@@ -1,8 +1,22 @@
 # Pi Durable release verification — 2026-10-23
 
-## Per-turn activity update
+## Shared skills, Computer and Settings update
 
-- Current deployed version: `2932eccc-718a-48e4-b509-329b7492c5eb`.
+- Current deployed version: `b92935fc-70e6-44ea-97c2-75e89e853d50`.
+- Cloudflare Computer `0.5.1` (preview) stores shared skill files in a new SQLite-backed `LearningSkills` object. Migration `v5-learning-computer` is additive; earlier migrations and historical class identities are unchanged.
+- Nine editable starter skills replace hardcoded prompt chips. New commands appear after approved creation; selecting one preserves the user's question and does not automatically send it. Skills survive deletion of individual conversations.
+- Agent tools can list/read skills, propose creation/update/removal, inspect files and propose file changes or execution. Exact approval gates mutations. Revision checks reject stale edits; persistent operation receipts prevent duplicate execution and mark interruptions uncertain.
+- Both worker-shell and isolated JavaScript execution are enabled, with network egress, bounded output and 30-second execution limits. No application credentials are passed to dynamic Workers. This is not a full Linux VM.
+- Settings contains the skill editor, Computer browser/runner, learning preferences, historical import, device-draft cleanup and sign-out.
+- Existing sessions receive the new tool allowlist when reopened. Session URLs are now published only after durable creation, avoiding a reload race discovered during browser testing.
+- **117 pure + 31 workerd + 9 mobile browser tests passed (157 total)**; typecheck, production build, generated bindings, deployment dry-run and dependency audit passed. Audit reported **zero vulnerabilities** after scoped transitive security patches.
+- Authenticated production checks exercised real agent skill creation, exact approval, command invocation with instruction-following, skill update/removal, shell execution, JavaScript execution and outbound HTTP. Mobile layout and the dynamic command list were verified. Disposable skills/sessions were removed; the existing pinned session was preserved.
+- Production checks used a cached signed cookie and an emulated iPhone browser. Fresh interactive Access login, a physical Shortcut run, arbitrary native binaries and external GitHub writes were not tested.
+- Existing session cleanup remains in effect. The historical inventory totals below describe earlier releases, not the current Library contents.
+
+## Per-turn activity update (historical)
+
+- Activity release version: `2932eccc-718a-48e4-b509-329b7492c5eb`.
 - Each new input has a collapsed **Agent activity** disclosure. Pi event batches
   update a session-local SQLite journal, with submission-to-entry association,
   tool status, generation status, retries and compaction summaries. The existing

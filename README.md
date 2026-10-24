@@ -15,6 +15,18 @@ An iPhone-first tutor that turns selected text, questions, web pages and GitHub 
 - Requires explicit server-side approval before GitHub issue creation or a branch-only file change.
 - Preserves existing Shortcut request paths, fields, service-token headers and response fields. See [Shortcut contracts](docs/shortcut-contracts.md).
 
+## Skills, Computer and Settings
+
+The composer loads saved `/skill-command` buttons, rather than hardcoded prompt text. Select one, add your question/source, and send; selection does not submit automatically or discard your question. The tutor reads the saved instructions before applying them. Nine starter skills include explain-simply, high-level-purpose, architecture-map and learning-post. Commands refresh after approvals and periodically while the page is visible.
+
+Ask the assistant to create, update or remove a skill. It prepares an exact proposal for approval; only approval changes the shared files and command list. **Settings** also offers a direct skill editor, Computer file viewer and shell command runner, plus learning preferences, historical import, clear-device-drafts and sign-out. Unsaved chat drafts survive switching tabs.
+
+`LearningSkills` is a separate owner-scoped Durable Object using pinned **Cloudflare Computer 0.5.1 (preview)**. Its SQLite-backed filesystem stores `/workspace/skills/<slug>/SKILL.md`; a one-time seed never recreates deleted defaults. Files use JSON-compatible YAML frontmatter for name/description and a Markdown body. Skill edits check a SHA-256 revision to prevent stale overwrites. Session deletion does not remove shared skills or Computer files. Mutation receipts remain for retry safety; skill deletion removes its active files/command, not historical conversation references or operation receipts.
+
+**Execution is enabled**, including the worker-shell's file tools, curl/network access, jq and HTML conversion, plus a separate isolated JavaScript module backend with persistent filesystem access. JavaScript uses `export default async function () { ... }`, not the `node` CLI. This is not a full Linux VM or a Docker container; npm/native binaries are not provided by this backend. Dynamic Workers use `SKILL_LOADER`, `WorkspaceServiceProxy` and the experimental compatibility flag. No application credentials are passed to the shell. Agent-originated file writes, deletions and execution require exact UI approval; commands run with a 30-second timeout and bounded output. Interrupted operations are not blindly repeated. Direct Settings commands also require confirmation.
+
+The preview SDK and experimental Worker Loader are deliberate demo dependencies. Deployment adds migration `v5-learning-computer`, without changing earlier migrations, Access policies or Shortcut contracts. Dependency overrides patch transitive Undici and test-plugin Zod security issues.
+
 ## How It Works
 
 ```text
@@ -26,6 +38,7 @@ Browser / iPhone Shortcut
   -> Workers AI through AI Gateway -> bounded web / GitHub tools
   -> committed snapshot -> browser explanation
 
+LearningSession -> LearningSkills Computer -> durable skill files + approved worker-shell
 LearningSession -> retryable projection -> LearningLibrary -> search / reopen
 POST /v1/correct -> Workers AI directly -> corrected_text (no Pi/session writes)
 ```
@@ -44,7 +57,8 @@ The Library is a versioned projection, not a second authoritative transcript. De
 | React + Vite | Mobile workspace and bundled static assets |
 | Hono + Cloudflare Workers | HTTP compatibility boundary, authentication and asset delivery |
 | Pi Durable / Pi AI / Chord 1.2.0 | Durable conversation execution and background task coordination |
-| SQLite-backed Durable Objects | Canonical session state and rebuildable Library |
+| SQLite-backed Durable Objects | Canonical session state, rebuildable Library and shared Computer |
+| Cloudflare Computer 0.5.1 + Worker Loader | Persistent skill files and approved worker-shell execution |
 | Workers KV | Ten-minute Shortcut delivery envelopes and retained legacy records |
 | Workers AI + AI Gateway | Tutor/visual inference, stateless grammar and Jev intent classification |
 | `jose` + Cloudflare Access | Signed JWT verification for browser/service callers |
@@ -62,6 +76,8 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 | `src/client/main.tsx`, `styles.css` | Library, composer, snapshots, reconnects and phone layout |
 | `src/runtime/session.ts` | Canonical Pi/application state, recovery, approvals and deletion |
 | `src/runtime/library.ts` | Search projection, preferences, note recall and tombstones |
+| `src/runtime/skills.ts`, `src/lib/skills.ts` | Computer filesystem, revision-checked skills, mutation receipts and starter skills |
+| `src/client/settings.tsx`, `api.ts` | Settings, skill editor, Computer explorer/runner and authenticated API helper |
 | `src/runtime/harness.ts` | Models, teaching context and Pi tool adapters |
 | `src/runtime/activity.ts`, `src/client/turn-activity.tsx` | Sanitized persistent per-turn progress and collapsible UI |
 | `src/runtime/auth.ts`, `contracts.ts` | Verified identity and shared transport/data shapes |
@@ -81,6 +97,9 @@ All private interfaces require verified Access admission. The existing service-t
 | Interface | Input / result |
 |---|---|
 | `POST /v1/correct` | `{ "text": "She go yesterday." }` -> `{ "corrected_text": "She went yesterday." }` |
+| `GET /api/skills`, `/api/skills/:slug` | Shared command catalog and full skill instructions/revision |
+| `GET /api/computer`, `/api/computer/file?path=...` | Bounded Computer file listing and preview |
+| `POST /api/computer/actions` | Explicit skill/file/shell mutation with a stable `Idempotency-Key` |
 | `POST /v1/ask` | `{ text }` -> answer JSON, repository `learning_url` (202), or `visual_url` |
 | `POST /handoff`, `/v1/chat-session` | `{ text }` -> `chat_url`, `expires_in_seconds: 600` |
 | `GET /chat/session/:id` | Consumes the temporary handoff and returns `{ text }`; not a persistent page URL |

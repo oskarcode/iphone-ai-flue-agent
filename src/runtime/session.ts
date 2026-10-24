@@ -13,6 +13,7 @@ import {
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 // Application contracts, tool schemas and the harness adapter connect persisted state to model work.
 import * as v from "valibot";
+import { COMPUTER_ACTIONS, computerAction } from "../lib/skills.ts";
 import { createLearningHarnessOptions } from "./harness.ts";
 import { ActivityJournal } from "./activity.ts";
 import { routingLabel, type RoutingDecision } from "../tools/jev-router.ts";
@@ -241,74 +242,80 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
      * What this function does: shares initialization across concurrent callers and installs persistence callbacks.
      */
     this.opening = (async () => {
-      const harness = await Harness.open(
-        await openDurableObjectSqliteStorage(this.ctx.storage),
-        createLearningHarnessOptions(this.env, {
-          metadata: () => this.metadata(),
-          update: (patch) => this.update(patch),
-          /** Input: retrieved evidence. Output: retained hashed record.
-           * What this function does: enforces the byte cap and schedules retryable directory synchronization.
-           */
-          source: async (id, title, content) => {
-            const source: Source = {
-              id,
-              title,
-              content,
-              private: this.metadata().private,
-              hash: await sha256(content),
-              createdAt: new Date().toISOString(),
-            };
-            if (new TextEncoder().encode(content).length > 900_000)
-              throw new Error("Source exceeds retained evidence limit");
-            this.store("learning_sources", id, source);
-            await this.wake();
-          },
-          /** Input: durable tool-task ID and exact arguments. Output: existing/new pending proposal.
-           * What this function does: persists repository context without executing any external mutation.
-           */
-          proposal: async (id, tool, args) => {
-            const existing = this.rows<Approval>("learning_approvals").find(
-              (a) => a.id === id,
-            );
-            if (existing) return existing;
-            const proposal: Approval & { repository: GithubRepository } = {
+      const options = createLearningHarnessOptions(this.env, {
+        metadata: () => this.metadata(),
+        update: (patch) => this.update(patch),
+        /** Input: retrieved evidence. Output: retained hashed record.
+         * What this function does: enforces the byte cap and schedules retryable directory synchronization.
+         */
+        source: async (id, title, content) => {
+          const source: Source = {
+            id,
+            title,
+            content,
+            private: this.metadata().private,
+            hash: await sha256(content),
+            createdAt: new Date().toISOString(),
+          };
+          if (new TextEncoder().encode(content).length > 900_000)
+            throw new Error("Source exceeds retained evidence limit");
+          this.store("learning_sources", id, source);
+          await this.wake();
+        },
+        /** Input: durable tool-task ID and exact arguments. Output: existing/new pending proposal.
+         * What this function does: persists repository context without executing any external mutation.
+         */
+        proposal: async (id, tool, args) => {
+          const existing = this.rows<Approval>("learning_approvals").find(
+            (a) => a.id === id,
+          );
+          if (existing) return existing;
+          const proposal: Approval & { repository: GithubRepository } = {
+            id,
+            tool,
+            args,
+            repository: this.metadata().repository!,
+            status: "pending",
+            createdAt: new Date().toISOString(),
+          };
+          this.store("learning_approvals", id, proposal);
+          await this.wake();
+          this.notify();
+          return proposal;
+        },
+        preferences: async () => (await this.library().preferences()).text,
+        recall: (query) => this.library().recall(query, this.metadata().id),
+        actions: () =>
+          this.rows<Approval>("learning_approvals").map(
+            ({ id, tool, status, result, createdAt }) => ({
               id,
               tool,
-              args,
-              repository: this.metadata().repository!,
-              status: "pending",
-              createdAt: new Date().toISOString(),
-            };
-            this.store("learning_approvals", id, proposal);
-            await this.wake();
-            this.notify();
-            return proposal;
-          },
-          preferences: async () => (await this.library().preferences()).text,
-          recall: (query) => this.library().recall(query, this.metadata().id),
-          actions: () =>
-            this.rows<Approval>("learning_approvals").map(
-              ({ id, tool, status, result, createdAt }) => ({
-                id,
-                tool,
-                status,
-                result,
-                createdAt,
-              }),
-            ),
-          savedSource: (id) =>
-            id
-              ? (this.rows<Source>("learning_sources").find(
-                  (s) => s.id === id,
-                ) ?? { error: "Source not found" })
-              : this.rows<Source>("learning_sources")
-                  .slice(-30)
-                  .map(({ id, title }) => ({ id, title })),
-        }),
+              status,
+              result,
+              createdAt,
+            }),
+          ),
+        savedSource: (id) =>
+          id
+            ? (this.rows<Source>("learning_sources").find(
+                (s) => s.id === id,
+              ) ?? { error: "Source not found" })
+            : this.rows<Source>("learning_sources")
+                .slice(-30)
+                .map(({ id, title }) => ({ id, title })),
+      });
+      const harness = await Harness.open(
+        await openDurableObjectSqliteStorage(this.ctx.storage),
+        options,
         background,
       );
       this.harness = harness;
       const root = await harness.root(background);
+      // Existing conversations also need the new tools; changing the registry alone does not update their allowlist.
+      if (!(await this.ctx.storage.get("learning:computer-tools:v1"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:computer-tools:v1", true);
+      }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
        * What this function does: restores active/queued submission identity before processing resumed events.
@@ -810,6 +817,25 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     this.store("learning_approvals", id, proposal);
     if (!accept) return Response.json(proposal);
     await this.wake();
+    if ((COMPUTER_ACTIONS as readonly string[]).includes(proposal.tool)) {
+      try {
+        computerAction(proposal.tool, proposal.args);
+        proposal.result = await this.env.LEARNING_SKILLS.getByName(owner).apply(
+          owner,
+          `${this.metadata().id}:${id}`,
+          proposal.tool,
+          proposal.args,
+        );
+        proposal.status = "done";
+      } catch {
+        proposal.status = "uncertain";
+        proposal.result =
+          "Computer action was not confirmed. Inspect Skills/Computer in Settings before proposing another action. It will not be rerun automatically.";
+      }
+      this.store("learning_approvals", id, proposal);
+      this.notify();
+      return Response.json(proposal);
+    }
     try {
       const tools = createGithubRepositoryTools(
         this.metadata().id,

@@ -14,7 +14,8 @@
   ],
   // Cloudflare Web Search requires the current Workers runtime API.
   "compatibility_date": "2026-10-13",
-  "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
+  "compatibility_flags": ["nodejs_compat", "enable_request_signal", "experimental"],
+  "worker_loaders": [{ "binding": "SKILL_LOADER" }],
   // Non-secret model and gateway selectors are visible to the Worker through process.env.
   "vars": {
     "MODEL": "cloudflare/@cf/zai-org/glm-5.2",
@@ -40,7 +41,8 @@
       { "name": "FLUE_GITHUB_LEARNING_AGENT", "class_name": "FlueGithubLearningAgent" },
       { "name": "FLUE_IPHONE_ASSISTANT_AGENT", "class_name": "FlueIphoneAssistantAgent" },
       { "name": "LEARNING_SESSIONS", "class_name": "LearningSession" },
-      { "name": "LEARNING_LIBRARY", "class_name": "LearningLibrary" }
+      { "name": "LEARNING_LIBRARY", "class_name": "LearningLibrary" },
+      { "name": "LEARNING_SKILLS", "class_name": "LearningSkills" }
     ]
   },
   "kv_namespaces": [
@@ -66,6 +68,10 @@
     {
       "tag": "v4-pi-learning",
       "new_sqlite_classes": ["LearningSession", "LearningLibrary"]
+    },
+    {
+      "tag": "v5-learning-computer",
+      "new_sqlite_classes": ["LearningSkills"]
     }
   ],
   // Full sampling is appropriate for this low-volume demo and aids handoff debugging.

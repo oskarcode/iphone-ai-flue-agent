@@ -5,6 +5,16 @@ import { routingLabel, type RoutingDecision } from "../tools/jev-router.ts";
 
 // Never display arbitrary provider errors, arguments, output, reasoning or credentials.
 const TOOL_LABELS: Record<string, string> = {
+  list_skills: "Listing saved skills",
+  read_skill: "Reading a saved skill",
+  save_skill: "Preparing a skill change for approval",
+  delete_skill: "Preparing skill removal for approval",
+  computer_files: "Inspecting Computer files",
+  read_computer_file: "Reading a Computer file",
+  write_computer_file: "Preparing a file change for approval",
+  delete_computer_path: "Preparing file removal for approval",
+  run_computer_command: "Preparing a Computer command for approval",
+  get_action_status: "Checking approved action results",
   web_research: "Research the web",
   open_repository: "Open repository",
   list_repository_files: "List repository files",
