@@ -21,6 +21,12 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
     await expect(
       page.getByRole("button", { name: "/learning-coach", exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "/deep-learn", exact: true }),
+    ).toBeVisible();
+    expect(
+      (await (await request.get("/api/skills/deep-learn")).json()).markdown,
+    ).toContain("in THIS workspace");
     expect(
       (await (await request.get("/api/skills/feature-bug-tracker")).json())
         .markdown,
@@ -34,6 +40,10 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
       .click();
     await expect(page.getByLabel("Question")).toHaveValue(
       "/explain-simply Explain closures",
+    );
+    await page.getByRole("button", { name: "/deep-learn", exact: true }).click();
+    await expect(page.getByLabel("Question")).toHaveValue(
+      "/deep-learn Explain closures",
     );
     await settings();
     await expect(

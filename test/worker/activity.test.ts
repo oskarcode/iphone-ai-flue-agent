@@ -133,6 +133,39 @@ it("persists per-turn activity without raw tool arguments, output, reasoning or 
   expect(remaining).toBe(0);
 });
 
+it("pages 200 entries without exceeding the Durable Objects 100-variable SQL limit", async () => {
+  const stub = (env as CloudflareBindings).LEARNING_SESSIONS.getByName(
+    crypto.randomUUID(),
+  );
+  await runInDurableObject(stub, (_instance, state) => {
+    const journal = new ActivityJournal(state.storage.sql);
+    for (let i = 1; i <= 201; i++)
+      state.storage.sql.exec(
+        "INSERT INTO learning_activity (id,entry_id,status,data) VALUES(?,?,?,?)",
+        String(i),
+        String(i),
+        i === 201 ? "running" : "done",
+        JSON.stringify({
+          id: String(i),
+          entryId: String(i),
+          status: i === 201 ? "running" : "done",
+          steps: [],
+        }),
+      );
+    const ids = Array.from({ length: 200 }, (_, i) => String(i + 1));
+    const page = journal.list(ids, false);
+    expect(page).toHaveLength(200);
+    expect(page[0].entryId).toBe("1");
+    expect(page.at(-1)?.entryId).toBe("200");
+    const active = journal.list(ids.slice(130), true);
+    expect(active.map((row) => row.entryId)).toEqual([
+      ...ids.slice(130),
+      "201",
+    ]);
+    expect(journal.list(["201"], true)).toHaveLength(1); // no duplicate when active also matches
+  });
+});
+
 /** Input: actual Pi event stream from a faux response. Output: completed journal attached to the real user entry.
  * What this function does: checks the installed event protocol rather than only hand-authored event fixtures.
  */

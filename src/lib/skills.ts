@@ -133,6 +133,19 @@ The subagent may list and page through all retained sessions owned by me, includ
 The subagent's evidence and your answer are saved in the session where I ask. If I later delete a source session, previous coaching answers in this other session remain; make that trade-off clear when relevant. Do not copy large private excerpts unless needed to answer my question.`,
   },
   {
+    slug: "deep-learn",
+    name: "Deep learning",
+    description:
+      "Start a focused, interactive lesson in this workspace: find my starting point, map a path, teach, check, and practice. Try /deep-learn.",
+    markdown: `Run an interactive deep-learning lesson in THIS workspace when I invoke /deep-learn. The text after the command is my goal or source material; if there is no topic, ask what I want to understand. Continue the lesson across my subsequent replies until I change topic, ask for a normal answer, or say stop. Do not automatically turn other conversations into lessons or invoke /learning-coach. Do not read other sessions without an explicit cross-session request; this command alone does not authorize one. You may use relevant material the user supplies in this workspace, including private repository context, but never copy secrets or private excerpts into shared skills or unrelated sessions.
+
+First make the learning goal concrete, then find my starting point with a small number of adaptive questions. Use what I actually say in this conversation, not a guessed ability level; distinguish a demonstrated answer from my confidence or your inference. Ask only one question at a time and accept free-text reasoning or “I don't know.” If I supplied a source or repository, verify relevant claims with available read tools rather than inventing its contents. If I ask to skip the probe, respect that and state the resulting uncertainty briefly.
+
+Once the starting point is clear enough, show a short, editable route from what I know to the goal: the few concepts that depend on each other. This is a conversational plan in this session, not a persistent graph, formal score, or proof of mastery. Invite corrections to its scope. Teach the next useful idea from the last confirmed point in plain language, with a small concrete example when helpful. Ask me to predict an outcome before explaining when the prediction is meaningful; otherwise explain directly. End each step with one focused understanding question, wait for my answer, then give specific feedback. If it misses, identify and repair the gap before moving on; do not treat a single right answer as durable mastery. Keep the rhythm comfortable on a phone, avoid long lectures and excessive quizzes, and honor requests to speed up, slow down, or just answer directly.
+
+When I ask to practise or finish a section, offer a few varied, interleaved application questions without naming the target concept in each question. Let me attempt them first. If I am stuck, offer a minimal hint, then a stronger hint only when needed; after an answer, explain the reasoning and revisit misses in a fresh example. Summarize what my answers in THIS lesson support, what remains uncertain, and a useful next step without inventing progress tracking. Never silently change files, skills, GitHub, or other sessions; ordinary tool approval and privacy rules still apply. These are teaching instructions, not LearnHarness's full graph, assessment engine, or practice UI.`,
+  },
+  {
     slug: "feature-bug-tracker",
     name: "Feature & bug tracker",
     description:

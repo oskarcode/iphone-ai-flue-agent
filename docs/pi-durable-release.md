@@ -1,8 +1,22 @@
 # Pi Durable release verification — 2026-10-23
 
-## Skill-based learning coach and feature/bug tracker update
+## Deep-learning command release
 
-- Current deployed version: `480a6816-39d4-409d-923f-4347990466ea` for Worker `iphone-ai-flue-agent` at `iphoneai.oskarcode.com`. No new Durable Object class or migration was added; the existing bindings, routes, Access protection and Shortcut contracts remain intact.
+- Deployed version: `56f020f1-0a64-4975-b9d6-fe0986cc8358` for Worker `iphone-ai-flue-agent` at `iphoneai.oskarcode.com`.
+- `/deep-learn` is an opt-in, editable skill available in any workspace. It uses conversational probing, a short plan, stepwise teaching/checks and later practice without importing LearnHarness code, adding a persistent mastery graph or reading other sessions by default. Existing owner edits/deletions are respected by one-time seeding.
+- The previously deployed activity lookup batching fix remains in this version; no session data or Worker bindings/migrations were changed.
+- 118 pure and 39 workerd tests passed, along with typecheck, build, Wrangler dry run and `git diff --check`. The new browser assertion was added but not run this release; unauthenticated production checks observed the expected Access redirect for `/chat` and 401 for `/api/skills`. An authenticated `/deep-learn` conversation and physical Shortcut remain untested.
+
+## Large-session activity recovery (historical)
+
+- Recovery deployed version: `6608232c-5efa-47d9-bfc2-3b28ee02d1d6` at `iphoneai.oskarcode.com`.
+- A private repository workspace returned 502 for snapshots because `ActivityJournal.list` bound 106+ entry IDs into one SQLite `IN` query, exceeding Cloudflare Durable Objects' 100 SQL-variable limit. The route's generic error made its stored messages look missing. Fixed by scanning batches of at most 80 IDs, deduplicating active rows and preserving global row order/200-row cap. A real workerd regression covers 200 entry IDs and live status inclusion.
+- Read-only remote Data Studio checks before the fix found 198 Pi entries across the main and child conversations, 20 saved sources and `PRAGMA quick_check = ok`; no rows were erased. After the fix, authenticated production snapshot/export and iPhone-size browser checks recovered 19 visible user and 26 assistant messages in the affected workspace. All eight current Library sessions return 200, the one pinned session remains unchanged, and the temporary owner-only diagnostic endpoint was removed in the final deployment.
+- **118 pure + 39 workerd + 11 serial mobile browser tests passed (168 total)**, with typecheck/build and a Wrangler dry run before deployment. Fresh interactive Access login and a physical Shortcut were not retested.
+
+## Skill-based learning coach and feature/bug tracker update (historical)
+
+- Skill release version: `480a6816-39d4-409d-923f-4347990466ea` for Worker `iphone-ai-flue-agent` at `iphoneai.oskarcode.com`. No new Durable Object class or migration was added; the existing bindings, routes, Access protection and Shortcut contracts remain intact.
 - Replaced the Learning coach tab with `/learning-coach` in any session. An idempotent task-owned Pi Durable child gets only read-only owner-scoped Library/session RPC tools, including explicit reads of private sessions and bounded message chunks. Root sessions receive the tool allowlist on reopen; deleted sessions are inaccessible. Ordinary turns no longer automatically project evidence into the legacy coach DO, whose authenticated endpoints and old data remain for compatibility.
 - The coach distinguishes observations from inference and cites session/message evidence. As explicitly agreed, an answer in one session remains there if a different cited source session is later deleted; no cross-session answer is retroactively removed.
 - Added `/feature-bug-tracker` with an approval-protected shared Markdown ledger, stable issue IDs, revision-checked writes, review and status updates. One-time per-skill seeding offers both commands to existing Computers without re-creating either after deletion or overwriting edits.

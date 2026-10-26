@@ -271,13 +271,30 @@ export class ActivityJournal {
    * What this function does: pages completed turns with history and includes queued/running work for live updates.
    */
   list(entryIds: string[], includeActive: boolean): TurnActivity[] {
-    const placeholders = entryIds.map(() => "?").join(",") || "NULL";
-    return this.sql
-      .exec<{ data: string }>(
-        `SELECT data FROM learning_activity WHERE entry_id IN (${placeholders}) ${includeActive ? "OR status IN ('queued','running')" : ""} ORDER BY rowid LIMIT 200`,
-        ...entryIds,
-      )
-      .toArray()
-      .map((row) => JSON.parse(row.data));
+    // Durable Objects SQLite accepts at most 100 bound variables per statement.
+    // Snapshot/export pages can contain 200 Pi entries (including tool/system entries),
+    // so one unbounded IN clause would make a healthy conversation appear empty (502).
+    const rows = new Map<number, string>();
+    const add = (sql: string, params: string[] = []) => {
+      for (const row of this.sql
+        .exec<{ rowid: number; data: string }>(sql, ...params)
+        .toArray())
+        rows.set(row.rowid, row.data);
+    };
+    for (let index = 0; index < entryIds.length; index += 80) {
+      const batch = entryIds.slice(index, index + 80);
+      add(
+        `SELECT rowid,data FROM learning_activity WHERE entry_id IN (${batch.map(() => "?").join(",")}) ORDER BY rowid LIMIT 200`,
+        batch,
+      );
+    }
+    if (includeActive)
+      add(
+        "SELECT rowid,data FROM learning_activity WHERE status IN ('queued','running') ORDER BY rowid LIMIT 200",
+      );
+    return [...rows]
+      .sort(([a], [b]) => a - b)
+      .slice(0, 200)
+      .map(([, data]) => JSON.parse(data));
   }
 }

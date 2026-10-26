@@ -67,6 +67,14 @@ it("persists skills, enforces revision checks, deduplicates edits and does not r
   });
   await evictDurableObject(stub);
   expect(await stub.get("personal", "learning-coach")).toBeNull();
+  const deepLearn = await stub.get("personal", "deep-learn");
+  expect(deepLearn?.markdown).toContain("in THIS workspace");
+  await stub.apply("personal", "delete-deep-learn-test", "skill.delete", {
+    slug: deepLearn!.slug,
+    expectedRevision: deepLearn!.revision,
+  });
+  await evictDurableObject(stub);
+  expect(await stub.get("personal", "deep-learn")).toBeNull();
   expect(
     (await stub.tree("personal")).some((entry) =>
       entry.path.endsWith("/test-skill/SKILL.md"),
@@ -112,20 +120,33 @@ it("runs real worker-shell commands and never executes a completed operation twi
     (await stub.read("personal", "/workspace/proof.txt")).content.trim(),
   ).toBe("initial\nhello");
 });
-it("seeds the tracker and coach into existing Computers only once, leaving existing skills untouched", async () => {
+it("seeds deep learning, tracker and coach into existing Computers only once, leaving edits intact", async () => {
   const stub = computer();
   await runInDurableObject(stub, async (instance) => {
     await instance.storage().put("skills:seeded:v1", true);
   });
   expect((await stub.list("personal")).map((s) => s.slug)).toEqual([
+    "deep-learn",
     "feature-bug-tracker",
     "learning-coach",
   ]);
+  const original = await stub.get("personal", "deep-learn");
+  await stub.apply("personal", "edit-deep-learn-test", "skill.save", {
+    slug: "deep-learn",
+    name: original!.name,
+    description: original!.description,
+    markdown: "My own deep learning instructions.",
+    expectedRevision: original!.revision,
+  });
   await evictDurableObject(stub);
   expect((await stub.list("personal")).map((s) => s.slug)).toEqual([
+    "deep-learn",
     "feature-bug-tracker",
     "learning-coach",
   ]);
+  expect((await stub.get("personal", "deep-learn"))?.markdown).toBe(
+    "My own deep learning instructions.",
+  );
 });
 it("saves tracker entries with approved compare-and-swap writes without losing prior notes", async () => {
   const stub = computer();

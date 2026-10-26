@@ -98,8 +98,19 @@ export class LearningSkills extends Base {
       }
       this.initialized = true;
     }
-    // Introduce this one new default to existing Computers exactly once. Never re-create
-    // a skill the owner removed after it was offered.
+    // Offer new commands to existing Computers once; never overwrite edits or
+    // resurrect a command its owner subsequently removed.
+    if (!(await this.ctx.storage.get("skills:seeded:deep-learn:v4"))) {
+      const deepLearn = DEFAULT_SKILLS.find((skill) => skill.slug === "deep-learn")!;
+      const dir = `/workspace/skills/${deepLearn.slug}`;
+      await ws.fs.mkdir(dir, { recursive: true });
+      try {
+        await ws.fs.stat(`${dir}/SKILL.md`);
+      } catch {
+        await ws.fs.writeFile(`${dir}/SKILL.md`, skillFile(deepLearn));
+      }
+      await this.ctx.storage.put("skills:seeded:deep-learn:v4", true);
+    }
     if (!(await this.ctx.storage.get("skills:seeded:feature-bug-tracker:v2"))) {
       const tracker = DEFAULT_SKILLS.find(
         (skill) => skill.slug === "feature-bug-tracker",

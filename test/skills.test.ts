@@ -75,6 +75,10 @@ describe("Computer boundaries", () => {
     expect(
       DEFAULT_SKILLS.find((skill) => skill.slug === "learning-coach")?.markdown,
     ).toContain("run_learning_coach");
+    const deepLearn = DEFAULT_SKILLS.find((skill) => skill.slug === "deep-learn");
+    expect(deepLearn?.markdown).toContain("in THIS workspace");
+    expect(deepLearn?.markdown).toContain("Ask only one question at a time");
+    expect(deepLearn?.markdown).toContain("Never silently change files");
     expect(skillFile(DEFAULT_SKILLS.at(-1)!)).toContain(
       "Do not include private repository",
     );
