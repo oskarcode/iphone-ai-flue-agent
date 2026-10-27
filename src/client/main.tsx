@@ -7,7 +7,7 @@ import { TurnActivityPanel } from "./turn-activity.tsx";
 import { Settings } from "./settings.tsx";
 import { api, post } from "./api.ts";
 import type { SkillSummary } from "../lib/skills.ts";
-import { showApprovalCard } from "../lib/approval-display.ts";
+import { showApprovalCard, automaticActionNotice } from "../lib/approval-display.ts";
 import type {
   DirectoryItem,
   SessionSnapshot,
@@ -738,6 +738,12 @@ function App() {
               Open saved visual explainer ↗
             </a>
           )}
+          {snapshot?.approvals.slice(-10).map((approval) => {
+            const notice = automaticActionNotice(approval);
+            return notice && (
+              <p className="action-notice" role="status" key={approval.id}>{notice}</p>
+            );
+          })}
           {snapshot?.approvals.filter(showApprovalCard).map((approval) => (
             <section className="approval" key={approval.id}>
               <h3>

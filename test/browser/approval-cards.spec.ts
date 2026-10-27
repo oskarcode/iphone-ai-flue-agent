@@ -23,6 +23,10 @@ test("resolved skill approvals disappear after acceptance and stay hidden on rel
         approval("finished-fixture", "done"),
         approval("rejected-fixture", "rejected"),
         approval("uncertain-fixture", "uncertain"),
+        { ...approval("auto-save", "done"), automatic: true,
+          args: { content: "never shown" }, tool: "computer.write" },
+        { ...approval("auto-uncertain", "uncertain"), automatic: true,
+          args: { content: "never shown" }, tool: "skill.save" },
       ] as SessionSnapshot["approvals"],
     };
     return route.fulfill({ json: snapshot });
@@ -38,6 +42,9 @@ test("resolved skill approvals disappear after acceptance and stay hidden on rel
   await expect(cards).toHaveCount(2);
   await expect(cards.filter({ hasText: "save-fixture" })).toBeVisible();
   await expect(cards.filter({ hasText: "uncertain-fixture" })).toBeVisible();
+  await expect(page.getByText("Computer file saved.")).toBeVisible();
+  await expect(page.getByText("Skill change could not be confirmed. Check Settings before trying again.")).toBeVisible();
+  await expect(page.getByText("never shown")).toHaveCount(0);
   await cards.filter({ hasText: "save-fixture" }).getByRole("button", { name: "Approve this exact action" }).click();
   await expect(cards).toHaveCount(1);
   await expect(cards.filter({ hasText: "uncertain-fixture" })).toBeVisible();

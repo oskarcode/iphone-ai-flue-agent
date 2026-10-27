@@ -23,13 +23,13 @@ The child's evidence and final reply are saved in the session where you ask. **I
 
 ## Skills, Computer and Settings
 
-The composer loads saved `/skill-command` buttons, rather than hardcoded prompt text. Select one, add your question/source, and send; selection does not submit automatically or discard your question. The tutor reads the saved instructions before applying them. Eleven starter skills include explain-simply, high-level-purpose, architecture-map, learning-post, learning-coach and feature-bug-tracker. Use `/feature-bug-tracker` to log an idea or bug, review items, or update an item by ID. Entries live in the persistent `/workspace/feature-bug-tracker.md` ledger, not a chat session; each write requires exact approval and a revision check to prevent lost edits. Commands refresh after approvals and periodically while the page is visible.
+The composer loads saved `/skill-command` buttons, rather than hardcoded prompt text. Select one, add your question/source, and send; selection does not submit automatically or discard your question. The tutor reads the saved instructions before applying them. Eleven starter skills include explain-simply, high-level-purpose, architecture-map, learning-post, learning-coach and feature-bug-tracker. Use `/feature-bug-tracker` to log an idea or bug, review items, or update an item by ID. Entries live in the persistent `/workspace/feature-bug-tracker.md` ledger, not a chat session; writes run without a second approval and use revision checks to prevent lost edits. Commands refresh after confirmed changes and periodically while the page is visible.
 
-Ask the assistant to create, update or remove a skill. It prepares an exact proposal for approval; only approval changes the shared files and command list. **Settings** also offers a direct skill editor, Computer file viewer and shell command runner, plus learning preferences, clear-device-drafts and sign-out. Unsaved chat drafts survive switching tabs.
+Ask the assistant to create, update or remove a skill. It performs the revision-checked change immediately and notifies you when confirmed, without a second approval. **Settings** also offers a direct skill editor, Computer file viewer and shell command runner, plus learning preferences, clear-device-drafts and sign-out. Unsaved chat drafts survive switching tabs.
 
 `LearningSkills` is a separate owner-scoped Durable Object using pinned **Cloudflare Computer 0.5.1 (preview)**. Its SQLite-backed filesystem stores `/workspace/skills/<slug>/SKILL.md`; a one-time seed never recreates deleted defaults. Files use JSON-compatible YAML frontmatter for name/description and a Markdown body. Skill edits check a SHA-256 revision to prevent stale overwrites. Tracker file writes use the optional revision check; existing Computer file-write callers remain compatible. Session deletion does not remove shared skills or Computer files. Mutation receipts remain for retry safety; skill deletion removes its active files/command, not historical conversation references or operation receipts.
 
-**Execution is enabled**, including the worker-shell's file tools, curl/network access, jq and HTML conversion, plus a separate isolated JavaScript module backend with persistent filesystem access. JavaScript uses `export default async function () { ... }`, not the `node` CLI. This is not a full Linux VM or a Docker container; npm/native binaries are not provided by this backend. Dynamic Workers use `SKILL_LOADER`, `WorkspaceServiceProxy` and the experimental compatibility flag. No application credentials are passed to the shell. Agent-originated file writes, deletions and execution require exact UI approval; commands run with a 30-second timeout and bounded output. Interrupted operations are not blindly repeated. Direct Settings commands also require confirmation.
+**Execution is enabled**, including the worker-shell's file tools, curl/network access, jq and HTML conversion, plus a separate isolated JavaScript module backend with persistent filesystem access. JavaScript uses `export default async function () { ... }`, not the `node` CLI. This is not a full Linux VM or a Docker container; npm/native binaries are not provided by this backend. Dynamic Workers use `SKILL_LOADER`, `WorkspaceServiceProxy` and the experimental compatibility flag. No application credentials are passed to the shell. Agent-originated skill saves/deletions and Computer file writes run immediately and produce durable, compact notifications; they do not need a second approval. File/directory deletion, shell/JavaScript execution and GitHub writes still require exact UI approval. Commands run with a 30-second timeout and bounded output. Interrupted operations are not blindly repeated; direct Settings command execution still asks for confirmation.
 
 The preview SDK and experimental Worker Loader are deliberate demo dependencies. The existing `v5-learning-computer` migration and earlier migrations stay unchanged. Access configuration and the grammar Shortcut contract are retained. Dependency overrides patch transitive Undici and test-plugin Zod security issues.
 
@@ -40,7 +40,7 @@ Browser workspace / grammar Shortcut
   -> Access identity verification + Hono routes
   -> LearningSession Durable Object for one session ID
        Pi SQLite entries, submissions and recoverable tasks
-       sources, notes, metadata and exact approval proposals
+       sources, notes, metadata and durable action receipts
   -> Workers AI through AI Gateway -> bounded web / GitHub tools
   -> committed snapshot -> browser explanation
 
@@ -81,7 +81,7 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 | `src/cloudflare.ts` | Worker entry and immutable Durable Object class exports |
 | `src/app.ts` | Workspace and grammar routes, Access admission, historical migration and export |
 | `src/client/main.tsx`, `styles.css` | Library, composer, snapshots, reconnects and phone layout |
-| `src/runtime/session.ts` | Canonical Pi/application state, recovery, approvals and deletion |
+| `src/runtime/session.ts` | Canonical Pi/application state, recovery, immediate skill/file edits, gated approvals and deletion |
 | `src/runtime/library.ts` | Search projection, preferences, note recall and tombstones |
 | `src/runtime/skills.ts`, `src/lib/skills.ts` | Computer filesystem, revision-checked skills, mutation receipts and starter skills |
 | `src/runtime/coach.ts`, `src/lib/coach.ts`, `src/client/coach.tsx` | Cross-session evidence projection and on-demand learning coach |

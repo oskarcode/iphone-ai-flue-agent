@@ -13,7 +13,7 @@ import {
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 // Application contracts, tool schemas and the harness adapter connect persisted state to model work.
 import * as v from "valibot";
-import { COMPUTER_ACTIONS, computerAction } from "../lib/skills.ts";
+import { COMPUTER_ACTIONS, computerAction, isAutoComputerAction } from "../lib/skills.ts";
 import { createLearningHarnessOptions } from "./harness.ts";
 import { ActivityJournal } from "./activity.ts";
 import { routingLabel, type RoutingDecision } from "./routing-label.ts";
@@ -262,27 +262,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
           this.store("learning_sources", id, source);
           await this.wake();
         },
-        /** Input: durable tool-task ID and exact arguments. Output: existing/new pending proposal.
-         * What this function does: persists repository context without executing any external mutation.
-         */
-        proposal: async (id, tool, args) => {
-          const existing = this.rows<Approval>("learning_approvals").find(
-            (a) => a.id === id,
-          );
-          if (existing) return existing;
-          const proposal: Approval & { repository: GithubRepository } = {
-            id,
-            tool,
-            args,
-            repository: this.metadata().repository!,
-            status: "pending",
-            createdAt: new Date().toISOString(),
-          };
-          this.store("learning_approvals", id, proposal);
-          await this.wake();
-          this.notify();
-          return proposal;
-        },
+        proposal: (id, tool, args) => this.proposeAction(this.metadata().owner, id, tool, args),
         preferences: async () => (await this.library().preferences()).text,
         coachHistory: (owner, cursor) => this.coachHistory(owner, cursor),
         coachMessage: (owner, entryId, offset) =>
@@ -693,7 +673,12 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
         ({ content: _content, ...source }) => source,
       ),
       notes: this.rows<Note>("learning_notes"),
-      approvals: this.rows<Approval>("learning_approvals"),
+      approvals: this.rows<Approval>("learning_approvals").map((action) =>
+        action.automatic
+          ? { id: action.id, tool: action.tool, args: {}, status: action.status,
+              createdAt: action.createdAt, automatic: true }
+          : action,
+      ),
       nextCursor: page.next ? JSON.stringify(page.next) : undefined,
     };
     return Response.json(snapshot);
@@ -940,6 +925,43 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.wake();
     await this.syncLibrary();
   }
+  /** Input: owner, tool task ID and exact arguments. Output: replay-safe action receipt.
+   * What this function does: immediately applies only skill edits and Computer file writes;
+   * GitHub, file deletion and shell execution still require exact UI approval.
+   */
+  async proposeAction(owner: string, id: string, tool: string, args: Record<string, unknown>): Promise<Approval> {
+    this.authorize(owner);
+    const automatic = isAutoComputerAction(tool);
+    if (automatic) computerAction(tool, args);
+    const existing = this.rows<Approval>("learning_approvals").find((a) => a.id === id);
+    if (existing) {
+      if (existing.tool !== tool || JSON.stringify(existing.args) !== JSON.stringify(args))
+        throw new Error("Action ID reused with different arguments");
+      return existing;
+    }
+    const proposal: Approval & { repository?: GithubRepository } = {
+      id, tool, args,
+      ...(automatic ? { automatic: true } : { repository: this.metadata().repository! }),
+      status: automatic ? "executing" : "pending",
+      createdAt: new Date().toISOString(),
+    };
+    this.store("learning_approvals", id, proposal);
+    await this.wake();
+    this.notify();
+    if (!automatic) return proposal;
+    try {
+      proposal.result = await this.env.LEARNING_SKILLS.getByName(owner).apply(
+        owner, `${this.metadata().id}:${id}`, tool, args,
+      );
+      proposal.status = "done";
+    } catch {
+      proposal.status = "uncertain";
+      proposal.result = "Computer change was not confirmed. Inspect Skills/Computer in Settings before another attempt; it will not be repeated automatically.";
+    }
+    this.store("learning_approvals", id, proposal);
+    this.notify();
+    return proposal;
+  }
   /** Input: owner, proposal ID and explicit accept/reject decision. Output: persisted action status.
    * What this function does: claims exact stored arguments before GitHub writes; ambiguous failures become uncertain.
    */
@@ -949,7 +971,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       "learning_approvals",
     ).find((a) => a.id === id);
     if (!proposal) throw new Error("Approval not found");
-    if (proposal.status !== "pending") return Response.json(proposal);
+    if (proposal.automatic || proposal.status !== "pending") return Response.json(proposal);
     // Synchronous persisted claim prevents concurrent or replayed requests performing two writes.
     proposal.status = accept ? "executing" : "rejected";
     this.store("learning_approvals", id, proposal);

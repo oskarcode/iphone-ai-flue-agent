@@ -522,6 +522,14 @@ blockquote {
   color: #7e8778;
   font-size: 13px;
 }
+.action-notice {
+  margin: 8px 20px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #eef5ec;
+  color: #38533d;
+  font-size: 13px;
+}
 .approval {
   background: #fff9e8;
   border: 1px solid #e3d7b3;

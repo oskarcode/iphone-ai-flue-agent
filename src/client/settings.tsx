@@ -193,21 +193,14 @@ export function Settings(props: Props) {
                 className="danger"
                 type="button"
                 disabled={busy}
-                onClick={() => {
-                  if (
-                    confirm(
-                      `Delete /${selected.slug} and its files from every session's command list?`,
-                    )
-                  )
-                    void run(async () => {
-                      await action("skill.delete", {
-                        slug: selected.slug,
-                        expectedRevision: selected.revision,
-                      });
-                      setSelected(undefined);
-                      setResult("Skill removed.");
-                    });
-                }}
+                onClick={() => void run(async () => {
+                  await action("skill.delete", {
+                    slug: selected.slug,
+                    expectedRevision: selected.revision,
+                  });
+                  setSelected(undefined);
+                  setResult("Skill removed.");
+                })}
               >
                 Delete skill
               </button>

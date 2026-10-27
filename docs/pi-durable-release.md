@@ -1,5 +1,13 @@
 # Pi Durable release verification — 2026-10-27
 
+## Immediate skill edits and Computer file writes
+
+- Deployed Worker version `a4216c15-922d-49e2-b368-81d8c839eed3` at `iphoneai.oskarcode.com`. Explicitly requested skill creation/update/removal and `write_computer_file` now execute without a second UI approval and leave durable, content-free notifications. Revision checks, owner scoping, idempotent receipts and uncertain-outcome handling remain. GitHub writes, Computer file/directory deletion and shell/JavaScript commands still require approval. No Worker bindings, Access settings, migrations or grammar Shortcut contracts changed.
+- Verified locally: 109 pure tests, 39 workerd tests, typecheck, build, Wrangler dry run and four mobile browser tests. Browser tests included real-model skill and file writes that completed without an approval click, persisted across reload, and were cleaned up. The workerd runner still logs two uncaught revision-conflict exceptions from deliberately stale-write tests while reporting a passing suite.
+- Unauthenticated production smoke: `/health` returned `router: pi`, `/chat` redirected to Access (302), `/api/sessions`, `/api/skills` and `/api/computer` returned 401, and `/v1/correct` remained Access-protected (403 on GET). Fresh authenticated production mutation, physical iPhone interaction and the grammar Shortcut were not tested during this release.
+
+## Prior release — browser-only learning (historical)
+
 ## Browser-only learning; grammar Shortcut retained
 
 - Deployed Worker version `3d20c341-9322-4ada-a475-8b5199b16761` at `iphoneai.oskarcode.com`. Browser messages now submit directly to Pi, with no Jev execution or model config. The active learning handoff/Shortcut and legacy chat POST handlers were removed, along with the handoff-consumption GET handler. `/v1/correct`, its Access audience and credentials, historical object bindings/migrations and retained workspace/review/visual GET links were not changed.

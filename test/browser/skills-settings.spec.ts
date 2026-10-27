@@ -107,15 +107,10 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
     ).toBeAttached();
     await settings();
     await page.getByRole("button", { name: new RegExp(`/${slug}`) }).click();
-    page.once("dialog", (dialog) => dialog.dismiss());
     await page
       .getByRole("button", { name: "Delete skill", exact: true })
       .click();
-    expect((await request.get(`/api/skills/${slug}`)).status()).toBe(200);
-    page.once("dialog", (dialog) => dialog.accept());
-    await page
-      .getByRole("button", { name: "Delete skill", exact: true })
-      .click();
+    await expect(page.locator(".computer-output[role=status]")).toContainText("Skill removed.");
     await expect
       .poll(async () => (await request.get(`/api/skills/${slug}`)).status())
       .toBe(404);

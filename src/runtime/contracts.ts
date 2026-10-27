@@ -51,12 +51,14 @@ export type Note = {
   createdAt: string;
   private: boolean;
 };
-/** Server-owned proposal state machine; uncertain means inspect GitHub before any repeat. */
+/** Server-owned action state; uncertain means inspect the external state before any repeat. */
 export type Approval = {
   id: string;
   tool: string;
   args: Record<string, unknown>;
   status: "pending" | "executing" | "done" | "uncertain" | "rejected";
+  /** New skill and Computer-file writes execute on proposal; old receipts and gated tools omit this. */
+  automatic?: boolean;
   result?: unknown;
   createdAt: string;
 };
