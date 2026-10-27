@@ -11,6 +11,7 @@ import {
   type AgentEvent,
   type SubmissionId,
   type EntryId,
+  type TaskId,
   type ConversationId,
 } from "@earendil-works/pi-durable";
 import {
@@ -117,7 +118,7 @@ it("persists per-turn activity without raw tool arguments, output, reasoning or 
     new ActivityJournal(state.storage.sql).list(["100"], false),
   );
   expect(saved[0].status).toBe("done");
-  expect(saved[0].steps.some((s) => s.label === "Read repository file")).toBe(
+  expect(saved[0].steps.some((s) => s.label.includes("read_repository_file"))).toBe(
     true,
   );
   await stub.remove("personal");
@@ -131,6 +132,35 @@ it("persists per-turn activity without raw tool arguments, output, reasoning or 
         .one().count,
   );
   expect(remaining).toBe(0);
+});
+
+it("shows allowlisted tool names and skill loading without exposing arbitrary arguments", async () => {
+  const stub = (env as CloudflareBindings).LEARNING_SESSIONS.getByName(crypto.randomUUID());
+  await runInDurableObject(stub, (_instance, state) => {
+    const journal = new ActivityJournal(state.storage.sql);
+    journal.record([
+      submission(11, 101),
+      { type: "run_start", inputs: [11 as SubmissionId] },
+      { type: "tool_execution_start", toolCallId: "skill-1", toolName: "read_skill", args: { slug: "learning-coach", secret: "PRIVATE-ARG" } },
+      { type: "tool_execution_end", toolCallId: "skill-1", toolName: "read_skill", result: { taskId: 1 as TaskId, isError: false, diagnostics: [] } },
+      { type: "tool_execution_start", toolCallId: "unknown", toolName: "private_dynamic_tool", args: { slug: "PRIVATE-ARG" } },
+    ]);
+    journal.routing("11", { route: "direct_answer", source: "jev" });
+    journal.skill("11", "learning-coach");
+    journal.skill("11", "learning-coach");
+    journal.childTool("list_learning_sessions", "child-1", "running");
+    journal.childTool("list_learning_sessions", "child-1", "done");
+    journal.childTool("unknown", "child-2", "done");
+    const activity = journal.list(["101"], true)[0];
+    expect(activity.steps[0].label).toContain("Jev decision");
+    expect(activity.steps.filter((s) => s.id === "skill:learning-coach")).toHaveLength(1);
+    expect(activity.steps.find((s) => s.id === "tool:skill-1")?.label).toContain("read_skill /learning-coach");
+    expect(activity.steps.find((s) => s.id === "tool:unknown")?.label).toBe("Agent tool (name withheld)");
+    expect(activity.steps.find((s) => s.id === "coach-tool:child-1")?.label).toContain("list_learning_sessions");
+    expect(activity.steps.some((s) => s.id === "coach-tool:child-2")).toBe(false);
+    expect(JSON.stringify(activity)).not.toContain("PRIVATE-ARG");
+    expect(JSON.stringify(activity)).not.toContain("private_dynamic_tool");
+  });
 });
 
 it("pages 200 entries without exceeding the Durable Objects 100-variable SQL limit", async () => {

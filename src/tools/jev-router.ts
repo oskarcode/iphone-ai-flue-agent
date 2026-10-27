@@ -73,7 +73,7 @@ const QUESTIONS = {
       "Choose the single best execution path for this iPhone assistant request.",
     criteria: {
       direct_answer:
-        "Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from provided conversation context. Do not choose this when the request contains a github.com owner/repository URL.",
+        "Explain pasted or provided text, answer an explicit question without external information, or answer a conversational follow-up from provided conversation context. A request starting with an available /skill command (such as /learning-coach) is actionable by the Pi tutor, not automatically a clarification. Do not choose this when the request contains a github.com owner/repository URL.",
       web_research:
         "The request contains a non-GitHub URL to read or needs current, recent, live, broader web context, or external verification. Do not choose this for a github.com owner/repository URL.",
       github_learning:

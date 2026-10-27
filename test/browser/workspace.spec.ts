@@ -22,7 +22,7 @@ test("mobile learning persists through reload with a simplified workspace and li
     timeout: 90_000,
   });
   await expect(activity.locator("summary")).toContainText(
-    "Direct to Pi tutor — Jev not used",
+    "Jev decision →",
   );
   await expect(activity).not.toHaveAttribute("open", "");
   await activity.locator("summary").click();

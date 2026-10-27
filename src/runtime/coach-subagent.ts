@@ -12,6 +12,11 @@ export interface CoachAccess {
   sessionId(): string;
   history(owner: string, cursor?: string): Promise<unknown>;
   message(owner: string, entryId: string, offset: number): Promise<unknown>;
+  activity?(
+    name: string,
+    taskId: string,
+    status: "running" | "done" | "error",
+  ): void;
 }
 const asOutput = (value: unknown) => ({
   output: [{ type: "text" as const, text: JSON.stringify(value) }],
@@ -20,6 +25,28 @@ const sessionIdPattern = /^[a-f0-9-]{20,80}$/i;
 
 /** Read-only child tools are intentionally separate from the parent's GitHub and Computer tools. */
 export function createCoachTools(env: CloudflareBindings, access: CoachAccess) {
+  async function traced<T>(
+    name: string,
+    taskId: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const report = (status: "running" | "done" | "error") => {
+      try {
+        access.activity?.(name, taskId, status);
+      } catch {
+        /* Progress cannot fail a read. */
+      }
+    };
+    report("running");
+    try {
+      const value = await run();
+      report("done");
+      return value;
+    } catch (error) {
+      report("error");
+      throw error;
+    }
+  }
   const list = defineTool({
     name: "list_learning_sessions",
     description:
@@ -29,7 +56,8 @@ export function createCoachTools(env: CloudflareBindings, access: CoachAccess) {
       offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000 })),
     }),
     replay: "safe",
-    execute: async ({ query, offset }) => {
+    execute: async ({ query, offset }, api) =>
+      traced("list_learning_sessions", String(api.taskId), async () => {
       const page = await env.LEARNING_LIBRARY.getByName(access.owner()).list(
         query ?? "",
         "all",
@@ -45,7 +73,7 @@ export function createCoachTools(env: CloudflareBindings, access: CoachAccess) {
         })),
         nextOffset: page.nextOffset,
       });
-    },
+    }),
   });
   const read = defineTool({
     name: "read_learning_session",
@@ -56,7 +84,8 @@ export function createCoachTools(env: CloudflareBindings, access: CoachAccess) {
       cursor: Type.Optional(Type.String({ maxLength: 2000 })),
     }),
     replay: "safe",
-    execute: async ({ sessionId, cursor }) => {
+    execute: async ({ sessionId, cursor }, api) =>
+      traced("read_learning_session", String(api.taskId), async () => {
       if (!sessionIdPattern.test(sessionId))
         throw new Error("Invalid session ID");
       const data =
@@ -67,7 +96,7 @@ export function createCoachTools(env: CloudflareBindings, access: CoachAccess) {
               cursor,
             );
       return asOutput(data);
-    },
+    }),
   });
   const message = defineTool({
     name: "read_learning_message",
@@ -79,7 +108,8 @@ export function createCoachTools(env: CloudflareBindings, access: CoachAccess) {
       offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 500000 })),
     }),
     replay: "safe",
-    execute: async ({ sessionId, entryId, offset }) => {
+    execute: async ({ sessionId, entryId, offset }, api) =>
+      traced("read_learning_message", String(api.taskId), async () => {
       if (!sessionIdPattern.test(sessionId))
         throw new Error("Invalid session ID");
       const data =
@@ -91,7 +121,7 @@ export function createCoachTools(env: CloudflareBindings, access: CoachAccess) {
               offset ?? 0,
             );
       return asOutput(data);
-    },
+    }),
   });
   return [list, read, message] as const satisfies readonly ToolRegistration[];
 }

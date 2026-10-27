@@ -287,6 +287,8 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
         coachHistory: (owner, cursor) => this.coachHistory(owner, cursor),
         coachMessage: (owner, entryId, offset) =>
           this.coachMessage(owner, entryId, offset),
+        coachToolActivity: (name, taskId, status) =>
+          this.activity.childTool(name, taskId, status),
         actions: () =>
           this.rows<Approval>("learning_approvals").map(
             ({ id, tool, status, result, createdAt }) => ({
@@ -501,6 +503,12 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       !/^[a-zA-Z0-9:_-]{8,160}$/.test(requestId)
     )
       throw new Error("Invalid submission");
+    // Resolve explicit /skill commands from the shared owner-scoped Computer.
+    // This is a visible lookup, not a claim that the model called read_skill.
+    const slug = /^\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\s|$)/.exec(text)?.[1];
+    const skill = slug && slug.length <= 60
+      ? await this.env.LEARNING_SKILLS.getByName(owner).get(owner, slug)
+      : null;
     const hash = await sha256(text);
     const previous = this.ctx.storage.sql
       .exec<{
@@ -524,6 +532,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     // A deduplicated retry may already be complete and emit no new submission event.
     this.activity.submission(await submission.status(background));
     this.activity.routing(String(submission.id), routing);
+    if (skill) this.activity.skill(String(submission.id), skill.slug);
     this.ctx.storage.sql.exec(
       "UPDATE learning_state SET error=NULL WHERE id=1",
     );

@@ -45,6 +45,7 @@ export interface RuntimeHost {
     entryId: string,
     offset: number,
   ): Promise<unknown>;
+  coachToolActivity?(name: string, taskId: string, status: "running" | "done" | "error"): void;
   savedSource(id?: string): unknown;
   actions(): unknown;
 }
@@ -145,6 +146,7 @@ export function createLearningHarnessOptions(
     sessionId: () => host.metadata().id,
     history: host.coachHistory,
     message: host.coachMessage,
+    activity: host.coachToolActivity,
   });
   // Register child-only read tools below, but never grant them to the root tutor.
   // Explicit coaching must flow through the task-owned Pi Durable subagent.

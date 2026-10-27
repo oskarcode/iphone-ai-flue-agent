@@ -62,6 +62,12 @@ it("requires approval for skill changes, preserves global skills after session d
     await (await session.approve("personal", "accept-skill", true)).json(),
   ).toMatchObject({ status: "done" });
   expect(await skills.get("personal", slug)).toEqual(saved);
+  // A refreshed snapshot still has the receipt; only the browser hides terminal cards.
+  expect(
+    ((await (await session.snapshot("personal")).json()) as {
+      approvals: { id: string; status: string }[];
+    }).approvals.find((item) => item.id === "accept-skill")?.status,
+  ).toBe("done");
   await proposal("stale-skill");
   expect(
     await (await session.approve("personal", "stale-skill", true)).json(),

@@ -56,6 +56,47 @@ it.each(["/v1/ask", "/chat/api", "/chat/stream"])(
   },
 );
 
+/** Input: browser workspace submission. Output: classified Jev decision passed to Pi without changing its visible text. */
+it("classifies each modern workspace message before submitting to Pi", async () => {
+  const decision = { route: "web_research", source: "jev" } as const;
+  const classify = vi.spyOn(routing, "classifyRequest").mockResolvedValue(decision);
+  const submit = vi.fn(async () => ({ sessionId: "12345678", submissionId: "1" }));
+  const bindings = {
+    ...env,
+    DEV_AUTH: "local",
+    LEARNING_SESSIONS: { getByName: () => ({ exists: async () => true, submit }) },
+  } as unknown as CloudflareBindings;
+  const response = await app.fetch(new Request("http://localhost/api/sessions/12345678/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "Find current Workers docs", requestId: "browser-routing-test" }),
+  }), bindings);
+  expect(response.status).toBe(202);
+  expect(classify).toHaveBeenCalledExactlyOnceWith("Find current Workers docs");
+  expect(submit).toHaveBeenCalledWith("personal", "Find current Workers docs", "browser-routing-test", decision);
+});
+
+it("does not submit a modern workspace turn when the Jev gate fails", async () => {
+  const classify = vi.spyOn(routing, "classifyRequest").mockRejectedValue(new Error("private classifier failure"));
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const submit = vi.fn();
+  const bindings = {
+    ...env,
+    DEV_AUTH: "local",
+    LEARNING_SESSIONS: { getByName: () => ({ exists: async () => true, submit }) },
+  } as unknown as CloudflareBindings;
+  try {
+    const response = await app.fetch(new Request("http://localhost/api/sessions/12345678/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Explain types", requestId: "browser-route-failure" }),
+    }), bindings);
+    expect(response.status).toBe(502);
+    expect(classify).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+  } finally { error.mockRestore(); }
+});
+
 /** Input: a repository Shortcut request. Output: unchanged 202 handoff plus its persisted Jev decision.
  * What this function does: covers routing paths that return a URL without submitting an answer turn.
  */

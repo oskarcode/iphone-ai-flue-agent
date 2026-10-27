@@ -49,11 +49,11 @@ export function TurnActivityPanel({ activity }: { activity?: TurnActivity }) {
           )}
           {activity.truncated && (
             <p className="muted">
-              Showing retained routing and the latest activity steps (80 total).
+              Showing the routing decision and latest activity steps (80 total).
             </p>
           )}
           <ol>
-            {activity.steps.map((step) => (
+            {activity.steps.filter((step) => step.id !== "routing").map((step) => (
               <li key={step.id} data-status={step.status}>
                 <span>{step.label}</span>
                 <small>

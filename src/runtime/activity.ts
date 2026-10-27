@@ -32,6 +32,17 @@ const TOOL_LABELS: Record<string, string> = {
   read_saved_source: "Read saved evidence",
 };
 
+/** Model-supplied arguments are never surfaced except a validated public skill slug. */
+function toolLabel(name: string, args?: Record<string, unknown>): string {
+  const description = Object.hasOwn(TOOL_LABELS, name) ? TOOL_LABELS[name] : undefined;
+  if (!description) return "Agent tool (name withheld)";
+  const slug = args?.slug;
+  const skill = name === "read_skill" && typeof slug === "string" &&
+    slug.length <= 60 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)
+    ? ` /${slug}` : "";
+  return `Tool · ${name}${skill} — ${description}`;
+}
+
 /** Per-session operational journal; canonical answers/tasks remain in Pi's own tables.
  * Rows belong to input submission IDs, not whichever message happens to be newest.
  */
@@ -72,7 +83,9 @@ export class ActivityJournal {
    * What this function does: prepends one truthful decision, preserves it on retries, and supports non-chat handoffs.
    */
   routing(id: string, decision?: RoutingDecision, entryId?: string) {
-    const label = routingLabel(decision);
+    const label = decision && !entryId
+      ? `${routingLabel(decision)} → Pi tutor (tools selected by Pi)`
+      : routingLabel(decision);
     const turn = this.get(id);
     if (turn.steps.some((step) => step.id === "routing")) return;
     if (entryId) {
@@ -90,6 +103,19 @@ export class ActivityJournal {
       turn.steps = [turn.steps[0], ...turn.steps.slice(-79)];
       turn.truncated = true;
     }
+    this.save(turn);
+  }
+  /** A successful owner-scoped Computer lookup verifies the command exists; it does not claim the model read it. */
+  skill(id: string, slug: string) {
+    if (slug.length > 60 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return;
+    const turn = this.get(id);
+    if (turn.steps.some((step) => step.id === `skill:${slug}`)) return;
+    turn.steps.splice(turn.steps[0]?.id === "routing" ? 1 : 0, 0, {
+      id: `skill:${slug}`,
+      label: `Skill command found · /${slug}`,
+      status: "done",
+      at: new Date().toISOString(),
+    });
     this.save(turn);
   }
   /** Input: a committed Pi submission. Output: updated turn lifecycle.
@@ -137,7 +163,10 @@ export class ActivityJournal {
         continue;
       if (existing) {
         existing.status = status;
-        existing.label = label;
+        // Reconnection snapshots do not carry model-tool arguments. Keep an
+        // earlier validated skill slug instead of replacing it with a generic label.
+        if (!(id.startsWith("tool:") && existing.label.includes(" /")))
+          existing.label = label;
       } else
         turn.steps.push({ id, label, status, at: new Date().toISOString() });
       if (turn.steps.length > 80) {
@@ -152,6 +181,12 @@ export class ActivityJournal {
       }
       this.save(turn);
     }
+  }
+  /** Child conversations have their own event stream; report only allowlisted coach tool names into the parent turn. */
+  childTool(name: string, taskId: string, status: ActivityStep["status"]) {
+    if (!["list_learning_sessions", "read_learning_session", "read_learning_message"].includes(name))
+      return;
+    this.step(`coach-tool:${taskId}`, `Coach · ${toolLabel(name)}`, status);
   }
   /** Input: ordered Pi event batch. Output: sanitized durable progress.
    * What this function does: ignores content-bearing events and records lifecycle/tool/retry/compaction summaries only.
@@ -186,7 +221,7 @@ export class ActivityJournal {
                     : "interrupted";
             this.step(
               `tool:${tool.callId}`,
-              TOOL_LABELS[tool.name] ?? "Run agent tool",
+              toolLabel(tool.name),
               status,
             );
           }
@@ -195,7 +230,7 @@ export class ActivityJournal {
               "generation",
               event.generation.retry
                 ? "Waiting to retry model"
-                : "Generating response",
+                : "Calling Pi model",
               "running",
             );
           break;
@@ -203,7 +238,7 @@ export class ActivityJournal {
           this.active = [];
           break;
         case "turn_start":
-          this.step("generation", "Generating response", "running");
+          this.step("generation", "Calling Pi model", "running");
           break;
         case "message_update":
           if (event.changes.some((change) => change.type === "text_delta"))
@@ -212,7 +247,7 @@ export class ActivityJournal {
         case "tool_execution_start":
           this.step(
             `tool:${event.toolCallId}`,
-            TOOL_LABELS[event.toolName] ?? "Run agent tool",
+            toolLabel(event.toolName, event.args),
             "running",
           );
           break;
@@ -225,7 +260,7 @@ export class ActivityJournal {
             event.result?.isError;
           this.step(
             `tool:${event.toolCallId}`,
-            TOOL_LABELS[event.toolName] ?? "Run agent tool",
+            toolLabel(event.toolName),
             failed ? "error" : "done",
           );
           break;

@@ -35,6 +35,7 @@ import {
   grammarModelFromConfiguredModel,
 } from "./lib/grammar-correction.ts";
 import { gatewayMetadata } from "./lib/gateway-metadata.ts";
+import { generateSessionTitle } from "./lib/session-title.ts";
 import { learningArchiveStub } from "./lib/learning-archive.ts";
 import { renderReviewDetailPage } from "./review-page.ts";
 
@@ -231,17 +232,17 @@ async function create(
     }
     return id;
   }
+  if (await stub.isDeleted(owner(c))) throw new Error("Session not found");
   const repository =
     route === "github_learning"
       ? await resolveGithubRepository(text)
       : undefined;
+  const title = await generateSessionTitle(c.env, text, c.req.raw.signal);
   const now = new Date().toISOString();
   const metadata: SessionMetadata = {
     id,
     owner: owner(c),
-    title:
-      (repository?.fullName ?? text.replace(/\s+/g, " ")).slice(0, 100) ||
-      "New learning",
+    title,
     type: repository
       ? "repository"
       : route === "visual_explanation"
@@ -746,10 +747,12 @@ app.post("/api/sessions/:id/messages", async (c) => {
     !/^[a-zA-Z0-9:_-]{8,160}$/.test(body.requestId)
   )
     return c.json({ error: "Invalid message" }, 400);
+  const target = await ensure(c, c.req.param("id"));
+  // The browser uses the same Jev decision boundary as Shortcut requests.
+  // Pi still decides which tools to call; activity reports both stages separately.
+  const decision = await classify(body.text);
   return c.json(
-    await (
-      await ensure(c, c.req.param("id"))
-    ).submit(owner(c), body.text, body.requestId),
+    await target.submit(owner(c), body.text, body.requestId, decision),
     202,
   );
 });

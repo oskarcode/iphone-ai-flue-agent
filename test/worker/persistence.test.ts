@@ -214,7 +214,15 @@ describe("Pi learning persistence in workerd", () => {
   });
   it("preserves handoff URL, JSON shape and one-time text consumption", async () => {
     for (const path of ["/handoff", "/v1/chat-session"]) {
-      const response = await call(path, { text: "Explain durable state" });
+      const response = await app.fetch(new Request(`http://localhost${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "Explain durable state" }),
+      }), {
+        ...env,
+        DEV_AUTH: "local",
+        AI: { run: async () => ({ response: "Understanding Durable State", finish_reason: "stop" }) },
+      } as unknown as CloudflareBindings);
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
         chat_url: string;
