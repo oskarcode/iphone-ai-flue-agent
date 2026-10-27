@@ -1,6 +1,6 @@
 # Personal Learning Workspace
 
-An iPhone-first tutor that turns selected text, questions, web pages and GitHub repositories into learning conversations you can reopen later. A Cloudflare Worker serves the mobile interface and existing Shortcut APIs; Pi Durable keeps conversation history, work-in-progress, sources and notes in SQLite-backed Durable Objects. Grammar correction stays separate and stateless.
+An iPhone-first tutor for pasted text, questions, web pages and GitHub repositories. Open the browser workspace, start **＋ New learning** or continue an existing session, and reopen conversations from Library. Pi Durable retains history, sources and notes in SQLite-backed Durable Objects. The separate grammar-correction Shortcut remains stateless.
 
 ## What It Does
 
@@ -8,12 +8,12 @@ An iPhone-first tutor that turns selected text, questions, web pages and GitHub 
 - Explains concepts, researches public pages and tutors directly from commit-pinned repository files, including authorized private repositories.
 - Retains source text, retrieval timestamps, hashes and independently addressable visual artifacts.
 - Renders escaped Markdown, copyable code and scrollable tables on phones.
-- Shows a collapsible **Agent activity** panel for each turn: queued/running/completed status, tool activity, retries and context summarization. Recorded progress survives reloads; raw reasoning, tool payloads and provider errors are never sent to this panel. New classification events come only from Jev, including GitHub URLs and recap requests—there are no deterministic routing overrides or fallback classifications. If Jev fails or returns an invalid route, classified APIs return a retryable error without starting a session/answer. Previously saved routing labels remain intact. Normal workspace turns still go directly to Pi and explicitly say **Jev not used**; repository/visual handoffs retain a separate **Request routing** panel.
+- Shows a collapsible **Agent activity** panel for each turn: queued/running/completed status, tool activity, retries and context summarization. Recorded progress survives reloads; raw reasoning, tool payloads and provider errors are never sent to this panel. New messages go directly to Pi, which chooses its own tools; historical Jev routing labels remain readable on old activity.
 - Keeps the workspace focused on conversation: no Sources & notes panel or Save note buttons. Only rename and pin/unpin live in the compact **⋯ Session options** menu; Delete stays in the header. Archive and session-export controls are removed. The Library includes all saved sessions, including previously archived ones, without changing their retained data.
 - Applies a saved learner profile tailored to a Python/FastAPI/Django developer learning TypeScript, Cloudflare developer products and agent harnesses. The obsolete note-recall checkbox and import control are removed; historical APIs and saved source evidence remain. Legacy recall requests are disabled.
 - Creates reviewable social-post drafts with an illustrative TypeScript mental model. Nothing publishes automatically.
 - Requires explicit server-side approval before GitHub issue creation or a branch-only file change.
-- Preserves existing Shortcut request paths, fields, service-token headers and response fields. See [Shortcut contracts](docs/shortcut-contracts.md).
+- Keeps only the grammar Shortcut's `/v1/correct` contract and Access credentials; explanation/handoff Shortcuts and old chat POST APIs are retired. See [Current contracts](docs/shortcut-contracts.md).
 
 ## Learning coach
 
@@ -31,12 +31,12 @@ Ask the assistant to create, update or remove a skill. It prepares an exact prop
 
 **Execution is enabled**, including the worker-shell's file tools, curl/network access, jq and HTML conversion, plus a separate isolated JavaScript module backend with persistent filesystem access. JavaScript uses `export default async function () { ... }`, not the `node` CLI. This is not a full Linux VM or a Docker container; npm/native binaries are not provided by this backend. Dynamic Workers use `SKILL_LOADER`, `WorkspaceServiceProxy` and the experimental compatibility flag. No application credentials are passed to the shell. Agent-originated file writes, deletions and execution require exact UI approval; commands run with a 30-second timeout and bounded output. Interrupted operations are not blindly repeated. Direct Settings commands also require confirmation.
 
-The preview SDK and experimental Worker Loader are deliberate demo dependencies. Deployment adds migration `v5-learning-computer`, without changing earlier migrations, Access policies or Shortcut contracts. Dependency overrides patch transitive Undici and test-plugin Zod security issues.
+The preview SDK and experimental Worker Loader are deliberate demo dependencies. The existing `v5-learning-computer` migration and earlier migrations stay unchanged. Access configuration and the grammar Shortcut contract are retained. Dependency overrides patch transitive Undici and test-plugin Zod security issues.
 
 ## How It Works
 
 ```text
-Browser / iPhone Shortcut
+Browser workspace / grammar Shortcut
   -> Access identity verification + Hono routes
   -> LearningSession Durable Object for one session ID
        Pi SQLite entries, submissions and recoverable tasks
@@ -62,12 +62,12 @@ The Library is a versioned projection, not a second authoritative transcript. De
 |---|---|
 | TypeScript, Node.js tooling | Shared contracts and local build/test tooling |
 | React + Vite | Mobile workspace and bundled static assets |
-| Hono + Cloudflare Workers | HTTP compatibility boundary, authentication and asset delivery |
+| Hono + Cloudflare Workers | Session and grammar APIs, historical read adapters, authentication and assets |
 | Pi Durable / Pi AI / Chord 1.2.0 | Durable conversation execution and background task coordination |
 | SQLite-backed Durable Objects | Canonical session state, rebuildable Library, shared Computer and owner-scoped learning coach |
 | Cloudflare Computer 0.5.1 + Worker Loader | Persistent skill files and approved worker-shell execution |
-| Workers KV | Ten-minute Shortcut delivery envelopes and retained legacy records |
-| Workers AI + AI Gateway | Tutor/visual inference, stateless grammar and Jev intent classification |
+| Workers KV | Retained historical records; no new learning handoff envelopes |
+| Workers AI + AI Gateway | Tutor/visual inference, stateless grammar and workspace title generation |
 | `jose` + Cloudflare Access | Signed JWT verification for browser/service callers |
 | Valibot | Runtime validation of model tool arguments |
 | Vitest + Cloudflare test plugin + Playwright | Pure, workerd persistence/recovery and mobile-browser checks |
@@ -79,7 +79,7 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 | Path | Owns |
 |---|---|
 | `src/cloudflare.ts` | Worker entry and immutable Durable Object class exports |
-| `src/app.ts` | Routes, Shortcut adapters, Access admission, migration, streaming export |
+| `src/app.ts` | Workspace and grammar routes, Access admission, historical migration and export |
 | `src/client/main.tsx`, `styles.css` | Library, composer, snapshots, reconnects and phone layout |
 | `src/runtime/session.ts` | Canonical Pi/application state, recovery, approvals and deletion |
 | `src/runtime/library.ts` | Search projection, preferences, note recall and tombstones |
@@ -90,7 +90,7 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 | `src/runtime/activity.ts`, `src/client/turn-activity.tsx` | Sanitized persistent per-turn progress and collapsible UI |
 | `src/runtime/auth.ts`, `contracts.ts` | Verified identity and shared transport/data shapes |
 | `src/runtime/legacy.ts`, `src/learning-archive.ts` | Historical storage access; not the active tutor runtime |
-| `src/tools/` | Web retrieval, GitHub operations and Jev classification |
+| `src/tools/` | Web retrieval and GitHub operations |
 | `src/lib/`, `src/prompts.ts` | Rendering, prompts, grammar/visual normalization and compatibility helpers |
 | `scripts/migrate-legacy.py` | Explicit operator inventory/import utility |
 | `test/` | Validators, contracts, SQLite recovery and browser tests |
@@ -100,7 +100,7 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 
 ## APIs and Interfaces
 
-All private interfaces require verified Access admission. The existing service-token credentials stay in the Shortcut's `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers; Access injects the signed identity consumed by the Worker.
+All private interfaces require verified Access admission. Keep the existing grammar Shortcut's `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers; Access injects the signed identity consumed by the Worker. Do not revoke a shared credential without checking its other users.
 
 | Interface | Input / result |
 |---|---|
@@ -110,9 +110,6 @@ All private interfaces require verified Access admission. The existing service-t
 | `GET /api/skills`, `/api/skills/:slug` | Shared command catalog and full skill instructions/revision |
 | `GET /api/computer`, `/api/computer/file?path=...` | Bounded Computer file listing and preview |
 | `POST /api/computer/actions` | Explicit skill/file/shell mutation with a stable `Idempotency-Key` |
-| `POST /v1/ask` | `{ text }` -> answer JSON, repository `learning_url` (202), or `visual_url` |
-| `POST /handoff`, `/v1/chat-session` | `{ text }` -> `chat_url`, `expires_in_seconds: 600` |
-| `GET /chat/session/:id` | Consumes the temporary handoff and returns `{ text }`; not a persistent page URL |
 | `GET /chat`, `/sessions/:id`, `/learn/:id` | Current browser workspace |
 | `GET /api/sessions` | Literal search, archive filter and offset pagination |
 | `POST /api/sessions` | `{ text, id? }` -> 201 `{ id, url }`; does not submit a model turn |
@@ -122,9 +119,11 @@ All private interfaces require verified Access admission. The existing service-t
 | Sources, notes, approvals, stop, export | Session subroutes for retained evidence and explicit operations |
 | `GET/PUT /api/preferences` | Teaching text and opt-in public-note recall |
 | `GET /visual/:id?artifact=…` | Retained version-specific visual HTML; treat returned links as opaque URLs |
-| Legacy review/chat/status/SSE routes | Retained compatibility interfaces, not the new browser transport |
+| Historical review/learning/visual GET links | Retained read-only compatibility, not the new browser transport |
 | `POST /api/migrate`, `/api/migrate/object` | Authorized passive import; never replays historical tools |
 | `GET /health` | Public framework/router status, not model/storage readiness |
+
+Retired learning/Shortcut POST routes (`/v1/ask`, `/handoff`, `/v1/chat-session`, `/chat/api`, `/chat/stream`, `/learn/:id/chat`, `/v1/learning-sessions/:id`) and the handoff-consumption GET route (`/chat/session/:id`) now return 404. Old session, review and visual GET links remain; previously issued temporary `/chat?session=…` links no longer auto-submit.
 
 Text admission is limited to 30,000 characters. Invalid bodies normally return 400, missing authentication 401, cross-origin writes 403, missing sessions 404 and uncaught dependency failures a redacted 502. Some validation inside a Durable Object currently reaches the generic 502 handler; do not assume every validation failure is 400.
 
@@ -161,7 +160,7 @@ The explicit localhost host prevents Wrangler from rewriting the request to a pr
 
 1. Replace the Worker name, custom domain, KV namespace ID, Access issuer/audiences and AI Gateway ID in `wrangler.jsonc` with your own values. Do not reuse someone else's resource IDs.
 2. Create your KV namespace and AI Gateway. Bind the configured AI service. Keep the named DO exports and migration tags consistent. On an existing installation, **never rewrite applied migration history or remove legacy namespaces as cleanup**.
-3. Configure Access browser admission and the Shortcut service-token application. Include both application audiences if separate apps protect those paths. This app assumes one trusted personal workspace, not unrelated tenants.
+3. Configure Access browser admission and the grammar Shortcut's service-token application. Include both application audiences if separate apps protect those paths. This app assumes one trusted personal workspace, not unrelated tenants.
 4. Authenticate Wrangler and set the optional GitHub secret in your own Worker:
 
 ```sh
@@ -184,7 +183,7 @@ Code rollback does not roll back DO schemas/data. A compatibility rollback must 
 
 - Every admitted browser/service actor shares the **same personal Library**. Access application membership is the privacy boundary. This is not per-person tenant isolation.
 - Signed JWT issuer, allowed audience, signature and expiration are checked. Email headers and UUID possession are not authentication. New paths also verify the signed app cookie when an assertion header is absent; this is not a second interactive login flow.
-- Browser mutation and socket requests reject a mismatched Origin. Shortcut requests normally have no Origin.
+- Browser mutation and socket requests reject a mismatched Origin. The retained grammar Shortcut normally has no Origin.
 - `GITHUB_TOKEN` is server-only. Writes execute only after an explicit approval of exact persisted arguments; uncertain writes are not automatically retried. File changes go to new branches and reject stale repository HEAD.
 - Tool input validation, URL/redirect/private-address checks, byte limits and HTML escaping are intentional security controls. Do not remove them merely because TypeScript types exist.
 - Imported content, external pages and repository files are untrusted evidence. Social-draft privacy instructions are not a guaranteed redaction filter; review before sharing.
@@ -198,7 +197,7 @@ Code rollback does not roll back DO schemas/data. A compatibility rollback must 
 |---|---|---|
 | Change teaching style or post draft | `src/prompts.ts`, `src/lib/chat-presets.ts`, `src/runtime/harness.ts` | Prompt tests and a representative answer |
 | Change mobile reading/composer | `src/client/main.tsx`, `styles.css` | Reload, draft, Library and phone-width behavior |
-| Change a Shortcut contract | `src/app.ts` | Existing client payload/field compatibility before changing anything |
+| Change grammar correction | `src/app.ts`, `src/lib/grammar-correction.ts` | `/v1/correct` response and Access credential compatibility |
 | Add a read-only tool | `src/tools/`, `src/runtime/harness.ts` | Runtime schema, retrieval bounds, evidence retention, replay safety |
 | Change external writes | `LearningSession.approve`, GitHub tools | Approval state machine, exact arguments and ambiguous failure handling |
 | Change persistence/search | `session.ts`, `library.ts`, `contracts.ts` | Eviction, dirty revisions, tombstones and privacy filtering |
@@ -209,7 +208,7 @@ Code rollback does not roll back DO schemas/data. A compatibility rollback must 
 | Symptom | Inspect / verify |
 |---|---|
 | Local 401 | `DEV_AUTH=local`, request hostname and `--host localhost`; `src/runtime/auth.ts` |
-| Shortcut fails after auth changes | Distinct browser/service Access audiences and existing service-token policy; never paste secrets into logs |
+| Grammar Shortcut fails after auth changes | Distinct browser/service Access audiences and existing service-token policy; never paste secrets into logs |
 | Answer missing after reload | Pending request ID, session snapshot/error, alarm/reconcile; `npm run test:worker` |
 | Library lags a conversation | Dirty revision/outbox and `LearningLibrary.upsert`; do not replace canonical history with index contents |
 | Private repository 404 | Server token permissions and pinned repository; public raw URL fetching is not used for private files |

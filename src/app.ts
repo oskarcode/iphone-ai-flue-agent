@@ -9,25 +9,9 @@ import {
 import { verifyIdentity, type Identity } from "./runtime/auth.ts";
 import { SESSION_ID, type SessionMetadata } from "./runtime/contracts.ts";
 import { projectLegacyMessages } from "./runtime/legacy.ts";
-// Compatibility adapters retain the Shortcut payloads while delegating learning work to Pi.
-import {
-  classifyRequest as classify,
-  type JevRoute,
-} from "./tools/jev-router.ts";
-import {
-  resolveGithubRepository,
-  parseGithubRepositoryRequest,
-  type GithubRepository,
-} from "./tools/github-repository.ts";
-import {
-  getLearningSessionRecord,
-  LEARNING_SESSION_TTL_SECONDS,
-} from "./lib/learning-session.ts";
-import {
-  getVisualSession,
-  VISUAL_SESSION_TTL_SECONDS,
-} from "./lib/visual-session.ts";
-import { generateVisualExplainer } from "./lib/visual-explainer.ts";
+import type { GithubRepository } from "./tools/github-repository.ts";
+import { getLearningSessionRecord } from "./lib/learning-session.ts";
+import { getVisualSession } from "./lib/visual-session.ts";
 import { renderVisualExplainerPage } from "./visual-page.ts";
 import {
   createGrammarRequest,
@@ -88,7 +72,7 @@ app.use("*", async (c, next) => {
   }
 });
 app.get("/health", (c) =>
-  c.json({ status: "ok", framework: "pi-durable", router: "jev" }),
+  c.json({ status: "ok", framework: "pi-durable", router: "pi" }),
 );
 /** Input: request headers/URL. Output: admitted request, login redirect, 401 or 403.
  * What this function does: verifies Access before private routes and rejects cross-origin browser mutations.
@@ -113,7 +97,7 @@ app.use("*", async (c, next) => {
       return c.redirect("/chat");
     return c.json({ error: "Authentication required" }, 401);
   }
-  // Shortcuts do not send Origin. Browsers may mutate only from this app's origin.
+  // Grammar Shortcut requests have no Origin; browsers may mutate only from this app's origin.
   const origin = c.req.header("Origin");
   if (
     origin &&
@@ -184,8 +168,8 @@ async function json<T>(
     reader.releaseLock();
   }
 }
-/** Input: JSON request and whitespace policy. Output: validated text or null.
- * What this function does: enforces the common 30,000-character Shortcut limit.
+/** Input: grammar JSON request and whitespace policy. Output: validated text or null.
+ * What this function does: enforces the 30,000-character grammar limit.
  */
 async function textBody(c: Context<AppEnv>, preserve = false) {
   const body = await json<{ text?: unknown }>(c);
@@ -206,50 +190,26 @@ function requestId(c: Context<AppEnv>) {
     ? value
     : crypto.randomUUID();
 }
-/** Input: owner context, text, route and optional session ID. Output: durable session ID.
- * What this function does: reuses existing sessions, resolves repository context and retains original shared input.
+/** Input: owner context, first message and optional session ID. Output: durable session ID.
+ * What this function does: reuses canonical sessions and retains the initial input; Pi selects tools on submission.
  */
 async function create(
   c: Context<AppEnv>,
   text: string,
-  route: JevRoute = "direct_answer",
   id: string = crypto.randomUUID(),
 ) {
   if (!SESSION_ID.test(id)) throw new Error("Invalid session ID");
   const stub = session(c, id);
-  if (await stub.exists(owner(c))) {
-    if (route === "github_learning") {
-      const current = await stub.getMetadata(owner(c));
-      const requested = parseGithubRepositoryRequest(text);
-      if (
-        current.repository?.fullName.toLowerCase() !==
-        `${requested.owner}/${requested.repo}`.toLowerCase()
-      )
-        await stub.attachRepository(
-          owner(c),
-          await resolveGithubRepository(text),
-        );
-    }
-    return id;
-  }
+  if (await stub.exists(owner(c))) return id;
   if (await stub.isDeleted(owner(c))) throw new Error("Session not found");
-  const repository =
-    route === "github_learning"
-      ? await resolveGithubRepository(text)
-      : undefined;
   const title = await generateSessionTitle(c.env, text, c.req.raw.signal);
   const now = new Date().toISOString();
   const metadata: SessionMetadata = {
     id,
     owner: owner(c),
     title,
-    type: repository
-      ? "repository"
-      : route === "visual_explanation"
-        ? "visual"
-        : "general",
-    private: Boolean(repository?.private),
-    repository,
+    type: "general",
+    private: false,
     createdAt: now,
     updatedAt: now,
     archived: false,
@@ -426,100 +386,6 @@ app.post("/v1/correct", async (c) => {
   );
   return c.json({ corrected_text: corrected });
 });
-/** Input: text JSON. Output: answer, repository link (202), or visual link.
- * What this function does: preserves the one-shot Shortcut contract while creating retained learning state.
- */
-app.post("/v1/ask", async (c) => {
-  const text = await textBody(c);
-  if (!text)
-    return c.json(
-      {
-        error:
-          "Send JSON with a non-empty text field of at most 30000 characters",
-      },
-      400,
-    );
-  const decision = await classify(text);
-  const route = decision.route;
-  const id = await create(c, text, route);
-  const retryId = requestId(c);
-  if (route === "github_learning" || route === "visual_explanation")
-    await session(c, id).recordRouting(owner(c), retryId, decision);
-  if (route === "github_learning")
-    return c.json(
-      {
-        route,
-        status: "ready",
-        learning_url: absolute(c, `/learn/${id}`),
-        expires_in_seconds: LEARNING_SESSION_TTL_SECONDS,
-      },
-      202,
-    );
-  if (route === "visual_explanation")
-    return c.json({
-      route,
-      status: "ready",
-      visual_url: await visual(c, id, text),
-      expires_in_seconds: VISUAL_SESSION_TTL_SECONDS,
-    });
-  return c.json({
-    answer: await session(c, id).answer(owner(c), text, retryId, decision),
-    route,
-  });
-});
-/** Input: prompt and session. Output: version-specific visual URL.
- * What this function does: normalizes model JSON and persists an immutable source before returning its link.
- */
-async function visual(c: Context<AppEnv>, id: string, prompt: string) {
-  const explainer = await generateVisualExplainer(
-    c.env.AI,
-    prompt,
-    new AbortController().signal,
-    c.env.AI_GATEWAY_ID,
-    gatewayMetadata("visual-explainer"),
-  );
-  const artifact = await session(c, id).setVisual(owner(c), explainer);
-  return absolute(c, `/visual/${id}?artifact=${encodeURIComponent(artifact)}`);
-}
-/** Input: selected text JSON. Output: chat_url with a 600-second handoff envelope.
- * What this function does: retains input in the session before writing temporary KV delivery state.
- */
-async function handoff(c: Context<AppEnv>) {
-  const text = await textBody(c);
-  if (!text)
-    return c.json(
-      {
-        error:
-          "Send JSON with a non-empty text field of at most 30000 characters",
-      },
-      400,
-    );
-  const id = await create(c, text);
-  await c.env.CHAT_SESSIONS.put(`chat-session:${id}`, text, {
-    expirationTtl: 600,
-  });
-  return c.json({
-    chat_url: absolute(c, `/chat?session=${id}`),
-    expires_in_seconds: 600,
-  });
-}
-app.post("/handoff", handoff);
-app.post("/v1/chat-session", handoff);
-/** Input: handoff ID. Output: text JSON or 404.
- * What this function does: consumes the legacy KV envelope; the underlying session does not expire.
- */
-app.get("/chat/session/:id", async (c) => {
-  const id = c.req.param("id");
-  if (!SESSION_ID.test(id))
-    return c.json({ error: "Invalid chat session" }, 400);
-  const key = `chat-session:${id}`;
-  const text = await c.env.CHAT_SESSIONS.get(key);
-  if (text === null)
-    return c.json({ error: "Chat session expired or was already used" }, 404);
-  await create(c, text, "direct_answer", id);
-  await c.env.CHAT_SESSIONS.delete(key);
-  return c.json({ text });
-});
 /** Input: session ID and optional artifact ID. Output: escaped interactive HTML or 404.
  * What this function does: reads immutable Pi artifacts first, then retained legacy visual KV records.
  */
@@ -555,63 +421,6 @@ app.get("/visual/:id", async (c) => {
     ? c.html(renderVisualExplainerPage(old.metadata, old.explainer))
     : c.json({ error: "Visual not found" }, 404);
 });
-/** Input: legacy learning ID. Output: ready JSON.
- * What this function does: admits/imports the session without requiring guide generation.
- */
-app.get("/learn/:id/status", async (c) => {
-  await ensure(c, c.req.param("id"));
-  return c.json({ status: "ready", expires_at: "9999-12-31T23:59:59.999Z" });
-});
-/** Input: legacy learning ID. Output: one ready SSE event.
- * What this function does: keeps old readiness clients compatible; this is not the new chat transport.
- */
-app.get("/learn/:id/events", async (c) => {
-  await ensure(c, c.req.param("id"));
-  return new Response('event: ready\ndata: {"status":"ready"}\n\n', {
-    headers: { "Content-Type": "text/event-stream" },
-  });
-});
-/** Input: question and optional selected text/title. Output: answer JSON.
- * What this function does: bounds legacy guide selections and submits them as untrusted evidence to Pi.
- */
-app.post("/learn/:id/chat", async (c) => {
-  const body = await json<{
-    question?: unknown;
-    selectedText?: unknown;
-    sectionTitle?: unknown;
-  }>(c, 32_000);
-  const question =
-    typeof body?.question === "string" ? body.question.trim() : "";
-  const selection =
-    typeof body?.selectedText === "string" ? body.selectedText.trim() : "";
-  const title = typeof body?.sectionTitle === "string" ? body.sectionTitle : "";
-  if (
-    (!question && !selection) ||
-    question.length > 4000 ||
-    selection.length > 5000 ||
-    title.length > 240
-  )
-    return c.json(
-      {
-        error:
-          "Send a question or selected guide text within the supported limits",
-      },
-      400,
-    );
-  const stub = await ensure(c, c.req.param("id"));
-  return c.json({
-    answer: await stub.answer(
-      owner(c),
-      [
-        question || "Explain this selection.",
-        selection ? `Untrusted source selection (${title}):\n${selection}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      requestId(c),
-    ),
-  });
-});
 /** Input: session ID and owner. Output: 204 after cleanup.
  * What this function does: delegates tombstoned deletion and removes compatibility KV envelopes.
  */
@@ -623,7 +432,7 @@ async function remove(c: Context<AppEnv>, id: string) {
   await c.env.CHAT_SESSIONS.delete(`chat-session:${id}`);
   return c.body(null, 204);
 }
-app.delete("/v1/learning-sessions/:id", (c) => remove(c, c.req.param("id")));
+
 app.get("/review", (c) => c.redirect("/chat"));
 /** Input: archived session ID. Output: current-session redirect, historical HTML, or 404.
  * What this function does: keeps old review bookmarks readable without executing the former runtime.
@@ -712,7 +521,7 @@ app.post("/api/sessions", async (c) => {
       (typeof body.id !== "string" || !SESSION_ID.test(body.id)))
   )
     return c.json({ error: "Invalid session input" }, 400);
-  const id = await create(c, body.text, "direct_answer", body.id);
+  const id = await create(c, body.text, body.id);
   return c.json({ id, url: absolute(c, `/sessions/${id}`) }, 201);
 });
 app.get("/api/sessions/:id", async (c) =>
@@ -748,11 +557,9 @@ app.post("/api/sessions/:id/messages", async (c) => {
   )
     return c.json({ error: "Invalid message" }, 400);
   const target = await ensure(c, c.req.param("id"));
-  // The browser uses the same Jev decision boundary as Shortcut requests.
-  // Pi still decides which tools to call; activity reports both stages separately.
-  const decision = await classify(body.text);
+  // Pi owns workspace tool selection; no pre-submission classifier is needed.
   return c.json(
-    await target.submit(owner(c), body.text, body.requestId, decision),
+    await target.submit(owner(c), body.text, body.requestId),
     202,
   );
 });
@@ -989,153 +796,6 @@ app.post("/api/migrate", async (c) => {
   });
 });
 
-// Legacy browser JSON/SSE clients retain their accepted payload and response vocabulary.
-/** Input: legacy conversation_id/messages and streaming flag. Output: old JSON or SSE vocabulary.
- * What this function does: validates history, submits only the newest user turn and adapts repository/visual responses.
- */
-async function legacyChat(c: Context<AppEnv>, streaming: boolean) {
-  const body = await json<{
-    conversation_id?: unknown;
-    messages?: { role: unknown; content: unknown }[];
-  }>(c);
-  const messages = body?.messages;
-  const id = body?.conversation_id;
-  if (
-    typeof id !== "string" ||
-    !SESSION_ID.test(id) ||
-    !Array.isArray(messages) ||
-    !messages.length ||
-    messages.length > 20 ||
-    messages.some(
-      (m) =>
-        !m ||
-        !["user", "assistant"].includes(String(m.role)) ||
-        typeof m.content !== "string" ||
-        !m.content.trim(),
-    ) ||
-    messages.reduce((n, m) => n + String(m.content).length, 0) > 36_000 ||
-    messages.at(-1)?.role !== "user"
-  )
-    return c.json(
-      {
-        error:
-          "Send a conversation_id and chat history ending with a user message",
-      },
-      400,
-    );
-  const text = String(messages.at(-1)!.content);
-  const decision = await classify(text);
-  const route = decision.route;
-  const retryId = requestId(c);
-  if (
-    !(await session(c, id).exists(owner(c))) &&
-    (await c.env.FLUE_IPHONE_ASSISTANT_AGENT.getByName(id).identity())
-  )
-    await migrate(c, id, "general", true);
-  await create(c, text, route, id);
-  if (route === "github_learning" || route === "visual_explanation")
-    await session(c, id).recordRouting(owner(c), retryId, decision);
-  if (!streaming && route === "github_learning") {
-    const url = absolute(c, `/learn/${id}`);
-    return c.json(
-      {
-        answer: `Your repository tutor is ready:\n\n${url}`,
-        conversation_id: id,
-        route,
-        learning_url: url,
-      },
-      202,
-    );
-  }
-  /** Input: validated legacy request captured above. Output: legacy response payload.
-   * What this function does: returns repository readiness, creates a visual, or waits for a durable answer.
-   */
-  const run = async () => {
-    if (route === "github_learning") {
-      const metadata = await session(c, id).getMetadata(owner(c));
-      return {
-        text: "Opening repository tutor…",
-        route,
-        conversationId: id,
-        repositorySession: {
-          id,
-          repository: metadata.repository?.fullName ?? metadata.title,
-          private: metadata.private,
-        },
-      };
-    }
-    if (route === "visual_explanation") {
-      const url = await visual(c, id, text);
-      return {
-        text: `I made a visual explainer:\n\n${url}`,
-        route,
-        conversationId: id,
-        visualUrl: url,
-      };
-    }
-    return {
-      text: await session(c, id).answer(owner(c), text, retryId, decision),
-      route,
-      conversationId: id,
-    };
-  };
-  if (!streaming) {
-    const result = await run();
-    return c.json({
-      answer: result.text,
-      conversation_id: id,
-      route,
-      ...("visualUrl" in result ? { visual_url: result.visualUrl } : {}),
-    });
-  }
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    /** Input: SSE stream controller. Output: accepted then done/error events.
-     * What this function does: keeps completion in waitUntil even if the old browser stream disconnects.
-     */
-    start(controller) {
-      let closed = false;
-      /** Input: event name and data. Output: encoded SSE frame when open.
-       * What this function does: treats closed clients as transport loss, not generation cancellation.
-       */
-      const send = (event: string, data: unknown) => {
-        if (!closed)
-          try {
-            controller.enqueue(
-              encoder.encode(
-                `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
-              ),
-            );
-          } catch {
-            closed = true;
-          }
-      };
-      send("status", { type: "accepted" });
-      const work = run()
-        .then((result) => send("done", result))
-        .catch(() => send("error", { error: "Assistant request failed" }))
-        .finally(
-          /** Input: settled background request. Output: closed stream if still writable.
-           * What this function does: avoids a second close error after client disconnection.
-           */ () => {
-            if (!closed)
-              try {
-                controller.close();
-              } catch {}
-          },
-        );
-      c.executionCtx.waitUntil(work);
-    },
-  });
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-    },
-  });
-}
-app.post("/chat/api", (c) => legacyChat(c, false));
-app.post("/chat/stream", (c) => legacyChat(c, true));
 /** Input: authenticated page request. Output: Vite-built React shell.
  * What this function does: requests asset root to avoid index.html redirect loops.
  */

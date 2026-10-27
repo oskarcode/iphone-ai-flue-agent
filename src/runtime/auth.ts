@@ -22,8 +22,8 @@ export async function verifyIdentity(
   ) {
     return { owner: PERSONAL_OWNER, actor: "local-developer", service: false };
   }
-  // The existing Access application protects the legacy /chat and Shortcut paths,
-  // not every new route. Verify the SAME signed app cookie on those routes too.
+  // Access protects browser pages and the retained grammar Shortcut. Verify the
+  // signed app cookie on API routes that Access does not directly challenge, too.
   // A cookie is never trusted without issuer, audience, signature and expiry checks.
   const cookie = request.headers
     .get("Cookie")

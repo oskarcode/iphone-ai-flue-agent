@@ -20,8 +20,6 @@
   "vars": {
     "MODEL": "cloudflare/@cf/zai-org/glm-5.2",
     "AI_GATEWAY_ID": "iphone-flue-shortcut",
-    "JEV_MODEL": "typesafe/jev",
-    "JEV_SKIP_CACHE": "true",
     "ACCESS_ISSUER": "https://oskarman.cloudflareaccess.com",
     "ACCESS_AUDIENCE": "6b76b37f8cf201250eb5cf40e6fcf4b021dd6b5a161481ab599818bee439687a,9ccb2bc95cd828b77a69fe25bf1d16c84b6e8d681461e223bac7c3442d89dd77"
   },

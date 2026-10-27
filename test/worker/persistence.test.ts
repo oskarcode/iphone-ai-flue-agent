@@ -212,37 +212,6 @@ describe("Pi learning persistence in workerd", () => {
     await evictDurableObject(stub);
     expect(await stub.exists("personal")).toBe(false);
   });
-  it("preserves handoff URL, JSON shape and one-time text consumption", async () => {
-    for (const path of ["/handoff", "/v1/chat-session"]) {
-      const response = await app.fetch(new Request(`http://localhost${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: "Explain durable state" }),
-      }), {
-        ...env,
-        DEV_AUTH: "local",
-        AI: { run: async () => ({ response: "Understanding Durable State", finish_reason: "stop" }) },
-      } as unknown as CloudflareBindings);
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as {
-        chat_url: string;
-        expires_in_seconds: number;
-      };
-      expect(Object.keys(body).sort()).toEqual([
-        "chat_url",
-        "expires_in_seconds",
-      ]);
-      expect(body.expires_in_seconds).toBe(600);
-      const url = new URL(body.chat_url);
-      expect(url.pathname).toBe("/chat");
-      const id = url.searchParams.get("session")!;
-      expect(await (await call(`/chat/session/${id}`)).json()).toEqual({
-        text: "Explain durable state",
-      });
-      expect((await call(`/chat/session/${id}`)).status).toBe(404);
-      expect((await call(`/api/sessions/${id}`)).status).toBe(200);
-    }
-  });
   it("upgrades a reconnectable WebSocket through fetch rather than RPC", async () => {
     const { id, metadata, stub } = make();
     await stub.create(metadata);
@@ -256,13 +225,8 @@ describe("Pi learning persistence in workerd", () => {
     response.webSocket!.accept();
     response.webSocket!.close(1000, "test complete");
   });
-  it("validates old Shortcut endpoint inputs without invoking AI", async () => {
-    for (const path of [
-      "/v1/ask",
-      "/v1/correct",
-      "/handoff",
-      "/v1/chat-session",
-    ]) {
+  it("validates the retained grammar Shortcut input without invoking AI", async () => {
+    for (const path of ["/v1/correct"]) {
       expect((await call(path, { text: "" })).status).toBe(400);
       expect((await call(path, { text: "x".repeat(30001) })).status).toBe(400);
     }

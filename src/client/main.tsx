@@ -11,7 +11,6 @@ import { showApprovalCard } from "../lib/approval-display.ts";
 import type {
   DirectoryItem,
   SessionSnapshot,
-  Source,
 } from "../runtime/contracts.ts";
 // Vite emits this stylesheet as a static asset alongside the client bundle.
 import "./styles.css";
@@ -50,10 +49,9 @@ function pending(): Pending | undefined {
     return undefined;
   }
 }
-// Stable session links, Shortcut handoffs and Access resume parameters all select the same durable session.
+// Stable session links and Access resume parameters select the same durable session.
 const initialId =
   location.pathname.match(/^\/(?:sessions|learn)\/([\w-]+)$/)?.[1] ??
-  new URLSearchParams(location.search).get("session") ??
   new URLSearchParams(location.search).get("resume") ??
   pending()?.sessionId ??
   "";
@@ -356,8 +354,8 @@ function App() {
     store(PREFIX + "pending", JSON.stringify(work));
     await deliver(work);
   }
-  /** Input: initial URL and pending device state. Output: resumed page or handoff submission.
-   * What this function does: consumes temporary KV once, recovers retained input after ambiguity and reuses handoff request IDs.
+  /** Input: initial URL and pending device state. Output: resumed page or retry of a saved send.
+   * What this function does: preserves historical page redirects and resumes interrupted workspace sends.
    */
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -371,53 +369,8 @@ function App() {
     }
     if (params.has("resume") && /^[a-zA-Z0-9_-]{8,100}$/.test(initialId))
       history.replaceState({}, "", `/sessions/${initialId}`);
-    const handoff = params.get("session");
-    if (handoff) {
-      void api<{ text: string }>(`/chat/session/${handoff}`)
-        .then(
-          /** Input: consumed handoff text. Output: stable-key pending delivery.
-           * What this function does: persists before sending and replaces the temporary URL with a session link.
-           */ ({ text }) => {
-            const work = {
-              sessionId: handoff,
-              requestId: `handoff:${handoff}`,
-              text,
-            };
-            store(PREFIX + "pending", JSON.stringify(work));
-            history.replaceState({}, "", `/sessions/${handoff}`);
-            return deliver(work);
-          },
-        )
-        .catch(
-          /** Input: ambiguous/expired handoff delivery. Output: restored snapshot or recovered input send.
-           * What this function does: checks committed history before retrying the retained source with the same key.
-           */ async () => {
-            history.replaceState({}, "", `/sessions/${handoff}`);
-            try {
-              const saved = await api<SessionSnapshot>(
-                `/api/sessions/${handoff}`,
-              );
-              if (!saved.messages.length && !saved.busy) {
-                const input = await api<Source>(
-                  `/api/sessions/${handoff}/sources/shared-input`,
-                );
-                const work = {
-                  sessionId: handoff,
-                  requestId: `handoff:${handoff}`,
-                  text: input.content,
-                };
-                store(PREFIX + "pending", JSON.stringify(work));
-                await deliver(work);
-              } else await refresh(handoff);
-            } catch (e) {
-              setError(String(e));
-            }
-          },
-        );
-    } else {
-      const work = pending();
-      if (work) void deliver(work);
-    }
+    const work = pending();
+    if (work) void deliver(work);
   }, []);
   /** Input: title/pin patch. Output: refreshed snapshot and Library.
    * What this function does: leaves field validation and persistence to the Worker/session.
@@ -476,7 +429,7 @@ function App() {
     }
     setDraft("");
   }
-  // Latest snapshots override paged copies, including passive routing events for repository/visual handoffs.
+  // Latest snapshots override paged copies, including retained historical routing events.
   const activities = [
     ...new Map(
       [...olderActivity, ...(snapshot?.activity ?? [])].map((turn) => [

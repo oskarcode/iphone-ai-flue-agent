@@ -1,4 +1,12 @@
-# Pi Durable release verification — 2026-10-23
+# Pi Durable release verification — 2026-10-27
+
+## Browser-only learning; grammar Shortcut retained
+
+- Deployed Worker version `3d20c341-9322-4ada-a475-8b5199b16761` at `iphoneai.oskarcode.com`. Browser messages now submit directly to Pi, with no Jev execution or model config. The active learning handoff/Shortcut and legacy chat POST handlers were removed, along with the handoff-consumption GET handler. `/v1/correct`, its Access audience and credentials, historical object bindings/migrations and retained workspace/review/visual GET links were not changed.
+- The UI uses **＋ New learning** or an existing workspace in one tab. Local real-model iPhone-size browser checks passed for new-versus-existing workspaces, reload persistence, and pasted public webpage/GitHub URLs with recorded `web_research`/`open_repository` tool calls (4 tests). Pure tests: 108 passed; workerd: 38 passed. Typecheck, build, Wrangler dry run and `git diff --check` passed. The workerd runner printed an uncaught skill-revision exception despite reporting a passing suite; this was not caused by the retired-route tests and remains to investigate.
+- Production unauthenticated checks confirmed `/health` reports `router: pi`, `/chat` redirects to Access and `/api/sessions` denies unauthenticated requests. The retired POST paths are edge-blocked without authentication, so these probes cannot confirm their authenticated 404 behavior; workerd tests cover it. A fresh authenticated production turn, real grammar Shortcut execution and a physical iPhone run were not performed. Remove the retired Shortcut on the phone manually; deployment cannot delete an installed Shortcut.
+
+## Prior release — 2026-10-23 (historical)
 
 ## Approval cards, activity, Jev and generated titles
 

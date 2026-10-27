@@ -1,5 +1,7 @@
 # Flue → Pi Durable migration and operations
 
+> Historical migration record. References below to learning Shortcuts, Jev and legacy POST endpoints describe earlier releases; the current API and grammar exception are in [Current contracts](shortcut-contracts.md).
+
 ## Fixed compatibility boundary
 
 Worker `iphone-ai-flue-agent`, domain `iphoneai.oskarcode.com`, Gateway

@@ -1,7 +1,7 @@
 // Pi events stay server-side; only allowlisted operational labels cross the UI boundary.
 import type { AgentEvent, SubmissionRecord } from "@earendil-works/pi-durable";
 import type { TurnActivity, ActivityStep } from "./contracts.ts";
-import { routingLabel, type RoutingDecision } from "../tools/jev-router.ts";
+import { routingLabel, type RoutingDecision } from "./routing-label.ts";
 
 // Never display arbitrary provider errors, arguments, output, reasoning or credentials.
 const TOOL_LABELS: Record<string, string> = {

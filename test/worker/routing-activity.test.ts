@@ -1,70 +1,24 @@
-// Exercise real SQLite persistence and the HTTP adapter without external model or GitHub calls.
+// Exercise direct Pi submission and historical activity in real Durable Object SQLite.
 import { env } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import app from "../../src/app.ts";
-import * as routing from "../../src/tools/jev-router.ts";
 import { ActivityJournal } from "../../src/runtime/activity.ts";
-import type {
-  SessionSnapshot,
-  SessionMetadata,
-} from "../../src/runtime/contracts.ts";
+import type { SessionSnapshot, SessionMetadata } from "../../src/runtime/contracts.ts";
 import type { SubmissionId } from "@earendil-works/pi-durable";
 
-afterEach(() => vi.restoreAllMocks());
-
-/** Input: an unavailable classifier on each classified API. Output: redacted failure before session/model work.
- * What this function does: proves failures never silently select direct answering or a repository handoff.
- */
-it.each(["/v1/ask", "/chat/api", "/chat/stream"])(
-  "fails safely without fallback at %s",
-  async (path) => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const classify = vi
-      .spyOn(routing, "classifyRequest")
-      .mockRejectedValue(new Error("PRIVATE-PROVIDER-ERROR"));
-    const getByName = vi.fn(() => {
-      throw new Error("Unexpected session access");
-    });
-    const bindings = {
-      ...env,
-      DEV_AUTH: "local",
-      LEARNING_SESSIONS: { getByName },
-    } as unknown as CloudflareBindings;
-    const text = "https://github.com/example/repo";
-    const response = await app.fetch(
-      new Request(`http://localhost${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          path === "/v1/ask"
-            ? { text }
-            : {
-                conversation_id: "routing-session",
-                messages: [{ role: "user", content: text }],
-              },
-        ),
-      }),
-      bindings,
-    );
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({
-      error: "Request failed. Please retry.",
-    });
-    expect(classify).toHaveBeenCalledExactlyOnceWith(text);
-    expect(getByName).not.toHaveBeenCalled();
-  },
-);
-
-/** Input: browser workspace submission. Output: classified Jev decision passed to Pi without changing its visible text. */
-it("classifies each modern workspace message before submitting to Pi", async () => {
-  const decision = { route: "web_research", source: "jev" } as const;
-  const classify = vi.spyOn(routing, "classifyRequest").mockResolvedValue(decision);
-  const submit = vi.fn(async () => ({ sessionId: "12345678", submissionId: "1" }));
+it("submits a workspace message directly to Pi, preserving text and retry key", async () => {
+  const calls: unknown[][] = [];
   const bindings = {
     ...env,
     DEV_AUTH: "local",
-    LEARNING_SESSIONS: { getByName: () => ({ exists: async () => true, submit }) },
+    LEARNING_SESSIONS: { getByName: () => ({
+      exists: async () => true,
+      submit: async (...args: unknown[]) => {
+        calls.push(args);
+        return { sessionId: "12345678", submissionId: "1" };
+      },
+    }) },
   } as unknown as CloudflareBindings;
   const response = await app.fetch(new Request("http://localhost/api/sessions/12345678/messages", {
     method: "POST",
@@ -72,88 +26,28 @@ it("classifies each modern workspace message before submitting to Pi", async () 
     body: JSON.stringify({ text: "Find current Workers docs", requestId: "browser-routing-test" }),
   }), bindings);
   expect(response.status).toBe(202);
-  expect(classify).toHaveBeenCalledExactlyOnceWith("Find current Workers docs");
-  expect(submit).toHaveBeenCalledWith("personal", "Find current Workers docs", "browser-routing-test", decision);
+  expect(calls).toEqual([["personal", "Find current Workers docs", "browser-routing-test"]]);
 });
 
-it("does not submit a modern workspace turn when the Jev gate fails", async () => {
-  const classify = vi.spyOn(routing, "classifyRequest").mockRejectedValue(new Error("private classifier failure"));
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  const submit = vi.fn();
-  const bindings = {
-    ...env,
-    DEV_AUTH: "local",
-    LEARNING_SESSIONS: { getByName: () => ({ exists: async () => true, submit }) },
-  } as unknown as CloudflareBindings;
-  try {
-    const response = await app.fetch(new Request("http://localhost/api/sessions/12345678/messages", {
+it("does not expose retired learning Shortcut and legacy chat routes", async () => {
+  const bindings = { ...env, DEV_AUTH: "local" } as CloudflareBindings;
+  for (const path of ["/v1/ask", "/handoff", "/v1/chat-session", "/chat/api", "/chat/stream", "/learn/12345678/chat", "/v1/learning-sessions/12345678"]) {
+    const response = await app.fetch(new Request(`http://localhost${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "Explain types", requestId: "browser-route-failure" }),
+      body: JSON.stringify({ text: "Do not create a session" }),
     }), bindings);
-    expect(response.status).toBe(502);
-    expect(classify).toHaveBeenCalledOnce();
-    expect(submit).not.toHaveBeenCalled();
-  } finally { error.mockRestore(); }
+    expect(response.status, path).toBe(404);
+  }
+  expect((await app.fetch(new Request("http://localhost/chat/session/12345678"), bindings)).status).toBe(404);
 });
 
-/** Input: a repository Shortcut request. Output: unchanged 202 handoff plus its persisted Jev decision.
- * What this function does: covers routing paths that return a URL without submitting an answer turn.
- */
-it("records routing before returning a repository Shortcut handoff", async () => {
-  const decision = { route: "github_learning", source: "jev" } as const;
-  vi.spyOn(routing, "classifyRequest").mockResolvedValue(decision);
-  const recordRouting = vi.fn(async () => {});
-  const stub = {
-    exists: async () => true,
-    getMetadata: async () => ({ repository: { fullName: "example/repo" } }),
-    recordRouting,
-  };
-  const bindings = {
-    ...env,
-    DEV_AUTH: "local",
-    LEARNING_SESSIONS: { getByName: () => stub },
-  } as unknown as CloudflareBindings;
-  const response = await app.fetch(
-    new Request("http://localhost/v1/ask", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Idempotency-Key": "routing-ask-test",
-      },
-      body: JSON.stringify({ text: "https://github.com/example/repo" }),
-    }),
-    bindings,
-  );
-  expect(response.status).toBe(202);
-  expect(recordRouting).toHaveBeenCalledWith(
-    "personal",
-    "routing-ask-test",
-    decision,
-  );
-  expect(await response.json()).toMatchObject({
-    route: "github_learning",
-    status: "ready",
-    learning_url: expect.stringContaining("/learn/"),
-  });
-});
-
-/** Input: passive classified handoff. Output: retained routing panel with no model turn.
- * What this function does: verifies deduplication, authorization, eviction, export and permanent deletion.
- */
-it("retains classified handoff decisions without generating an answer", async () => {
+it("retains old classified activity without generating an answer", async () => {
   const id = crypto.randomUUID();
   const stub = (env as CloudflareBindings).LEARNING_SESSIONS.getByName(id);
   const metadata: SessionMetadata = {
-    id,
-    owner: "personal",
-    title: "Routing fixture",
-    type: "general",
-    private: false,
-    archived: false,
-    pinned: false,
-    createdAt: "now",
-    updatedAt: "now",
+    id, owner: "personal", title: "Historical routing fixture", type: "general",
+    private: false, archived: false, pinned: false, createdAt: "now", updatedAt: "now",
   };
   await stub.create(metadata);
   const decision = { route: "visual_explanation", source: "jev" } as const;
@@ -161,117 +55,47 @@ it("retains classified handoff decisions without generating an answer", async ()
     try {
       await instance.recordRouting("wrong-owner", "routing-request", decision);
       return false;
-    } catch {
-      return true;
-    }
+    } catch { return true; }
   });
   expect(denied).toBe(true);
   await stub.recordRouting("personal", "routing-request", decision);
   await stub.recordRouting("personal", "routing-request", decision);
-  // Recover a lost projection from the original passive record, not a changed retry classification.
   await runInDurableObject(stub, (_instance, state) => {
     state.storage.sql.exec("DELETE FROM learning_activity");
   });
   await stub.recordRouting("personal", "routing-request", {
-    route: "direct_answer",
-    source: "jev",
+    route: "direct_answer", source: "jev",
   });
   await evictDurableObject(stub);
-  const snap = (await (
-    await stub.snapshot("personal")
-  ).json()) as SessionSnapshot;
+  const snap = (await (await stub.snapshot("personal")).json()) as SessionSnapshot;
   expect(snap.busy).toBe(false);
   expect(snap.messages).toEqual([]);
   expect(snap.activity).toHaveLength(1);
   expect(snap.activity![0].routingOnly).toBe(true);
-  expect(snap.activity![0].steps[0].label).toBe(
-    "Jev decision → Visual explanation (visual_explanation)",
-  );
+  expect(snap.activity![0].steps[0].label).toBe("Jev decision → Visual explanation (visual_explanation)");
   const exported = JSON.parse(await stub.exportPage("personal"));
   expect(exported.activity).toHaveLength(1);
-  expect(
-    exported.entries.filter(
-      (entry: { kind: string }) => entry.kind === "learning.routing",
-    ),
-  ).toHaveLength(1);
+  expect(exported.entries.filter((entry: { kind: string }) => entry.kind === "learning.routing")).toHaveLength(1);
   await stub.remove("personal");
-  const rows = await runInDurableObject(
-    stub,
-    (_instance, state) =>
-      state.storage.sql
-        .exec<{
-          count: number;
-        }>("SELECT COUNT(*) AS count FROM learning_activity")
-        .one().count,
-  );
+  const rows = await runInDurableObject(stub, (_instance, state) => state.storage.sql
+    .exec<{ count: number }>("SELECT COUNT(*) AS count FROM learning_activity").one().count);
   expect(rows).toBe(0);
 });
 
-/** Input: routing for two submissions and a long tool run. Output: correct retained decisions on the matching turns.
- * What this function does: preserves the first recorded decision on retry and keeps it through activity truncation.
- */
-it("keeps routing attached to the right turn and preserves it through truncation", async () => {
-  const stub = (env as CloudflareBindings).LEARNING_SESSIONS.getByName(
-    crypto.randomUUID(),
-  );
+it("keeps historical routing on its turn through activity truncation", async () => {
+  const stub = (env as CloudflareBindings).LEARNING_SESSIONS.getByName(crypto.randomUUID());
   await runInDurableObject(stub, (_instance, state) => {
     const journal = new ActivityJournal(state.storage.sql);
     journal.routing("1", { route: "web_research", source: "jev" });
     journal.routing("1", { route: "direct_answer", source: "jev" });
     journal.routing("2");
     journal.record([{ type: "run_start", inputs: [1 as SubmissionId] }]);
-    for (let i = 0; i < 100; i++)
-      journal.record([
-        {
-          type: "tool_execution_start",
-          toolCallId: `call-${i}`,
-          toolName: "web_research",
-          args: {},
-        },
-      ]);
+    for (let i = 0; i < 100; i++) journal.record([{
+      type: "tool_execution_start", toolCallId: `call-${i}`, toolName: "web_research", args: {},
+    }]);
     const turns = journal.list([], true);
     expect(turns[0].steps).toHaveLength(80);
     expect(turns[0].steps[0].label).toContain("Jev decision → Web research");
-    expect(turns[1].steps[0].label).toBe("Direct to Pi tutor — Jev not used");
-  });
-});
-
-/** Input: compatibility request with a classifier fixture. Output: unchanged response and provenance passed to Pi.
- * What this function does: proves the HTTP handler carries the actual decision rather than only the route name.
- */
-it("passes Jev provenance from legacy chat to the exact answer submission", async () => {
-  const decision = { route: "web_research", source: "jev" } as const;
-  vi.spyOn(routing, "classifyRequest").mockResolvedValue(decision);
-  const answer = vi.fn(async () => "Fixture answer");
-  const stub = { exists: async () => true, answer };
-  const bindings = {
-    ...env,
-    DEV_AUTH: "local",
-    LEARNING_SESSIONS: { getByName: () => stub },
-  } as unknown as CloudflareBindings;
-  const response = await app.fetch(
-    new Request("http://localhost/chat/api", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Idempotency-Key": "routing-http-test",
-      },
-      body: JSON.stringify({
-        conversation_id: "routing-session",
-        messages: [{ role: "user", content: "Research the latest docs" }],
-      }),
-    }),
-    bindings,
-  );
-  expect(response.status).toBe(200);
-  expect(answer).toHaveBeenCalledWith(
-    "personal",
-    "Research the latest docs",
-    "routing-http-test",
-    decision,
-  );
-  expect(await response.json()).toMatchObject({
-    route: "web_research",
-    answer: "Fixture answer",
+    expect(turns[1].steps[0].label).toBe("Direct to Pi tutor");
   });
 });

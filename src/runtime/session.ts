@@ -16,7 +16,7 @@ import * as v from "valibot";
 import { COMPUTER_ACTIONS, computerAction } from "../lib/skills.ts";
 import { createLearningHarnessOptions } from "./harness.ts";
 import { ActivityJournal } from "./activity.ts";
-import { routingLabel, type RoutingDecision } from "../tools/jev-router.ts";
+import { routingLabel, type RoutingDecision } from "./routing-label.ts";
 import {
   directoryItem,
   sha256,

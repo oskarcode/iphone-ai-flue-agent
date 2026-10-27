@@ -22,7 +22,7 @@ test("mobile learning persists through reload with a simplified workspace and li
     timeout: 90_000,
   });
   await expect(activity.locator("summary")).toContainText(
-    "Jev decision →",
+    "Direct to Pi tutor",
   );
   await expect(activity).not.toHaveAttribute("open", "");
   await activity.locator("summary").click();
@@ -61,22 +61,26 @@ test("mobile learning persists through reload with a simplified workspace and li
   });
 });
 
-test("unchanged Shortcut handoff opens and submits automatically", async ({
-  page,
-  request,
-}) => {
-  const response = await request.post("/handoff", {
-    data: { text: "Explain why databases need an index in one sentence." },
-  });
-  expect(response.status()).toBe(200);
-  const body = await response.json();
-  expect(new URL(body.chat_url).pathname).toBe("/chat");
-  const handoff = new URL(body.chat_url); // Wrangler --host strips the local port; production keeps its origin.
-  await page.goto(handoff.pathname + handoff.search);
+test("paste into a new workspace, then continue an old workspace in the same tab", async ({ page, request }) => {
+  await page.goto("/chat");
+  await page.getByLabel("Question").fill("Explain a database index in one sentence.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page).toHaveURL(/\/sessions\//);
-  await expect(page.locator(".message.assistant")).toBeVisible({
-    timeout: 90_000,
-  });
-  await page.reload();
+  const first = page.url();
+  await expect(page.locator(".message.assistant")).toBeVisible({ timeout: 90_000 });
+  await page.getByRole("button", { name: "Open library" }).click();
+  await page.getByRole("button", { name: "＋ New learning" }).click();
+  await page.getByLabel("Question").fill("Explain a TypeScript interface in one sentence.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page).toHaveURL(/\/sessions\//);
+  const second = page.url();
+  expect(second).not.toBe(first);
+  await page.goto(first);
   await expect(page.locator(".message.user")).toHaveCount(1);
+  await page.getByLabel("Question").fill("Give me a short analogy for that index.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.locator(".message.user")).toHaveCount(2, { timeout: 90_000 });
+  await page.reload();
+  await expect(page.locator(".message.user")).toHaveCount(2);
+  for (const url of [first, second]) await request.delete(new URL(url).pathname.replace("/sessions/", "/api/sessions/"));
 });
