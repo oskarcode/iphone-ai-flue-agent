@@ -19,6 +19,7 @@ import {
   grammarModelFromConfiguredModel,
 } from "./lib/grammar-correction.ts";
 import { gatewayMetadata } from "./lib/gateway-metadata.ts";
+import { createQuickExplanationRequest, quickExplanationFromAi } from "./lib/quick-explanation.ts";
 import { generateSessionTitle } from "./lib/session-title.ts";
 import { learningArchiveStub } from "./lib/learning-archive.ts";
 import { renderReviewDetailPage } from "./review-page.ts";
@@ -341,7 +342,7 @@ async function ensure(c: Context<AppEnv>, id: string) {
   return session(c, id);
 }
 
-// Compatibility boundary: these URL paths and response fields remain unchanged.
+// The grammar Shortcut keeps its established response contract.
 /** Input: text JSON. Output: corrected_text JSON and timing header.
  * What this function does: calls Workers AI directly with no thinking; creates no learning state.
  */
@@ -385,6 +386,30 @@ app.post("/v1/correct", async (c) => {
     }),
   );
   return c.json({ corrected_text: corrected });
+});
+/** Input: selected text JSON. Output: one short answer for the on-screen Shortcut result.
+ * What this function does: uses Workers AI directly; no conversation, tools, Jev or Library writes.
+ */
+app.post("/v1/ask", async (c) => {
+  const text = await textBody(c);
+  if (!text)
+    return c.json({ error: "Send JSON with a non-empty text field of at most 30000 characters" }, 400);
+  const inference = Date.now();
+  const result = await c.env.AI.run(
+    c.env.MODEL.replace(/^cloudflare\//, "") as Parameters<Ai["run"]>[0],
+    createQuickExplanationRequest(text) as never,
+    {
+      signal: c.req.raw.signal,
+      gateway: {
+        id: c.env.AI_GATEWAY_ID,
+        skipCache: true,
+        metadata: gatewayMetadata("quick-explanation"),
+      },
+    },
+  );
+  const answer = quickExplanationFromAi(result);
+  c.header("Server-Timing", `identity;dur=${c.get("identityMs")}, inference;dur=${Date.now() - inference}, total;dur=${Date.now() - c.get("startedAt")}`);
+  return c.json({ answer });
 });
 /** Input: session ID and optional artifact ID. Output: escaped interactive HTML or 404.
  * What this function does: reads immutable Pi artifacts first, then retained legacy visual KV records.

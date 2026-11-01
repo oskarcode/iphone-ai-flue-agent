@@ -29,9 +29,9 @@ it("submits a workspace message directly to Pi, preserving text and retry key", 
   expect(calls).toEqual([["personal", "Find current Workers docs", "browser-routing-test"]]);
 });
 
-it("does not expose retired learning Shortcut and legacy chat routes", async () => {
+it("does not expose retired handoff and legacy chat routes", async () => {
   const bindings = { ...env, DEV_AUTH: "local" } as CloudflareBindings;
-  for (const path of ["/v1/ask", "/handoff", "/v1/chat-session", "/chat/api", "/chat/stream", "/learn/12345678/chat", "/v1/learning-sessions/12345678"]) {
+  for (const path of ["/handoff", "/v1/chat-session", "/chat/api", "/chat/stream", "/learn/12345678/chat", "/v1/learning-sessions/12345678"]) {
     const response = await app.fetch(new Request(`http://localhost${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

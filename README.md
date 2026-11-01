@@ -1,6 +1,6 @@
 # Personal Learning Workspace
 
-An iPhone-first tutor for pasted text, questions, web pages and GitHub repositories. Open the browser workspace, start **＋ New learning** or continue an existing session, and reopen conversations from Library. Pi Durable retains history, sources and notes in SQLite-backed Durable Objects. The separate grammar-correction Shortcut remains stateless.
+An iPhone-first tutor for pasted text, questions, web pages and GitHub repositories. Open the browser workspace, start **＋ New learning** or continue an existing session, and reopen conversations from Library. Pi Durable retains history, sources and notes in SQLite-backed Durable Objects. The grammar and quick-explanation Shortcuts are separate stateless Workers AI paths.
 
 ## What It Does
 
@@ -13,7 +13,7 @@ An iPhone-first tutor for pasted text, questions, web pages and GitHub repositor
 - Applies a saved learner profile tailored to a Python/FastAPI/Django developer learning TypeScript, Cloudflare developer products and agent harnesses. The obsolete note-recall checkbox and import control are removed; historical APIs and saved source evidence remain. Legacy recall requests are disabled.
 - Creates reviewable social-post drafts with an illustrative TypeScript mental model. Nothing publishes automatically.
 - Requires explicit server-side approval before GitHub issue creation or a branch-only file change.
-- Keeps only the grammar Shortcut's `/v1/correct` contract and Access credentials; explanation/handoff Shortcuts and old chat POST APIs are retired. See [Current contracts](docs/shortcut-contracts.md).
+- Keeps grammar correction on `/v1/correct` and offers stateless, on-screen quick explanations on `/v1/ask`. The browser-opening handoff and old chat POST APIs remain retired. See [Shortcut setup and contracts](docs/shortcut-contracts.md).
 
 ## Learning coach
 
@@ -36,7 +36,7 @@ The preview SDK and experimental Worker Loader are deliberate demo dependencies.
 ## How It Works
 
 ```text
-Browser workspace / grammar Shortcut
+Browser workspace / grammar or quick-explanation Shortcut
   -> Access identity verification + Hono routes
   -> LearningSession Durable Object for one session ID
        Pi SQLite entries, submissions and recoverable tasks
@@ -48,6 +48,7 @@ LearningSession -> LearningSkills Computer -> durable skill files + approved wor
 /learning-coach -> task-owned Pi Durable child -> owner-checked Library + live LearningSession reads
 LearningSession -> retryable projection -> LearningLibrary -> search / reopen
 POST /v1/correct -> Workers AI directly -> corrected_text (no Pi/session writes)
+POST /v1/ask -> Workers AI directly -> answer (no Pi/session writes)
 ```
 
 The browser holds drafts and one retryable pending send, not canonical history. WebSockets notify it that something changed; authorized HTTP snapshots supply the visible messages. A persisted alarm can resume unfinished server work after the browser closes or the object is evicted.
@@ -62,12 +63,12 @@ The Library is a versioned projection, not a second authoritative transcript. De
 |---|---|
 | TypeScript, Node.js tooling | Shared contracts and local build/test tooling |
 | React + Vite | Mobile workspace and bundled static assets |
-| Hono + Cloudflare Workers | Session and grammar APIs, historical read adapters, authentication and assets |
+| Hono + Cloudflare Workers | Session, grammar and quick-explanation APIs, historical read adapters, authentication and assets |
 | Pi Durable / Pi AI / Chord 1.2.0 | Durable conversation execution and background task coordination |
 | SQLite-backed Durable Objects | Canonical session state, rebuildable Library, shared Computer and owner-scoped learning coach |
 | Cloudflare Computer 0.5.1 + Worker Loader | Persistent skill files and approved worker-shell execution |
 | Workers KV | Retained historical records; no new learning handoff envelopes |
-| Workers AI + AI Gateway | Tutor/visual inference, stateless grammar and workspace title generation |
+| Workers AI + AI Gateway | Tutor/visual inference, stateless grammar/quick explanations and workspace title generation |
 | `jose` + Cloudflare Access | Signed JWT verification for browser/service callers |
 | Valibot | Runtime validation of model tool arguments |
 | Vitest + Cloudflare test plugin + Playwright | Pure, workerd persistence/recovery and mobile-browser checks |
@@ -79,7 +80,7 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 | Path | Owns |
 |---|---|
 | `src/cloudflare.ts` | Worker entry and immutable Durable Object class exports |
-| `src/app.ts` | Workspace and grammar routes, Access admission, historical migration and export |
+| `src/app.ts` | Workspace, grammar and quick-explanation routes, Access admission, historical migration and export |
 | `src/client/main.tsx`, `styles.css` | Library, composer, snapshots, reconnects and phone layout |
 | `src/runtime/session.ts` | Canonical Pi/application state, recovery, immediate skill/file edits, gated approvals and deletion |
 | `src/runtime/library.ts` | Search projection, preferences, note recall and tombstones |
@@ -100,11 +101,12 @@ R2, D1, Vectorize, Queues, Workflows and MCP servers are **not used**. The Brows
 
 ## APIs and Interfaces
 
-All private interfaces require verified Access admission. Keep the existing grammar Shortcut's `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers; Access injects the signed identity consumed by the Worker. Do not revoke a shared credential without checking its other users.
+All private interfaces require verified Access admission. Keep the existing Shortcut's `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for both grammar and quick explanations; Access injects the signed identity consumed by the Worker. Do not revoke a shared credential without checking its other users.
 
 | Interface | Input / result |
 |---|---|
 | `POST /v1/correct` | `{ "text": "She go yesterday." }` -> `{ "corrected_text": "She went yesterday." }` |
+| `POST /v1/ask` | `{ "text": "Durable Object" }` -> `{ "answer": "…" }`; no session, tools or URL fetching |
 | `GET /api/coach`, `POST /api/coach/questions` | Evidence-backed coach dashboard and on-demand teacher answers |
 | `POST /api/coach/clear`, `/api/coach/resume` | Clear/pause and resume observation without restoring erased history |
 | `GET /api/skills`, `/api/skills/:slug` | Shared command catalog and full skill instructions/revision |
@@ -123,7 +125,7 @@ All private interfaces require verified Access admission. Keep the existing gram
 | `POST /api/migrate`, `/api/migrate/object` | Authorized passive import; never replays historical tools |
 | `GET /health` | Public framework/router status, not model/storage readiness |
 
-Retired learning/Shortcut POST routes (`/v1/ask`, `/handoff`, `/v1/chat-session`, `/chat/api`, `/chat/stream`, `/learn/:id/chat`, `/v1/learning-sessions/:id`) and the handoff-consumption GET route (`/chat/session/:id`) now return 404. Old session, review and visual GET links remain; previously issued temporary `/chat?session=…` links no longer auto-submit.
+Retired handoff and legacy chat POST routes (`/handoff`, `/v1/chat-session`, `/chat/api`, `/chat/stream`, `/learn/:id/chat`, `/v1/learning-sessions/:id`) and the handoff-consumption GET route (`/chat/session/:id`) now return 404. Old session, review and visual GET links remain; previously issued temporary `/chat?session=…` links no longer auto-submit.
 
 Text admission is limited to 30,000 characters. Invalid bodies normally return 400, missing authentication 401, cross-origin writes 403, missing sessions 404 and uncaught dependency failures a redacted 502. Some validation inside a Durable Object currently reaches the generic 502 handler; do not assume every validation failure is 400.
 

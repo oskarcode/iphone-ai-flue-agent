@@ -1,4 +1,13 @@
-# Pi Durable release verification — 2026-10-27
+# Pi Durable release verification — 2026-11-01
+
+## Stateless on-screen quick explanation Shortcut
+
+- Deployed Worker version `b4904b70-4341-45ce-bb96-03980eba4045` at `iphoneai.oskarcode.com`. Restored `POST /v1/ask` as a deliberately narrow, stateless `{text} -> {answer}` contract using the existing Workers AI model and Gateway. It does not classify with Jev, call Pi, use retrieval tools, write to Durable Objects/KV or alter browser sessions. The independent grammar endpoint and Access configuration remain unchanged. `/handoff` and legacy chat POST APIs remain retired.
+- Reuse the old handoff Shortcut by changing its URL from `/handoff` to `/v1/ask`, the dictionary key from `chat_url` to `answer`, and **Open URL** to **Show Result** or **Quick Look**. Keep its existing Access headers and JSON `text` body. Details: [Shortcut contracts](shortcut-contracts.md). No installed iPhone Shortcut was modified by this deployment.
+- Verification: 111 pure and 42 workerd tests passed, including stateless route, malformed/oversized/model-truncated responses, unchanged grammar and retired-route checks; typecheck, build and Wrangler dry run passed. Local real-model calls returned short answers for a technical term and an everyday word, told the user it cannot fetch a pasted URL, and preserved grammar `corrected_text`. The workerd runner still printed two revision-conflict exceptions from earlier stale-write tests despite a passing suite.
+- Production unauthenticated checks: `/health` returned `router: pi`, `/chat` redirected to Access (302), `/api/sessions` denied anonymous access (401), and both `/v1/ask` and `/v1/correct` rejected unauthenticated requests (403). An authenticated production service-token request and physical iPhone Shortcut run were **not** performed; the edge policy's acceptance of the existing Shortcut credentials for `/v1/ask` must be checked on-device.
+
+## Prior release — immediate skill and Computer writes (historical)
 
 ## Immediate skill edits and Computer file writes
 
