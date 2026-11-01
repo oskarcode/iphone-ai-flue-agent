@@ -13,7 +13,7 @@ An iPhone-first tutor for pasted text, questions, web pages and GitHub repositor
 - Applies a saved learner profile tailored to a Python/FastAPI/Django developer learning TypeScript, Cloudflare developer products and agent harnesses. The obsolete note-recall checkbox and import control are removed; historical APIs and saved source evidence remain. Legacy recall requests are disabled.
 - Creates reviewable social-post drafts with an illustrative TypeScript mental model. Nothing publishes automatically.
 - Requires explicit server-side approval before GitHub issue creation or a branch-only file change.
-- Keeps grammar correction on `/v1/correct` and offers stateless, on-screen quick explanations on `/v1/ask`. The browser-opening handoff and old chat POST APIs remain retired. See [Shortcut setup and contracts](docs/shortcut-contracts.md).
+- Keeps grammar correction on `/v1/correct` and offers stateless, on-screen explanations on `/v1/ask`: plain English, a small TypeScript mental model for technical concepts, and a traffic flow when meaningful. The browser-opening handoff and old chat POST APIs remain retired. See [Shortcut setup and contracts](docs/shortcut-contracts.md).
 
 ## Learning coach
 

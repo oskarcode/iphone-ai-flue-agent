@@ -1,5 +1,13 @@
 # Pi Durable release verification — 2026-11-01
 
+## TypeScript mental models in on-screen explanations
+
+- Deployed Worker version `78c98e3a-b218-4fc4-8b89-8ecb0130896b` at `iphoneai.oskarcode.com`. The existing `/v1/ask` contract is unchanged: technical answers now use a plain-English definition, one small conceptual TypeScript sketch with relevant beginner syntax explanation, and a final traffic flow when meaningful. Everyday terms remain prose. The completion-token ceiling increased to fit the code and syntax without an automatic truncation; no chat, grammar, Access, binding or storage changes.
+- Verified 111 pure and 42 workerd tests, typecheck, build and Wrangler dry run. Local authenticated-development real-model probes returned TypeScript plus a final traffic flow for “Durable Object” and “API Gateway”; an everyday term remained code-free. An earlier probe confirmed URL-only input does not claim to fetch the page. The local dev Worker encountered a SQLite lock during a simultaneous rebuild with another local dev session; restarting with isolated local persistence completed the real-model checks. The workerd test runner continues to print the two known stale-revision exceptions while passing all tests.
+- Production unauthenticated checks returned health `router: pi`, redirected `/chat` to Access, rejected `/api/sessions` without identity and blocked `/v1/ask` and `/v1/correct` without Access. A fresh authenticated production call and physical iPhone run for this prompt revision were not performed; the previously configured Shortcut itself was not changed.
+
+## Prior release — stateless on-screen quick explanation (historical)
+
 ## Stateless on-screen quick explanation Shortcut
 
 - Deployed Worker version `b4904b70-4341-45ce-bb96-03980eba4045` at `iphoneai.oskarcode.com`. Restored `POST /v1/ask` as a deliberately narrow, stateless `{text} -> {answer}` contract using the existing Workers AI model and Gateway. It does not classify with Jev, call Pi, use retrieval tools, write to Durable Objects/KV or alter browser sessions. The independent grammar endpoint and Access configuration remain unchanged. `/handoff` and legacy chat POST APIs remain retired.

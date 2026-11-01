@@ -1,10 +1,10 @@
 // The one-shot Shortcut is independent of Pi, Jev, Durable Objects and grammar correction.
 import { QUICK_EXPLANATION_PROMPT } from "../prompts.ts";
 
-/** Bound the answer on a phone without forcing a tiny budget for long pasted passages. */
+/** Allow a small TypeScript model and syntax explanation while bounding long passages. */
 export function quickExplanationBudget(text: string): number {
   const bytes = new TextEncoder().encode(text).length;
-  return Math.min(1200, Math.max(384, Math.ceil(bytes / 12) + 300));
+  return Math.min(1800, Math.max(1100, Math.ceil(bytes / 12) + 600));
 }
 
 /** Treat the selected text as data; disable model thinking to keep the Shortcut responsive. */

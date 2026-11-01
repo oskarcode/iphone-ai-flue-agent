@@ -6,7 +6,7 @@
 
 ## Quick explanation (on-screen result)
 
-`POST /v1/ask` accepts JSON `{ "text": "…" }` (non-empty, at most 30,000 characters) and responds with `{ "answer": "…" }`. It explains a technical or everyday term/passage briefly in plain English, adding a small example or labelled points only when useful. It does **not** create a workspace, call Pi or tools, read URLs, or save an answer. Pasted links should be opened in browser learning chat if the page needs to be read. Invalid input returns 400; model failure returns a redacted 502, not a fabricated answer.
+`POST /v1/ask` accepts JSON `{ "text": "…" }` (non-empty, at most 30,000 characters) and responds with `{ "answer": "…" }`. It explains a technical concept in plain English, follows with a small conceptual TypeScript mental model and beginner syntax explanation, and ends with a traffic flow when one genuinely exists. Everyday terms and passages remain simple and do not force code or a flow. It does **not** create a workspace, call Pi or tools, read URLs, or save an answer. Pasted links should be opened in browser learning chat if the page needs to be read. Invalid input returns 400; model failure returns a redacted 502, not a fabricated answer.
 
 To reuse the old explanation Shortcut shown in the screenshot:
 
