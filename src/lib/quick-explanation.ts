@@ -1,10 +1,10 @@
 // The one-shot Shortcut is independent of Pi, Jev, Durable Objects and grammar correction.
 import { QUICK_EXPLANATION_PROMPT } from "../prompts.ts";
 
-/** Allow a small TypeScript model and syntax explanation while bounding long passages. */
+/** Leave room for per-line TypeScript comments while bounding long passages. */
 export function quickExplanationBudget(text: string): number {
   const bytes = new TextEncoder().encode(text).length;
-  return Math.min(1800, Math.max(1100, Math.ceil(bytes / 12) + 600));
+  return Math.min(2400, Math.max(1500, Math.ceil(bytes / 12) + 800));
 }
 
 /** Treat the selected text as data; disable model thinking to keep the Shortcut responsive. */
@@ -38,4 +38,15 @@ export function quickExplanationFromAi(value: unknown): string {
   if (typeof raw !== "string" || !raw.trim() || raw.length > 10000)
     throw new Error("Invalid explanation text");
   return raw.trim();
+}
+
+/** Keep the existing Shortcut's answer key readable without requiring Markdown rendering. */
+export function plainExplanation(markdown: string): string {
+  return markdown
+    .replace(/^[ \t]*```(?:ts|typescript)?[ \t]*$/gim, "")
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

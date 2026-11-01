@@ -26,7 +26,10 @@ it("returns an answer without creating a workspace or logging selected text", as
   const logs = vi.spyOn(console, "info").mockImplementation(() => {});
   const response = await call(JSON.stringify({ text: "  Durable Object  " }));
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ answer: "A Durable Object stores state for one coordinated instance." });
+  expect(await response.json()).toEqual({
+    answer: "A Durable Object stores state for one coordinated instance.",
+    answer_markdown: "A Durable Object stores state for one coordinated instance.",
+  });
   expect(response.headers.get("Server-Timing")).toMatch(/identity;dur=\d+, inference;dur=\d+, total;dur=\d+/);
   expect(run).toHaveBeenCalledOnce();
   expect(run.mock.calls[0][1]).toMatchObject({
@@ -38,6 +41,17 @@ it("returns an answer without creating a workspace or logging selected text", as
     gateway: { skipCache: true, metadata: { component: "quick-explanation" } },
   });
   expect(JSON.stringify(logs.mock.calls)).not.toContain("Durable Object");
+});
+
+it("preserves plain answer compatibility while exposing a separately formatted code field", async () => {
+  const markdown = "## TypeScript mental model\n```ts\nfunction work(): number { // Opens the function.\n  return 1; // Returns a number.\n} // Closes the function.\n```";
+  const { call } = fixture({ response: markdown, finish_reason: "stop" });
+  const response = await call(JSON.stringify({ text: "A component" }));
+  expect(response.status).toBe(200);
+  const body = await response.json() as { answer: string; answer_markdown: string };
+  expect(body.answer).not.toContain("```");
+  expect(body.answer).toContain("return 1; // Returns a number.");
+  expect(body.answer_markdown).toBe(markdown);
 });
 
 it("rejects invalid input before inference and redacts malformed model output", async () => {

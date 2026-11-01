@@ -19,7 +19,7 @@ import {
   grammarModelFromConfiguredModel,
 } from "./lib/grammar-correction.ts";
 import { gatewayMetadata } from "./lib/gateway-metadata.ts";
-import { createQuickExplanationRequest, quickExplanationFromAi } from "./lib/quick-explanation.ts";
+import { createQuickExplanationRequest, quickExplanationFromAi, plainExplanation } from "./lib/quick-explanation.ts";
 import { generateSessionTitle } from "./lib/session-title.ts";
 import { learningArchiveStub } from "./lib/learning-archive.ts";
 import { renderReviewDetailPage } from "./review-page.ts";
@@ -407,9 +407,9 @@ app.post("/v1/ask", async (c) => {
       },
     },
   );
-  const answer = quickExplanationFromAi(result);
+  const answerMarkdown = quickExplanationFromAi(result);
   c.header("Server-Timing", `identity;dur=${c.get("identityMs")}, inference;dur=${Date.now() - inference}, total;dur=${Date.now() - c.get("startedAt")}`);
-  return c.json({ answer });
+  return c.json({ answer: plainExplanation(answerMarkdown), answer_markdown: answerMarkdown });
 });
 /** Input: session ID and optional artifact ID. Output: escaped interactive HTML or 404.
  * What this function does: reads immutable Pi artifacts first, then retained legacy visual KV records.

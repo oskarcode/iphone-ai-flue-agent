@@ -1,5 +1,13 @@
 # Pi Durable release verification — 2026-11-01
 
+## Readable TypeScript code in on-screen explanations
+
+- Deployed Worker version `ff61c648-821e-4761-b22c-92e614ce1c3b` at `iphoneai.oskarcode.com`. Technical one-shot explanations now request a fenced `ts` example with a short comment on each nonblank code line, a brief syntax explanation, and a traffic flow when meaningful. Everyday terms should not force a code example. The prompt instructs the model to avoid fake credentials, undefined custom types and treating volatile memory as durable storage; this is prompt guidance, not a code compiler.
+- `/v1/ask` keeps the existing plain-text `answer` field for the already-working Shortcut and additively returns `answer_markdown` with fenced code. For formatted code, select `answer_markdown`, use Shortcuts **Make Rich Text from Markdown**, and then **Quick Look**; raw **Show Result** cannot be forced to render styled code. No Shortcut credentials, grammar contract, chat flow, DO bindings or migrations changed.
+- Verification: 112 pure and 43 workerd tests, typecheck, build and Wrangler dry run passed. Local authenticated-development real-model checks returned fenced TypeScript with a per-line comment for API Gateway and Durable Object, no code for an everyday term, and a plain `answer` without literal Markdown fences. Unauthenticated production checks confirmed health, Access redirect/denial and blocked anonymous `/v1/ask` requests. Fresh authenticated production output and a physical iPhone Rich Text rendering test were not performed. The workerd runner still printed two known revision-conflict exceptions from stale-write tests while reporting a passing suite.
+
+## Prior release — TypeScript mental models (historical)
+
 ## TypeScript mental models in on-screen explanations
 
 - Deployed Worker version `78c98e3a-b218-4fc4-8b89-8ecb0130896b` at `iphoneai.oskarcode.com`. The existing `/v1/ask` contract is unchanged: technical answers now use a plain-English definition, one small conceptual TypeScript sketch with relevant beginner syntax explanation, and a final traffic flow when meaningful. Everyday terms remain prose. The completion-token ceiling increased to fit the code and syntax without an automatic truncation; no chat, grammar, Access, binding or storage changes.

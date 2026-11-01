@@ -13,7 +13,7 @@ An iPhone-first tutor for pasted text, questions, web pages and GitHub repositor
 - Applies a saved learner profile tailored to a Python/FastAPI/Django developer learning TypeScript, Cloudflare developer products and agent harnesses. The obsolete note-recall checkbox and import control are removed; historical APIs and saved source evidence remain. Legacy recall requests are disabled.
 - Creates reviewable social-post drafts with an illustrative TypeScript mental model. Nothing publishes automatically.
 - Requires explicit server-side approval before GitHub issue creation or a branch-only file change.
-- Keeps grammar correction on `/v1/correct` and offers stateless, on-screen explanations on `/v1/ask`: plain English, a small TypeScript mental model for technical concepts, and a traffic flow when meaningful. The browser-opening handoff and old chat POST APIs remain retired. See [Shortcut setup and contracts](docs/shortcut-contracts.md).
+- Keeps grammar correction on `/v1/correct` and offers stateless, on-screen explanations on `/v1/ask`: plain English, a small fenced TypeScript mental model with line-by-line comments for technical concepts, and a traffic flow when meaningful. The existing `answer` key remains plain text for Show Result; for a styled code block on iPhone, convert the additive `answer_markdown` field with Shortcuts **Make Rich Text from Markdown** before **Quick Look**. The browser-opening handoff and old chat POST APIs remain retired. See [Shortcut setup and contracts](docs/shortcut-contracts.md).
 
 ## Learning coach
 
@@ -106,7 +106,7 @@ All private interfaces require verified Access admission. Keep the existing Shor
 | Interface | Input / result |
 |---|---|
 | `POST /v1/correct` | `{ "text": "She go yesterday." }` -> `{ "corrected_text": "She went yesterday." }` |
-| `POST /v1/ask` | `{ "text": "Durable Object" }` -> `{ "answer": "…" }`; no session, tools or URL fetching |
+| `POST /v1/ask` | `{ "text": "Durable Object" }` -> `{ "answer": "plain text…", "answer_markdown": "formatted code…" }`; no session, tools or URL fetching |
 | `GET /api/coach`, `POST /api/coach/questions` | Evidence-backed coach dashboard and on-demand teacher answers |
 | `POST /api/coach/clear`, `/api/coach/resume` | Clear/pause and resume observation without restoring erased history |
 | `GET /api/skills`, `/api/skills/:slug` | Shared command catalog and full skill instructions/revision |
