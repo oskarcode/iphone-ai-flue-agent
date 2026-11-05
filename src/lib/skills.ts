@@ -3,6 +3,7 @@ import {
   LEARNING_RECAP_PROMPT,
   REPOSITORY_STARTER_PROMPTS,
 } from "./chat-presets.ts";
+import { TECHNICAL_BLOG_CONTENT } from "./technical-blog-content.ts";
 export type Skill = {
   slug: string;
   name: string;
@@ -163,6 +164,7 @@ To list or search, read the ledger and answer without editing; show ID, type, ti
 
 For each change, propose a single write_computer_file for the complete updated file at /workspace/feature-bug-tracker.md, including expectedRevision from read_computer_file (empty string if absent). The write runs without a separate approval, using the expectedRevision to prevent overwrites. If the revision changed, re-read the ledger and retry only after understanding the new contents; if execution is uncertain, inspect get_action_status and the file before doing anything else. Tell me the ID and summary only after the write is confirmed. Give me the ID and a short summary after success.`,
   },
+  TECHNICAL_BLOG_CONTENT,
   {
     slug: "learning-post",
     name: "What I learned · post draft",

@@ -287,6 +287,14 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
             : this.rows<Source>("learning_sources")
                 .slice(-30)
                 .map(({ id, title }) => ({ id, title })),
+        savedNote: (id) =>
+          id
+            ? (this.rows<Note>("learning_notes").find(
+                (note) => note.id === id,
+              ) ?? { error: "Note not found" })
+            : this.rows<Note>("learning_notes")
+                .slice(-30)
+                .map(({ id, entryId, createdAt }) => ({ id, entryId, createdAt })),
       });
       const harness = await Harness.open(
         await openDurableObjectSqliteStorage(this.ctx.storage),

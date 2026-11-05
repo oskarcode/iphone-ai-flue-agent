@@ -120,32 +120,49 @@ it("runs real worker-shell commands and never executes a completed operation twi
     (await stub.read("personal", "/workspace/proof.txt")).content.trim(),
   ).toBe("initial\nhello");
 });
-it("seeds deep learning, tracker and coach into existing Computers only once, leaving edits intact", async () => {
+it("seeds newer skills into existing Computers only once, leaving edits intact", async () => {
   const stub = computer();
   await runInDurableObject(stub, async (instance) => {
     await instance.storage().put("skills:seeded:v1", true);
   });
-  expect((await stub.list("personal")).map((s) => s.slug)).toEqual([
+  const expected = [
     "deep-learn",
     "feature-bug-tracker",
     "learning-coach",
-  ]);
-  const original = await stub.get("personal", "deep-learn");
-  await stub.apply("personal", "edit-deep-learn-test", "skill.save", {
-    slug: "deep-learn",
+    "technical-blog-content",
+  ];
+  expect((await stub.list("personal")).map((s) => s.slug)).toEqual(expected);
+  const original = await stub.get("personal", "technical-blog-content");
+  expect(original?.markdown).toContain("read_saved_source");
+  expect(original?.markdown).toContain("/workspace/blog-drafts/current.md");
+  await stub.apply("personal", "edit-blog-content-test", "skill.save", {
+    slug: "technical-blog-content",
     name: original!.name,
     description: original!.description,
-    markdown: "My own deep learning instructions.",
+    markdown: "My own article instructions.",
     expectedRevision: original!.revision,
   });
+  await runInDurableObject(stub, async (instance) => {
+    await instance.storage().delete("skills:seeded:technical-blog-content:v1");
+  });
   await evictDurableObject(stub);
-  expect((await stub.list("personal")).map((s) => s.slug)).toEqual([
-    "deep-learn",
-    "feature-bug-tracker",
-    "learning-coach",
-  ]);
-  expect((await stub.get("personal", "deep-learn"))?.markdown).toBe(
-    "My own deep learning instructions.",
+  expect((await stub.list("personal")).map((s) => s.slug)).toEqual(expected);
+  expect((await stub.get("personal", "technical-blog-content"))?.markdown).toBe(
+    "My own article instructions.",
+  );
+  const edited = await stub.get("personal", "technical-blog-content");
+  await stub.apply("personal", "delete-blog-content-test", "skill.delete", {
+    slug: "technical-blog-content",
+    expectedRevision: edited!.revision,
+  });
+  await runInDurableObject(stub, async (instance) => {
+    await instance.storage().delete("skills:seeded:technical-blog-content:v1");
+    await instance.storage().delete("skills:seeded:technical-blog-content:v2");
+  });
+  await evictDurableObject(stub);
+  expect(await stub.get("personal", "technical-blog-content")).toBeNull();
+  expect((await stub.list("personal")).map((s) => s.slug)).toEqual(
+    expected.filter((slug) => slug !== "technical-blog-content"),
   );
 });
 it("saves tracker entries with approved compare-and-swap writes without losing prior notes", async () => {
@@ -193,7 +210,21 @@ it("protects HTTP skill actions with existing auth, origin and argument validati
       }),
       { ...env, DEV_AUTH: "local" } as CloudflareBindings,
     );
-  expect((await call("/api/skills")).status).toBe(200);
+  const catalog = await call("/api/skills");
+  expect(catalog.status).toBe(200);
+  expect((await catalog.json() as { skills: { slug: string }[] }).skills)
+    .toContainEqual(expect.objectContaining({ slug: "technical-blog-content" }));
+  const blog = await call("/api/skills/technical-blog-content");
+  expect(blog.status).toBe(200);
+  expect((await blog.json() as { markdown: string }).markdown).toContain(
+    "Portfolio content handoff",
+  );
+  const path = "/workspace/skills/technical-blog-content/SKILL.md";
+  const file = await call(`/api/computer/file?path=${encodeURIComponent(path)}`);
+  expect(file.status).toBe(200);
+  expect((await file.json() as { content: string }).content).toContain(
+    "source files/evidence used",
+  );
   expect(
     (
       await call("/api/computer/actions", {

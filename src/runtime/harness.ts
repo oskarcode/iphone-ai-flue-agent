@@ -47,6 +47,7 @@ export interface RuntimeHost {
   ): Promise<unknown>;
   coachToolActivity?(name: string, taskId: string, status: "running" | "done" | "error"): void;
   savedSource(id?: string): unknown;
+  savedNote(id?: string): unknown;
   actions(): unknown;
 }
 
@@ -370,6 +371,18 @@ export function createLearningHarnessOptions(
           ],
         };
       },
+    }),
+    defineTool({
+      name: "read_saved_note",
+      description:
+        "List retained notes in this learning session, or read one exact note by ID. Use saved lesson evidence before fetching anything new.",
+      parameters: Type.Object({
+        id: Type.Optional(Type.String({ maxLength: 160 })),
+      }),
+      replay: "safe",
+      execute: async ({ id }) => ({
+        output: [{ type: "text", text: JSON.stringify(host.savedNote(id)) }],
+      }),
     }),
     defineTool({
       name: "get_github_actions",

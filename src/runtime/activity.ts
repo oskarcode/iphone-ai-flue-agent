@@ -30,6 +30,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_github_actions: "Check GitHub action status",
   recall_learning: "Recall saved public notes",
   read_saved_source: "Read saved evidence",
+  read_saved_note: "Read saved note",
 };
 
 /** Model-supplied arguments are never surfaced except a validated public skill slug. */

@@ -143,6 +143,7 @@ describe("migration and action boundaries", () => {
       coachHistory: async () => ({}),
       coachMessage: async () => ({}),
       savedSource: () => [],
+      savedNote: () => [],
       actions: () => [],
       proposal: async (id, tool, args) => {
         const proposal: Approval = {
@@ -159,6 +160,7 @@ describe("migration and action boundaries", () => {
     expect(options.learningTools.map((tool) => tool.name)).toContain(
       "run_learning_coach",
     );
+    expect(options.learningTools.map((tool) => tool.name)).toContain("read_saved_note");
     expect(options.learningTools.map((tool) => tool.name)).not.toContain(
       "read_learning_session",
     );

@@ -79,6 +79,26 @@ describe("Computer boundaries", () => {
     expect(deepLearn?.markdown).toContain("in THIS workspace");
     expect(deepLearn?.markdown).toContain("Ask only one question at a time");
     expect(deepLearn?.markdown).toContain("Only change skills or Computer files when I explicitly request it");
+    const blog = DEFAULT_SKILLS.find((skill) => skill.slug === "technical-blog-content");
+    expect(blog?.description).toContain("/technical-blog-content");
+    const instructions = blog!.markdown;
+    for (const requirement of [
+      "read_saved_source", "read_saved_note", "retained learning notes", "source files/evidence used",
+      "purpose/problem", "Main user actions", "Architecture and data movement",
+      "end-to-end workflow", "distinctive technical behaviors",
+      "admin and guest/user", "security and product boundaries",
+      "verified resources", "short conclusion", "flowchart", "sequenceDiagram",
+      "Full Markdown article", "proposed title", "slug suggestion", "excerpt",
+      "audience", "tags", "verified resource links", "important caveats",
+      "planned", "mocked", "unverified", "private", "publish anything",
+    ]) expect(instructions.toLowerCase()).toContain(requirement.toLowerCase());
+    expect(instructions).toContain("Do not automatically reopen or rescan");
+    expect(instructions).toContain("/workspace/blog-drafts/current.md");
+    expect(instructions).toContain("write_computer_file once");
+    expect(instructions).toContain("expectedRevision");
+    expect(instructions).toContain("history/evolution section");
+    expect(instructions).toContain("standalone test-boundary section");
+    expect(instructions).not.toMatch(/Dynamic Worker|CSS|visual.design|frontend design/i);
     expect(skillFile(DEFAULT_SKILLS.at(-1)!)).toContain(
       "Do not include private repository",
     );

@@ -138,6 +138,42 @@ export class LearningSkills extends Base {
       }
       await this.ctx.storage.put("skills:seeded:learning-coach:v3", true);
     }
+    // Add the article command to older Computers once. Respect existing edits and
+    // a prior explicit deletion of a custom command with the same slug.
+    if (!(await this.ctx.storage.get("skills:seeded:technical-blog-content:v1"))) {
+      const blog = DEFAULT_SKILLS.find(
+        (skill) => skill.slug === "technical-blog-content",
+      )!;
+      const deleted = this.ctx.storage.sql.exec(
+        "SELECT 1 FROM skill_operations WHERE status='done' AND result=? LIMIT 1",
+        JSON.stringify({ deleted: blog.slug }),
+      ).toArray().length > 0;
+      if (!deleted) {
+        const dir = `/workspace/skills/${blog.slug}`;
+        await ws.fs.mkdir(dir, { recursive: true });
+        try {
+          await ws.fs.stat(`${dir}/SKILL.md`);
+        } catch {
+          await ws.fs.writeFile(`${dir}/SKILL.md`, skillFile(blog));
+        }
+      }
+      await this.ctx.storage.put("skills:seeded:technical-blog-content:v1", true);
+    }
+    // Upgrade only the exact original starter. Never replace an owner's edits or
+    // recreate a deleted skill; the Computer file remains the source of truth.
+    if (!(await this.ctx.storage.get("skills:seeded:technical-blog-content:v2"))) {
+      const path = "/workspace/skills/technical-blog-content/SKILL.md";
+      try {
+        const previous = await ws.fs.readFile(path, "utf8");
+        if (await sha256(previous) === "5854ea28af442e4344b318c3559409002492e285fcb9dc2ab85cbd2774575d63") {
+          const blog = DEFAULT_SKILLS.find((skill) => skill.slug === "technical-blog-content")!;
+          await ws.fs.writeFile(path, skillFile(blog));
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || !/not found|no such (?:file|path)|enoent/i.test(error.message)) throw error;
+      }
+      await this.ctx.storage.put("skills:seeded:technical-blog-content:v2", true);
+    }
     return ws;
   }
   private async readSkill(slug: string): Promise<Skill | null> {
