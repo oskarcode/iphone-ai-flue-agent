@@ -165,6 +165,10 @@ describe("migration and action boundaries", () => {
       "run_learning_coach",
     );
     expect(options.learningTools.map((tool) => tool.name)).toContain("read_saved_note");
+    for (const name of ["create_gadget", "update_gadget"]) {
+      const schema = options.learningTools.find((tool) => tool.name === name)?.parameters;
+      expect(JSON.stringify(schema)).toContain('"expectFeedback"');
+    }
     expect(options.learningTools.map((tool) => tool.name)).not.toContain(
       "read_learning_session",
     );

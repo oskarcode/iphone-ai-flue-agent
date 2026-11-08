@@ -3,6 +3,8 @@ export type GadgetTest = {
   action: string;
   data: Record<string, string>;
   expectText: string;
+  /** New tool calls require this; optional here to preserve older direct callers. */
+  expectFeedback?: string;
 };
 export type GadgetSummary = {
   id: string;
@@ -16,6 +18,13 @@ type GadgetFacet = {
   render(): Promise<string>;
   handleAction(action: string, data: Record<string, string>): Promise<void>;
 };
+
+function visibleText(html: string): string {
+  return html
+    .replace(/<(?:style|script)\b[^>]*>[\s\S]*?<\/(?:style|script)>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
+}
 
 /** Canonical gadget source registry inside one learning session; each version has an isolated Facet. */
 export class LearningGadgets {
@@ -152,17 +161,23 @@ export class LearningGadgets {
         const html = await this.facet(this.record(id)).render();
         if (typeof html !== "string" || html.length > 256 * 1024)
           throw new Error("Invalid gadget page");
-        const visible = html
-          .replace(
-            /<(?:style|script)\b[^>]*>[\s\S]*?<\/(?:style|script)>/gi,
-            "",
-          )
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ");
+        const visible = visibleText(html);
         if (html === before || !visible.includes(test.expectText))
           throw new Error(
             "Gadget preflight failed: expected visible state change",
           );
+        if (test.expectFeedback !== undefined) {
+          if (
+            typeof test.expectFeedback !== "string" ||
+            test.expectFeedback.trim().length < 8 ||
+            test.expectFeedback.length > 1000 ||
+            visibleText(before).includes(test.expectFeedback) ||
+            !visible.includes(test.expectFeedback)
+          )
+            throw new Error(
+              "Gadget preflight failed: new code-learning feedback not visible",
+            );
+        }
         before = html;
       }
     } finally {
@@ -209,7 +224,10 @@ export class LearningGadgets {
     const prior = this.ctx.storage.sql
       .exec<{
         gadget_id: string;
-      }>("SELECT gadget_id FROM learning_gadget_updates WHERE task_id=?", taskId)
+      }>(
+        "SELECT gadget_id FROM learning_gadget_updates WHERE task_id=?",
+        taskId,
+      )
       .toArray()[0];
     if (prior) {
       if (prior.gadget_id !== id) throw new Error("Gadget update task reused");

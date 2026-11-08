@@ -101,7 +101,9 @@ export class LearningSkills extends Base {
     // Offer new commands to existing Computers once; never overwrite edits or
     // resurrect a command its owner subsequently removed.
     if (!(await this.ctx.storage.get("skills:seeded:deep-learn:v4"))) {
-      const deepLearn = DEFAULT_SKILLS.find((skill) => skill.slug === "deep-learn")!;
+      const deepLearn = DEFAULT_SKILLS.find(
+        (skill) => skill.slug === "deep-learn",
+      )!;
       const dir = `/workspace/skills/${deepLearn.slug}`;
       await ws.fs.mkdir(dir, { recursive: true });
       try {
@@ -140,14 +142,19 @@ export class LearningSkills extends Base {
     }
     // Add the article command to older Computers once. Respect existing edits and
     // a prior explicit deletion of a custom command with the same slug.
-    if (!(await this.ctx.storage.get("skills:seeded:technical-blog-content:v1"))) {
+    if (
+      !(await this.ctx.storage.get("skills:seeded:technical-blog-content:v1"))
+    ) {
       const blog = DEFAULT_SKILLS.find(
         (skill) => skill.slug === "technical-blog-content",
       )!;
-      const deleted = this.ctx.storage.sql.exec(
-        "SELECT 1 FROM skill_operations WHERE status='done' AND result=? LIMIT 1",
-        JSON.stringify({ deleted: blog.slug }),
-      ).toArray().length > 0;
+      const deleted =
+        this.ctx.storage.sql
+          .exec(
+            "SELECT 1 FROM skill_operations WHERE status='done' AND result=? LIMIT 1",
+            JSON.stringify({ deleted: blog.slug }),
+          )
+          .toArray().length > 0;
       if (!deleted) {
         const dir = `/workspace/skills/${blog.slug}`;
         await ws.fs.mkdir(dir, { recursive: true });
@@ -157,35 +164,87 @@ export class LearningSkills extends Base {
           await ws.fs.writeFile(`${dir}/SKILL.md`, skillFile(blog));
         }
       }
-      await this.ctx.storage.put("skills:seeded:technical-blog-content:v1", true);
+      await this.ctx.storage.put(
+        "skills:seeded:technical-blog-content:v1",
+        true,
+      );
     }
     // Upgrade only the exact original starter. Never replace an owner's edits or
     // recreate a deleted skill; the Computer file remains the source of truth.
-    if (!(await this.ctx.storage.get("skills:seeded:technical-blog-content:v2"))) {
+    if (
+      !(await this.ctx.storage.get("skills:seeded:technical-blog-content:v2"))
+    ) {
       const path = "/workspace/skills/technical-blog-content/SKILL.md";
       try {
         const previous = await ws.fs.readFile(path, "utf8");
-        if (await sha256(previous) === "5854ea28af442e4344b318c3559409002492e285fcb9dc2ab85cbd2774575d63") {
-          const blog = DEFAULT_SKILLS.find((skill) => skill.slug === "technical-blog-content")!;
+        if (
+          (await sha256(previous)) ===
+          "5854ea28af442e4344b318c3559409002492e285fcb9dc2ab85cbd2774575d63"
+        ) {
+          const blog = DEFAULT_SKILLS.find(
+            (skill) => skill.slug === "technical-blog-content",
+          )!;
           await ws.fs.writeFile(path, skillFile(blog));
         }
       } catch (error) {
-        if (!(error instanceof Error) || !/not found|no such (?:file|path)|enoent/i.test(error.message)) throw error;
+        if (
+          !(error instanceof Error) ||
+          !/not found|no such (?:file|path)|enoent/i.test(error.message)
+        )
+          throw error;
       }
-      await this.ctx.storage.put("skills:seeded:technical-blog-content:v2", true);
+      await this.ctx.storage.put(
+        "skills:seeded:technical-blog-content:v2",
+        true,
+      );
     }
     if (!(await this.ctx.storage.get("skills:seeded:learning-gadget:v1"))) {
-      const gadget = DEFAULT_SKILLS.find((skill) => skill.slug === "learning-gadget")!;
+      const gadget = DEFAULT_SKILLS.find(
+        (skill) => skill.slug === "learning-gadget",
+      )!;
       const path = `/workspace/skills/${gadget.slug}/SKILL.md`;
-      const deleted = this.ctx.storage.sql.exec(
-        "SELECT 1 FROM skill_operations WHERE status='done' AND result=? LIMIT 1",
-        JSON.stringify({ deleted: gadget.slug }),
-      ).toArray().length > 0;
+      const deleted =
+        this.ctx.storage.sql
+          .exec(
+            "SELECT 1 FROM skill_operations WHERE status='done' AND result=? LIMIT 1",
+            JSON.stringify({ deleted: gadget.slug }),
+          )
+          .toArray().length > 0;
       if (!deleted) {
-        await ws.fs.mkdir(`/workspace/skills/${gadget.slug}`, { recursive: true });
-        try { await ws.fs.stat(path); } catch { await ws.fs.writeFile(path, skillFile(gadget)); }
+        await ws.fs.mkdir(`/workspace/skills/${gadget.slug}`, {
+          recursive: true,
+        });
+        try {
+          await ws.fs.stat(path);
+        } catch {
+          await ws.fs.writeFile(path, skillFile(gadget));
+        }
       }
       await this.ctx.storage.put("skills:seeded:learning-gadget:v1", true);
+    }
+    // Update only the exact previously shipped default. Keep personalized or deleted
+    // instructions intact; all workspace skill mutations are serialized by this DO.
+    if (!(await this.ctx.storage.get("skills:seeded:learning-gadget:v2"))) {
+      const path = "/workspace/skills/learning-gadget/SKILL.md";
+      try {
+        const previous = await ws.fs.readFile(path, "utf8");
+        if (
+          (await sha256(previous)) ===
+          "b6ecba337a3a56728de5b5c9a4a2d3f54898a0b19a936a80171f668ea1152656"
+        ) {
+          const gadget = DEFAULT_SKILLS.find(
+            (skill) => skill.slug === "learning-gadget",
+          )!;
+          await ws.fs.writeFile(path, skillFile(gadget));
+        }
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !/not found|no such (?:file|path)|enoent/i.test(error.message)
+        )
+          throw error;
+      }
+      await this.ctx.storage.put("skills:seeded:learning-gadget:v2", true);
     }
     return ws;
   }

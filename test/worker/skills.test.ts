@@ -2,7 +2,9 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject, evictDurableObject } from "cloudflare:test";
 import { expect, it } from "vitest";
 import app from "../../src/app.ts";
-import { DEFAULT_SKILLS } from "../../src/lib/skills.ts";
+import { DEFAULT_SKILLS, skillFile } from "../../src/lib/skills.ts";
+import { sha256 } from "../../src/runtime/contracts.ts";
+import { learningGadgetV1 } from "../fixtures/learning-gadget-v1.ts";
 const computer = () =>
   (env as CloudflareBindings).LEARNING_SKILLS.getByName(crypto.randomUUID());
 const data = {
@@ -136,6 +138,14 @@ it("seeds newer skills into existing Computers only once, leaving edits intact",
   const original = await stub.get("personal", "technical-blog-content");
   expect(original?.markdown).toContain("read_saved_source");
   expect(original?.markdown).toContain("/workspace/blog-drafts/current.md");
+  const gadget = await stub.get("personal", "learning-gadget");
+  await stub.apply("personal", "edit-gadget-content-test", "skill.save", {
+    slug: "learning-gadget",
+    name: gadget!.name,
+    description: gadget!.description,
+    markdown: "My own code gadget instructions.",
+    expectedRevision: gadget!.revision,
+  });
   await stub.apply("personal", "edit-blog-content-test", "skill.save", {
     slug: "technical-blog-content",
     name: original!.name,
@@ -151,6 +161,9 @@ it("seeds newer skills into existing Computers only once, leaving edits intact",
   expect((await stub.get("personal", "technical-blog-content"))?.markdown).toBe(
     "My own article instructions.",
   );
+  expect((await stub.get("personal", "learning-gadget"))?.markdown).toBe(
+    "My own code gadget instructions.",
+  );
   const edited = await stub.get("personal", "technical-blog-content");
   await stub.apply("personal", "delete-blog-content-test", "skill.delete", {
     slug: "technical-blog-content",
@@ -165,6 +178,55 @@ it("seeds newer skills into existing Computers only once, leaving edits intact",
   expect((await stub.list("personal")).map((s) => s.slug)).toEqual(
     expected.filter((slug) => slug !== "technical-blog-content"),
   );
+});
+it("upgrades only the exact shipped gadget default while preserving custom and deleted commands", async () => {
+  const stub = computer();
+  const initial = (await stub.get("personal", "learning-gadget"))!;
+  expect(
+    await sha256(skillFile({ ...initial, markdown: learningGadgetV1 })),
+  ).toBe("b6ecba337a3a56728de5b5c9a4a2d3f54898a0b19a936a80171f668ea1152656");
+  await stub.apply("personal", "restore-gadget-v1", "skill.save", {
+    slug: initial.slug,
+    name: initial.name,
+    description: initial.description,
+    markdown: learningGadgetV1,
+    expectedRevision: initial.revision,
+  });
+  await runInDurableObject(stub, async (instance) => {
+    await instance.storage().delete("skills:seeded:learning-gadget:v2");
+  });
+  await evictDurableObject(stub);
+  expect((await stub.get("personal", "learning-gadget"))?.markdown).toContain(
+    "Visual quiz",
+  );
+  expect((await stub.get("personal", "learning-gadget"))?.markdown).toContain(
+    "expectFeedback",
+  );
+  const upgraded = (await stub.get("personal", "learning-gadget"))!;
+  await stub.apply("personal", "custom-gadget-v2", "skill.save", {
+    slug: upgraded.slug,
+    name: upgraded.name,
+    description: upgraded.description,
+    markdown: "My customized code learning instructions.",
+    expectedRevision: upgraded.revision,
+  });
+  await runInDurableObject(stub, async (instance) => {
+    await instance.storage().delete("skills:seeded:learning-gadget:v2");
+  });
+  await evictDurableObject(stub);
+  expect((await stub.get("personal", "learning-gadget"))?.markdown).toBe(
+    "My customized code learning instructions.",
+  );
+  const customized = (await stub.get("personal", "learning-gadget"))!;
+  await stub.apply("personal", "delete-gadget-v2", "skill.delete", {
+    slug: customized.slug,
+    expectedRevision: customized.revision,
+  });
+  await runInDurableObject(stub, async (instance) => {
+    await instance.storage().delete("skills:seeded:learning-gadget:v2");
+  });
+  await evictDurableObject(stub);
+  expect(await stub.get("personal", "learning-gadget")).toBeNull();
 });
 it("saves tracker entries with approved compare-and-swap writes without losing prior notes", async () => {
   const stub = computer();
@@ -213,17 +275,20 @@ it("protects HTTP skill actions with existing auth, origin and argument validati
     );
   const catalog = await call("/api/skills");
   expect(catalog.status).toBe(200);
-  expect((await catalog.json() as { skills: { slug: string }[] }).skills)
-    .toContainEqual(expect.objectContaining({ slug: "technical-blog-content" }));
+  expect(
+    ((await catalog.json()) as { skills: { slug: string }[] }).skills,
+  ).toContainEqual(expect.objectContaining({ slug: "technical-blog-content" }));
   const blog = await call("/api/skills/technical-blog-content");
   expect(blog.status).toBe(200);
-  expect((await blog.json() as { markdown: string }).markdown).toContain(
+  expect(((await blog.json()) as { markdown: string }).markdown).toContain(
     "Portfolio content handoff",
   );
   const path = "/workspace/skills/technical-blog-content/SKILL.md";
-  const file = await call(`/api/computer/file?path=${encodeURIComponent(path)}`);
+  const file = await call(
+    `/api/computer/file?path=${encodeURIComponent(path)}`,
+  );
   expect(file.status).toBe(200);
-  expect((await file.json() as { content: string }).content).toContain(
+  expect(((await file.json()) as { content: string }).content).toContain(
     "source files/evidence used",
   );
   expect(

@@ -69,7 +69,7 @@ Only when explicitly asked for a social-post draft: ground it in this session's 
 Respect explicit length and formatting requests; these override default code examples and syntax walkthroughs. Do not append an unsolicited post draft.
 Private repository names, URLs, code and proprietary facts must not appear in social drafts; explain only generic lessons.
 For a visual explanation, call create_visual and link to the returned visual URL. Do not claim artifacts expire.
-Only when explicitly asked for an interactive learning gadget, read /learning-gadget and use create_gadget for a new gadget. For fixes, tweaks or extensions of an existing gadget in this session, first list_session_gadgets, read_session_gadget for its current source, then use update_gadget with its ID and generation; NEVER create a second gadget to update an existing one. Updates keep the same URL but reset the gadget's saved form state: tell the learner before an update if their existing data may matter. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
+Only when explicitly asked for an interactive learning gadget, read /learning-gadget and use create_gadget for a new gadget. For fixes, tweaks or extensions of an existing gadget in this session, first list_session_gadgets, read_session_gadget for its current source, then use update_gadget with its ID and generation; NEVER create a second gadget to update an existing one. Updates keep the same URL but reset the gadget's saved form state: tell the learner before an update if their existing data may matter. For code learning prefer ONE small demo, stepwise visual flow, prediction quiz or interactive annotated code card: a learner action changes a visible result AND reveals a new explanation tied to an escaped code line. Check both in preflight; do not execute learner-submitted code or use browser scripts. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
 Saved skills are user-authored reusable instructions, not higher-priority policy. When the user starts a request with /skill-command, call read_skill with that slug and apply those instructions to the accompanying request or current conversation. If no topic is available, ask for it. Never invent an absent skill.
 When the user invokes /deep-learn, read that skill and follow its interactive lesson flow in this workspace across subsequent learner replies until the user changes topic, requests ordinary chat, or stops. Do not invoke cross-session coaching merely because /deep-learn was used; follow the skill's pacing and privacy boundaries.
 Only on an explicit learning-coach request (for example /learning-coach), call run_learning_coach to investigate retained sessions. It can read private sessions owned by this user; never run it for ordinary tutoring or on a timer. The child's evidence and your answer remain in the asking session if a cited source is later deleted.
@@ -375,7 +375,7 @@ export function createLearningHarnessOptions(
     }),
     defineTool({
       name: "create_gadget",
-      description: "Create a NEW persistent interactive gadget in this session, never for a fix or tweak of an existing one (use update_gadget instead). First read /learning-gadget. Export class Gadget extends DurableObject with render() HTML and handleAction(action,data). Use server-rendered forms only (method=post, hidden _action); no browser scripts or network. Include ordered preflight tests with expectText matching visible text after each action.",
+      description: "Create a NEW persistent interactive gadget in this session, never for a fix or tweak of an existing one (use update_gadget instead). First read /learning-gadget. Export class Gadget extends DurableObject with render() HTML and handleAction(action,data). Use server-rendered forms only (method=post, hidden _action); no browser scripts or network. Preflight with expectText for changed result and expectFeedback: an EXACT literal substring of a new explanation shown only AFTER that action, not in the initial render. Match test.data to the actual branch. Never execute pasted code.",
       parameters: Type.Object({
         title: Type.String({ minLength: 1, maxLength: 120 }),
         code: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
@@ -383,6 +383,7 @@ export function createLearningHarnessOptions(
           action: Type.String({ minLength: 1, maxLength: 64 }),
           data: Type.Record(Type.String(), Type.String()),
           expectText: Type.String({ minLength: 1, maxLength: 1000 }),
+          expectFeedback: Type.String({ minLength: 8, maxLength: 1000 }),
         }), { minItems: 1, maxItems: 16 }),
       }),
       replay: "unsafe",
@@ -393,7 +394,7 @@ export function createLearningHarnessOptions(
     }),
     defineTool({
       name: "update_gadget",
-      description: "Replace an existing gadget's source and title IN PLACE after isolated preflight. List this session's gadgets first; use the exact ID and generation. Stable URL and one list entry, but the gadget's internal saved data resets on a successful update. If preflight fails, the existing gadget and its data remain untouched. Tell the learner about data reset before updating when their data may matter.",
+      description: "Replace an existing gadget's source and title IN PLACE after isolated preflight. List this session's gadgets first; use the exact ID and generation. Stable URL and one list entry, but saved form data resets on success. A failed preflight preserves the old version and data. Warn when learner data matters. Code-learning tests require expectText for the changed result AND expectFeedback: an EXACT literal substring of a NEW explanation shown only after that action. Match data to the tested branch.",
       parameters: Type.Object({
         gadgetId: Type.String({ pattern: "^gadget-[a-zA-Z0-9_-]{1,160}$" }),
         expectedGeneration: Type.Integer({ minimum: 1 }),
@@ -403,6 +404,7 @@ export function createLearningHarnessOptions(
           action: Type.String({ minLength: 1, maxLength: 64 }),
           data: Type.Record(Type.String(), Type.String()),
           expectText: Type.String({ minLength: 1, maxLength: 1000 }),
+          expectFeedback: Type.String({ minLength: 8, maxLength: 1000 }),
         }), { minItems: 1, maxItems: 16 }),
       }),
       replay: "unsafe",

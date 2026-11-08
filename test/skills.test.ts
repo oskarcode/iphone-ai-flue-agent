@@ -84,6 +84,10 @@ describe("Computer boundaries", () => {
     expect(gadget?.markdown).toContain("Preflight");
     expect(gadget?.markdown).toContain("THIS session");
     expect(gadget?.markdown).toContain("No browser JavaScript");
+    expect(gadget?.markdown).toContain("expectFeedback");
+    expect(gadget?.markdown).toContain("Visual quiz");
+    expect(gadget?.markdown).toContain("Code card/cheat sheet");
+    expect(gadget?.markdown).toContain("No eval");
     const blog = DEFAULT_SKILLS.find((skill) => skill.slug === "technical-blog-content");
     expect(blog?.description).toContain("/technical-blog-content");
     const instructions = blog!.markdown;
