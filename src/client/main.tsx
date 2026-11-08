@@ -738,6 +738,16 @@ function App() {
               Open saved visual explainer ↗
             </a>
           )}
+          {(snapshot?.gadgets ?? []).length > 0 && (
+            <section className="gadget-list" aria-label="Interactive learning gadgets">
+              <h3>Interactive gadgets</h3>
+              {(snapshot?.gadgets ?? []).map((gadget) => (
+                <a key={gadget.id} className="artifact" href={`/api/sessions/${encodeURIComponent(id)}/gadgets/${encodeURIComponent(gadget.id)}`} target="_blank" rel="noreferrer">
+                  {gadget.title} · Open gadget ↗
+                </a>
+              ))}
+            </section>
+          )}
           {snapshot?.approvals.slice(-10).map((approval) => {
             const notice = automaticActionNotice(approval);
             return notice && (

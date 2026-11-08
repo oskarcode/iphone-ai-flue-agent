@@ -1,6 +1,7 @@
 // Type-only imports describe retained evidence without loading clients in the browser bundle.
 import type { GithubRepository } from "../tools/github-repository.ts";
 import type { VisualExplainer } from "../lib/visual-session.ts";
+import type { GadgetSummary } from "./gadgets.ts";
 
 // Access admission is the boundary for this single workspace; IDs are locators, never bearer credentials.
 export const PERSONAL_OWNER = "personal";
@@ -89,6 +90,7 @@ export type SessionSnapshot = {
   error?: string;
   sources: Omit<Source, "content">[];
   notes: Note[];
+  gadgets?: GadgetSummary[];
   approvals: Approval[];
   nextCursor?: string;
 };

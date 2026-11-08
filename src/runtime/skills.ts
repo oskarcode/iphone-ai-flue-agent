@@ -174,6 +174,19 @@ export class LearningSkills extends Base {
       }
       await this.ctx.storage.put("skills:seeded:technical-blog-content:v2", true);
     }
+    if (!(await this.ctx.storage.get("skills:seeded:learning-gadget:v1"))) {
+      const gadget = DEFAULT_SKILLS.find((skill) => skill.slug === "learning-gadget")!;
+      const path = `/workspace/skills/${gadget.slug}/SKILL.md`;
+      const deleted = this.ctx.storage.sql.exec(
+        "SELECT 1 FROM skill_operations WHERE status='done' AND result=? LIMIT 1",
+        JSON.stringify({ deleted: gadget.slug }),
+      ).toArray().length > 0;
+      if (!deleted) {
+        await ws.fs.mkdir(`/workspace/skills/${gadget.slug}`, { recursive: true });
+        try { await ws.fs.stat(path); } catch { await ws.fs.writeFile(path, skillFile(gadget)); }
+      }
+      await this.ctx.storage.put("skills:seeded:learning-gadget:v1", true);
+    }
     return ws;
   }
   private async readSkill(slug: string): Promise<Skill | null> {

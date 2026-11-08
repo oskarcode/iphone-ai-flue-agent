@@ -166,6 +166,16 @@ For each change, propose a single write_computer_file for the complete updated f
   },
   TECHNICAL_BLOG_CONTENT,
   {
+    slug: "learning-gadget",
+    name: "Interactive learning gadget",
+    description: "Build a small persistent interactive app from this lesson. Try /learning-gadget.",
+    markdown: `Build a small interactive gadget about what we learned in THIS session, only when I invoke /learning-gadget or explicitly ask for a gadget. Use the conversation, saved notes and read_saved_source evidence; do not claim unverified repository behavior. Ask one question only if the requested interaction is genuinely ambiguous. This is a working learning tool, not a static visual or a code snippet.
+
+Call create_gadget with a short title, plain JavaScript source and ordered preflight tests. Source must import { DurableObject } from "cloudflare:workers" and export class Gadget extends DurableObject. Initialize SQLite tables idempotently in its constructor. async render() returns complete mobile-friendly HTML; async handleAction(action, data) updates persistent SQLite using bound parameters and validates every input and action. Every form uses method="post", no action URL, a hidden _action input and controls named to match handleAction. Use HTML escaping for all learner text. No browser JavaScript, external assets, network or secrets; do not use the Computer's shell or JavaScript backend. Include labels, a helpful empty state and a way back to the lesson. For record gadgets include working add, list and edit, plus status and delete when meaningful; for simulations or quizzes include each meaningful step and reset when relevant. Never offer decorative buttons that do nothing.
+
+Preflight with at least one test per important form action; each test supplies action, string-valued form data and required expectText matching visible text after that action. Every tested action must visibly change state; for a counter test add expecting 1, then reset expecting 0. Never test only that a button exists. Do not publish probe or debug gadgets: successful create_gadget calls remain in the session until its deletion. Use safe test records distinct from learner data. The runtime discards preflight state before opening the gadget. If preflight fails, fix and try again; do not claim it was created. On success, link the exact URL returned by create_gadget. The gadget belongs to this learning session, persists across reloads and is removed when this session is permanently deleted. Do not silently create gadgets for ordinary questions.`,
+  },
+  {
     slug: "learning-post",
     name: "What I learned · post draft",
     description:

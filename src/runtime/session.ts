@@ -14,6 +14,7 @@ import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/stora
 // Application contracts, tool schemas and the harness adapter connect persisted state to model work.
 import * as v from "valibot";
 import { COMPUTER_ACTIONS, computerAction, isAutoComputerAction } from "../lib/skills.ts";
+import { LearningGadgets, type GadgetTest } from "./gadgets.ts";
 import { createLearningHarnessOptions } from "./harness.ts";
 import { ActivityJournal } from "./activity.ts";
 import { routingLabel, type RoutingDecision } from "./routing-label.ts";
@@ -76,6 +77,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   private harness?: Harness;
   private watched = new Set<string>();
   private activity: ActivityJournal;
+  private readonly gadgets: LearningGadgets;
   private activityStream?: AgentEventStream;
   /** Input: Cloudflare context and bindings.
    * Output: initialized object instance.
@@ -84,6 +86,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
     this.activity = new ActivityJournal(ctx.storage.sql);
+    this.gadgets = new LearningGadgets(ctx, env.SKILL_LOADER);
     ctx.storage.sql
       .exec(`CREATE TABLE IF NOT EXISTS learning_state (id INTEGER PRIMARY KEY CHECK(id=1), metadata TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, dirty INTEGER NOT NULL DEFAULT 1, deleted INTEGER NOT NULL DEFAULT 0, error TEXT);
       CREATE TABLE IF NOT EXISTS learning_sources (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -287,6 +290,8 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
             : this.rows<Source>("learning_sources")
                 .slice(-30)
                 .map(({ id, title }) => ({ id, title })),
+        createGadget: (taskId, title, code, tests) =>
+          this.gadgets.create(`gadget-${taskId}`, title, code, tests),
         savedNote: (id) =>
           id
             ? (this.rows<Note>("learning_notes").find(
@@ -311,6 +316,11 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       if (!(await this.ctx.storage.get("learning:tools:coach-subagent:v3"))) {
         await root.configure({ tools: options.learningTools }, background);
         await this.ctx.storage.put("learning:tools:coach-subagent:v3", true);
+      }
+      // Old root conversations retain a tool allowlist; update it without touching child agents.
+      if (!(await this.ctx.storage.get("learning:tools:gadget:v1"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:tools:gadget:v1", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -681,6 +691,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
         ({ content: _content, ...source }) => source,
       ),
       notes: this.rows<Note>("learning_notes"),
+      gadgets: this.gadgets.list(),
       approvals: this.rows<Approval>("learning_approvals").map((action) =>
         action.automatic
           ? { id: action.id, tool: action.tool, args: {}, status: action.status,
@@ -1153,6 +1164,19 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       ),
     });
   }
+  /** Owner-checked gadget rendering and form actions. Generated source stays private. */
+  async renderGadget(owner: string, gadgetId: string): Promise<string> {
+    this.authorize(owner);
+    return this.gadgets.render(gadgetId);
+  }
+  async actOnGadget(owner: string, gadgetId: string, action: string, data: Record<string, string>): Promise<void> {
+    this.authorize(owner);
+    await this.gadgets.action(gadgetId, action, data);
+  }
+  async createGadget(owner: string, taskId: string, title: string, code: string, tests: GadgetTest[]) {
+    this.authorize(owner);
+    return this.gadgets.create(`gadget-${taskId}`, title, code, tests);
+  }
   /** Input: owner. Output: revoked session and attempted cleanup.
    * What this function does: persists deletion before stopping work, closing sockets and erasing stored copies.
    */
@@ -1194,6 +1218,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       await this.env.CHAT_SESSIONS.delete(key);
     // Keep a small tombstone so old links/retries cannot resurrect a deleted session.
     await this.ctx.storage.deleteAlarm();
+    this.gadgets.deleteAll();
     this.ctx.storage.sql.exec(
       "UPDATE learning_state SET metadata=?,deleted=1,dirty=0,error=NULL WHERE id=1",
       JSON.stringify({ id: metadata.id, owner: metadata.owner }),

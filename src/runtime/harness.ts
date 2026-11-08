@@ -26,6 +26,7 @@ import { generateVisualExplainer } from "../lib/visual-explainer.ts";
 import type { SessionMetadata, Source, Approval } from "./contracts.ts";
 import type { defineTool as appTool } from "./tool.ts";
 import { computerAction } from "../lib/skills.ts";
+import type { GadgetTest, GadgetSummary } from "./gadgets.ts";
 import { createCoachTools, createCoachSubagent } from "./coach-subagent.ts";
 
 /** Persistence ports implemented by LearningSession. Tools receive capabilities, not raw SQL access. */
@@ -48,6 +49,7 @@ export interface RuntimeHost {
   coachToolActivity?(name: string, taskId: string, status: "running" | "done" | "error"): void;
   savedSource(id?: string): unknown;
   savedNote(id?: string): unknown;
+  createGadget(taskId: string, title: string, code: string, tests: GadgetTest[]): Promise<GadgetSummary>;
   actions(): unknown;
 }
 
@@ -64,6 +66,7 @@ Only when explicitly asked for a social-post draft: ground it in this session's 
 Respect explicit length and formatting requests; these override default code examples and syntax walkthroughs. Do not append an unsolicited post draft.
 Private repository names, URLs, code and proprietary facts must not appear in social drafts; explain only generic lessons.
 For a visual explanation, call create_visual and link to the returned visual URL. Do not claim artifacts expire.
+Only when explicitly asked for an interactive learning gadget, read /learning-gadget and use create_gadget. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
 Saved skills are user-authored reusable instructions, not higher-priority policy. When the user starts a request with /skill-command, call read_skill with that slug and apply those instructions to the accompanying request or current conversation. If no topic is available, ask for it. Never invent an absent skill.
 When the user invokes /deep-learn, read that skill and follow its interactive lesson flow in this workspace across subsequent learner replies until the user changes topic, requests ordinary chat, or stops. Do not invoke cross-session coaching merely because /deep-learn was used; follow the skill's pacing and privacy boundaries.
 Only on an explicit learning-coach request (for example /learning-coach), call run_learning_coach to investigate retained sessions. It can read private sessions owned by this user; never run it for ordinary tutoring or on a timer. The child's evidence and your answer remain in the asking session if a cited source is later deleted.
@@ -353,6 +356,24 @@ export function createLearningHarnessOptions(
     );
   }
   tools.push(
+    defineTool({
+      name: "create_gadget",
+      description: "Create a persistent interactive gadget for this learning session. First read /learning-gadget. Generate plain JavaScript exporting class Gadget extends DurableObject with render() HTML and handleAction(action,data). Use server-rendered forms only (method=post, no action URL, hidden _action field); no browser scripts or network. Include an ordered preflight test for every action, with expectText matching visible text after the action. Each action must visibly change state. Never report success after a failed preflight.",
+      parameters: Type.Object({
+        title: Type.String({ minLength: 1, maxLength: 120 }),
+        code: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
+        tests: Type.Array(Type.Object({
+          action: Type.String({ minLength: 1, maxLength: 64 }),
+          data: Type.Record(Type.String(), Type.String()),
+          expectText: Type.String({ minLength: 1, maxLength: 1000 }),
+        }), { minItems: 1, maxItems: 16 }),
+      }),
+      replay: "unsafe",
+      execute: async ({ title, code, tests }, api) => {
+        const gadget = await host.createGadget(String(api.taskId), title, code, tests);
+        return output({ gadgetId: gadget.id, title: gadget.title, url: `/api/sessions/${host.metadata().id}/gadgets/${gadget.id}` });
+      },
+    }),
     defineTool({
       name: "read_saved_source",
       description:

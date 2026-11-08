@@ -144,6 +144,7 @@ describe("migration and action boundaries", () => {
       coachMessage: async () => ({}),
       savedSource: () => [],
       savedNote: () => [],
+      createGadget: async () => ({ id: "test-gadget", title: "Example", createdAt: "now" }),
       actions: () => [],
       proposal: async (id, tool, args) => {
         const proposal: Approval = {

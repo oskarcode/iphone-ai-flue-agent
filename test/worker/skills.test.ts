@@ -128,6 +128,7 @@ it("seeds newer skills into existing Computers only once, leaving edits intact",
   const expected = [
     "deep-learn",
     "feature-bug-tracker",
+    "learning-gadget",
     "learning-coach",
     "technical-blog-content",
   ];

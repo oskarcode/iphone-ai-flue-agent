@@ -13,6 +13,7 @@ import type { GithubRepository } from "./tools/github-repository.ts";
 import { getLearningSessionRecord } from "./lib/learning-session.ts";
 import { getVisualSession } from "./lib/visual-session.ts";
 import { renderVisualExplainerPage } from "./visual-page.ts";
+import { gadgetPage, gadgetForm } from "./lib/gadget-page.ts";
 import {
   createGrammarRequest,
   correctedTextFromAi,
@@ -45,9 +46,12 @@ app.use("*", async (c, next) => {
   c.set("startedAt", Date.now());
   await next();
   c.header("X-Content-Type-Options", "nosniff");
-  c.header("Referrer-Policy", "no-referrer");
+  // Native form POSTs from no-referrer documents send Origin: null in Chromium.
+  // A same-origin policy keeps the form origin verifiable without revealing it off-site.
+  c.header("Referrer-Policy", /^\/api\/sessions\/[^/]+\/gadgets\/[^/]+$/.test(c.req.path) ? "same-origin" : "no-referrer");
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   if (!c.req.path.startsWith("/assets/")) c.header("Cache-Control", "no-store");
+  if (/^\/api\/sessions\/[^/]+\/gadgets\/[^/]+$/.test(c.req.path)) return;
   if (c.res.headers.get("Content-Type")?.includes("text/html")) {
     // Nonce application scripts; the hostname-scoped Configuration Rule separately
     // disables Zaraz injection and Rocket Loader (the edge can add trusted nonces).
@@ -548,6 +552,31 @@ app.post("/api/sessions", async (c) => {
     return c.json({ error: "Invalid session input" }, 400);
   const id = await create(c, body.text, body.id);
   return c.json({ id, url: absolute(c, `/sessions/${id}`) }, 201);
+});
+app.get("/api/sessions/:id/gadgets/:gadget", async (c) => {
+  const id = c.req.param("id");
+  const gadgetId = c.req.param("gadget");
+  if (!SESSION_ID.test(id) || !/^gadget-[\w-]{1,160}$/.test(gadgetId)) return c.json({ error: "Not found" }, 404);
+  const target = await ensure(c, id);
+  try {
+    const html = await target.renderGadget(owner(c), gadgetId);
+    return gadgetPage(html, c.req.path, `/sessions/${id}`);
+  } catch {
+    return c.json({ error: "Gadget not found" }, 404);
+  }
+});
+app.post("/api/sessions/:id/gadgets/:gadget", async (c) => {
+  const id = c.req.param("id");
+  const gadgetId = c.req.param("gadget");
+  if (!SESSION_ID.test(id) || !/^gadget-[\w-]{1,160}$/.test(gadgetId)) return c.json({ error: "Not found" }, 404);
+  const target = await ensure(c, id);
+  try {
+    const { action, data } = await gadgetForm(c.req.raw);
+    await target.actOnGadget(owner(c), gadgetId, action, data);
+    return c.redirect(c.req.path, 303);
+  } catch {
+    return c.json({ error: "Gadget action failed" }, 400);
+  }
 });
 app.get("/api/sessions/:id", async (c) =>
   (await ensure(c, c.req.param("id"))).snapshot(

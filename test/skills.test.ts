@@ -79,6 +79,11 @@ describe("Computer boundaries", () => {
     expect(deepLearn?.markdown).toContain("in THIS workspace");
     expect(deepLearn?.markdown).toContain("Ask only one question at a time");
     expect(deepLearn?.markdown).toContain("Only change skills or Computer files when I explicitly request it");
+    const gadget = DEFAULT_SKILLS.find((skill) => skill.slug === "learning-gadget");
+    expect(gadget?.markdown).toContain("create_gadget");
+    expect(gadget?.markdown).toContain("Preflight");
+    expect(gadget?.markdown).toContain("THIS session");
+    expect(gadget?.markdown).toContain("No browser JavaScript");
     const blog = DEFAULT_SKILLS.find((skill) => skill.slug === "technical-blog-content");
     expect(blog?.description).toContain("/technical-blog-content");
     const instructions = blog!.markdown;
