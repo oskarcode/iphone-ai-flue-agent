@@ -56,6 +56,7 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
     await expect(
       page.getByRole("button", { name: "Learning preferences" }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "Skills", exact: true }).click();
     await page.getByRole("button", { name: "New skill", exact: true }).click();
     await page.getByLabel("Skill command").fill(slug);
     await page.getByLabel("Skill name").fill("Test examples");
@@ -75,6 +76,7 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
           (await (await request.get(`/api/skills/${slug}`)).json()).markdown,
       )
       .toBe("Use two small examples.");
+    await page.getByRole("button", { name: "Computer", exact: true }).click();
     await page.getByLabel("Computer command").fill(command);
     page.once("dialog", (dialog) => dialog.accept());
     await page
@@ -97,6 +99,7 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
       "JS_SETTINGS_OK",
       { timeout: 45000 },
     );
+    await page.getByRole("button", { name: "Learning", exact: true }).click();
     await page.getByRole("button", { name: "Learning preferences" }).click();
     await expect(page.getByLabel("Teaching preferences")).toBeVisible();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -113,6 +116,7 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
       page.getByRole("button", { name: `/${slug}`, exact: true }),
     ).toBeAttached();
     await settings();
+    await page.getByRole("button", { name: "Skills", exact: true }).click();
     await page.getByRole("button", { name: new RegExp(`/${slug}`) }).click();
     await page
       .getByRole("button", { name: "Delete skill", exact: true })
@@ -121,6 +125,7 @@ test("Settings manages persistent skills, dynamic commands and a working Compute
     await expect
       .poll(async () => (await request.get(`/api/skills/${slug}`)).status())
       .toBe(404);
+    await page.getByRole("button", { name: "Account", exact: true }).click();
     await page.evaluate(() => localStorage.setItem("unrelated:test", "keep"));
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Clear device drafts" }).click();

@@ -553,6 +553,23 @@ app.post("/api/sessions", async (c) => {
   const id = await create(c, body.text, body.id);
   return c.json({ id, url: absolute(c, `/sessions/${id}`) }, 201);
 });
+// Page through the owner-scoped Library, then query canonical session registries.
+// No separate gadget index can go stale after a session deletion or a failed preflight.
+app.get("/api/gadgets", async (c) => {
+  const offset = Number(c.req.query("offset") ?? 0);
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000)
+    return c.json({ error: "Invalid offset" }, 400);
+  const page = await library(c).list("", "all", offset);
+  const results = await Promise.allSettled(page.items.map(async (item) => {
+    const gadgets = await session(c, item.id).listGadgets(owner(c));
+    return gadgets.map((gadget) => ({ ...gadget, sessionId: item.id, sessionTitle: item.title }));
+  }));
+  return c.json({
+    gadgets: results.flatMap((result) => result.status === "fulfilled" ? result.value : []),
+    unavailable: results.filter((result) => result.status === "rejected").length,
+    nextOffset: page.nextOffset,
+  });
+});
 app.get("/api/sessions/:id/gadgets/:gadget", async (c) => {
   const id = c.req.param("id");
   const gadgetId = c.req.param("gadget");
@@ -576,6 +593,20 @@ app.post("/api/sessions/:id/gadgets/:gadget", async (c) => {
     return c.redirect(c.req.path, 303);
   } catch {
     return c.json({ error: "Gadget action failed" }, 400);
+  }
+});
+app.delete("/api/sessions/:id/gadgets/:gadget", async (c) => {
+  const id = c.req.param("id");
+  const gadgetId = c.req.param("gadget");
+  if (!SESSION_ID.test(id) || !/^gadget-[\w-]{1,160}$/.test(gadgetId)) return c.json({ error: "Not found" }, 404);
+  const body = await json<{ expectedGeneration?: number }>(c, 2000);
+  if (!body || !Number.isSafeInteger(body.expectedGeneration) || (body.expectedGeneration ?? 0) < 1)
+    return c.json({ error: "Expected gadget generation required" }, 400);
+  try {
+    await (await ensure(c, id)).deleteGadget(owner(c), gadgetId, body.expectedGeneration!);
+    return c.body(null, 204);
+  } catch {
+    return c.json({ error: "Gadget changed or was already deleted. Refresh the list." }, 409);
   }
 });
 app.get("/api/sessions/:id", async (c) =>

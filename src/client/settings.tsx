@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { api } from "./api.ts";
+import { GadgetLibrary } from "./gadgets.tsx";
 import type { Skill, SkillSummary } from "../lib/skills.ts";
 const blank = (): Skill => ({
   slug: "",
@@ -14,11 +15,13 @@ type Props = {
   signOut(): void;
   createWithAgent(): void;
   skillsChanged(): void;
+  gadgetsChanged(): void;
 };
 /** Input: settings actions. Output: one mobile settings surface for preferences, skills, Computer and account.
  * What this function does: keeps administration away from chat and uses revision-checked, explicit mutations.
  */
 export function Settings(props: Props) {
+  const [tab, setTab] = useState<"learning" | "gadgets" | "skills" | "computer" | "account">("learning");
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [selected, setSelected] = useState<Skill>();
   const [files, setFiles] = useState<{ path: string; type: string }[]>([]);
@@ -72,11 +75,20 @@ export function Settings(props: Props) {
           {error}
         </p>
       )}
-      <section className="settings-card">
+      {result && <pre className="computer-output" role="status">{result}</pre>}
+      <nav className="settings-tabs" aria-label="Settings sections">
+        {(["learning", "gadgets", "skills", "computer", "account"] as const).map((name) => (
+          <button key={name} type="button" aria-current={tab === name ? "page" : undefined} onClick={() => setTab(name)}>
+            {name === "computer" ? "Computer" : name[0].toUpperCase() + name.slice(1)}
+          </button>
+        ))}
+      </nav>
+      {tab === "learning" && <section className="settings-card">
         <h2>Learning</h2>
         <button onClick={props.preferences}>Learning preferences</button>
-      </section>
-      <section className="settings-card">
+      </section>}
+      {tab === "gadgets" && <GadgetLibrary changed={props.gadgetsChanged} />}
+      {tab === "skills" && <section className="settings-card">
         <h2>Skills</h2>
         <p>
           Reusable instructions stored on your Cloudflare Computer. Available in
@@ -207,8 +219,8 @@ export function Settings(props: Props) {
             )}
           </form>
         )}
-      </section>
-      <section className="settings-card">
+      </section>}
+      {tab === "computer" && <section className="settings-card">
         <h2>Cloudflare Computer</h2>
         <p>
           Persistent files, a worker-shell with curl/jq/file commands, and an
@@ -299,13 +311,8 @@ export function Settings(props: Props) {
           </label>
           <button disabled={busy || !command.trim()}>Run command</button>
         </form>
-        {result && (
-          <pre className="computer-output" role="status">
-            {result}
-          </pre>
-        )}
-      </section>
-      <section className="settings-card">
+      </section>}
+      {tab === "account" && <section className="settings-card">
         <h2>Device & account</h2>
         <p>
           Clearing drafts affects this browser only, not saved conversations or
@@ -313,7 +320,7 @@ export function Settings(props: Props) {
         </p>
         <button onClick={props.clearDrafts}>Clear device drafts</button>
         <button onClick={props.signOut}>Sign out</button>
-      </section>
+      </section>}
     </div>
   );
 }

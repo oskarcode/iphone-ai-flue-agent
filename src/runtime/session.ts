@@ -292,6 +292,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
                 .map(({ id, title }) => ({ id, title })),
         createGadget: (taskId, title, code, tests) =>
           this.gadgets.create(`gadget-${taskId}`, title, code, tests),
+        listGadgets: () => this.gadgets.list(),
+        gadgetSource: (id) => this.gadgets.source(id),
+        updateGadget: (id, taskId, generation, title, code, tests) =>
+          this.gadgets.update(id, taskId, generation, title, code, tests),
         savedNote: (id) =>
           id
             ? (this.rows<Note>("learning_notes").find(
@@ -321,6 +325,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       if (!(await this.ctx.storage.get("learning:tools:gadget:v1"))) {
         await root.configure({ tools: options.learningTools }, background);
         await this.ctx.storage.put("learning:tools:gadget:v1", true);
+      }
+      if (!(await this.ctx.storage.get("learning:tools:gadget-edit:v2"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:tools:gadget-edit:v2", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -1176,6 +1184,22 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   async createGadget(owner: string, taskId: string, title: string, code: string, tests: GadgetTest[]) {
     this.authorize(owner);
     return this.gadgets.create(`gadget-${taskId}`, title, code, tests);
+  }
+  listGadgets(owner: string) {
+    // Older Library rows may not yet have canonical Pi state; they cannot own gadgets.
+    // The caller may only enumerate IDs from its owner-checked Library.
+    if (!this.state()) return [];
+    this.authorize(owner);
+    return this.gadgets.list();
+  }
+  async updateGadget(owner: string, id: string, taskId: string, expectedGeneration: number, title: string, code: string, tests: GadgetTest[]) {
+    this.authorize(owner);
+    return this.gadgets.update(id, taskId, expectedGeneration, title, code, tests);
+  }
+  deleteGadget(owner: string, id: string, expectedGeneration: number): void {
+    this.authorize(owner);
+    this.gadgets.delete(id, expectedGeneration);
+    this.notify();
   }
   /** Input: owner. Output: revoked session and attempted cleanup.
    * What this function does: persists deletion before stopping work, closing sockets and erasing stored copies.

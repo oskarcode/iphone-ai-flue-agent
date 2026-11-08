@@ -540,6 +540,7 @@ function App() {
               );
             }}
             skillsChanged={() => void loadSkills()}
+            gadgetsChanged={() => void refresh()}
           />
         </main>
       )}
