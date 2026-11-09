@@ -1,5 +1,47 @@
 import { test, expect } from "@playwright/test";
 
+test("explicitly upgrades only the existing course gadget for scheduled content", async ({
+  page,
+}) => {
+  const id = "course-lesson-001";
+  await page.route("**/api/gadgets?offset=*", (route) =>
+    route.fulfill({
+      json: {
+        gadgets: [
+          {
+            id: "gadget-typescript-course-v1",
+            title: "TypeScript for AI harnesses",
+            sessionId: id,
+            sessionTitle: "TypeScript course",
+            generation: 1,
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+        ],
+        unavailable: 0,
+      },
+    }),
+  );
+  let upgraded = false;
+  await page.route(`**/api/sessions/${id}/course-upgrade`, (route) => {
+    upgraded = true;
+    return route.fulfill({
+      json: { id: "gadget-typescript-course-v1", generation: 2 },
+    });
+  });
+  await page.goto("/chat");
+  await page.getByRole("button", { name: "Open library" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gadgets", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Enable scheduled lesson cards" })
+    .click();
+  await expect(
+    page.getByText("Course is ready for scheduled lesson cards."),
+  ).toBeVisible();
+  expect(upgraded).toBe(true);
+});
+
 test("Settings Gadgets tab pages across lessons and deletes only the selected gadget", async ({
   page,
 }) => {

@@ -28,6 +28,11 @@ import type { defineTool as appTool } from "./tool.ts";
 import { computerAction } from "../lib/skills.ts";
 import type { GadgetTest, GadgetSummary, GadgetDataUpdate } from "./gadgets.ts";
 import { createCoachTools, createCoachSubagent } from "./coach-subagent.ts";
+import {
+  DeliverLearningSchedule,
+  scheduleTools,
+  type LearningSchedule,
+} from "./schedules.ts";
 
 /** Persistence ports implemented by LearningSession. Tools receive capabilities, not raw SQL access. */
 export interface RuntimeHost {
@@ -85,6 +90,9 @@ export interface RuntimeHost {
     updates: GadgetDataUpdate[],
   ): Promise<GadgetSummary>;
   actions(): unknown;
+  schedules(): Promise<LearningSchedule[]>;
+  cancelSchedule(id: string): Promise<boolean>;
+  scheduleWake(at: number): Promise<void>;
 }
 
 // Instructions guide the model; approval, authentication and privacy filtering also require server enforcement.
@@ -101,6 +109,7 @@ Respect explicit length and formatting requests; these override default code exa
 Private repository names, URLs, code and proprietary facts must not appear in social drafts; explain only generic lessons.
 For a visual explanation, call create_visual and link to the returned visual URL. Do not claim artifacts expire.
 Only when explicitly asked for an interactive learning gadget, read /learning-gadget and use create_gadget for a new gadget. For fixes, tweaks or extensions of an existing gadget in this session, first list_session_gadgets, read_session_gadget for its current source, then use update_gadget with its ID and generation; NEVER create a second gadget to update an existing one. Code updates clone the gadget's SQLite so progress survives when the new code remains compatible; do not claim a schema migration succeeded unless the updated gadget and data preflight passed. Use read_gadget_page to inspect visible state; for a data-only change use update_gadget_data with the gadget's own bounded handleAction actions, never raw SQL. For combined code and data changes, pass dataUpdates to update_gadget so both apply on a clone before switching. Never erase or reset learner progress to make a test pass. For code learning prefer ONE small demo, stepwise visual flow, prediction quiz or interactive annotated code card: a learner action changes a visible result AND reveals a new explanation tied to an escaped code line. Check both in preflight; do not execute learner-submitted code or use browser scripts. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
+When explicitly asked for future or recurring learning work, use schedule with delaySeconds or an absolute offset-bearing time and a self-contained instruction for THIS session. Future turns may update the existing gadget through update_gadget_data, but do not run arbitrary SQL or reset progress. The schedule is not a timer inside gadget code. Use list_schedules/cancel_schedule to inspect or stop; Settings → Schedules edits the time and instruction. Never claim an unverified scheduled turn has already run or guarantee an unapproved external write will happen automatically.
 Saved skills are user-authored reusable instructions, not higher-priority policy. When the user starts a request with /skill-command, call read_skill with that slug and apply those instructions to the accompanying request or current conversation. If no topic is available, ask for it. Never invent an absent skill.
 When the user invokes /deep-learn, read that skill and follow its interactive lesson flow in this workspace across subsequent learner replies until the user changes topic, requests ordinary chat, or stops. Do not invoke cross-session coaching merely because /deep-learn was used; follow the skill's pacing and privacy boundaries.
 Only on an explicit learning-coach request (for example /learning-coach), call run_learning_coach to investigate retained sessions. It can read private sessions owned by this user; never run it for ordinary tutoring or on a timer. The child's evidence and your answer remain in the asking session if a cited source is later deleted.
@@ -189,6 +198,13 @@ export function createLearningHarnessOptions(
   // Register child-only read tools below, but never grant them to the root tutor.
   // Explicit coaching must flow through the task-owned Pi Durable subagent.
   tools.push(createCoachSubagent(env, coachTools));
+  tools.push(
+    ...scheduleTools({
+      list: host.schedules,
+      cancel: host.cancelSchedule,
+      wake: host.scheduleWake,
+    }),
+  );
   const computer = () => env.LEARNING_SKILLS.getByName(host.metadata().owner);
   const output = (value: unknown) => ({
     output: [{ type: "text" as const, text: JSON.stringify(value) }],
@@ -666,6 +682,12 @@ export function createLearningHarnessOptions(
     ],
   });
   registry.install(learning);
+  registry.install(
+    defineExtension({
+      name: "learning-schedules",
+      tasks: [DeliverLearningSchedule],
+    }),
+  );
   return {
     learningTools: tools,
     models,

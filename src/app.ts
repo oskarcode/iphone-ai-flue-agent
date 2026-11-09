@@ -15,6 +15,7 @@ import { getVisualSession } from "./lib/visual-session.ts";
 import { renderVisualExplainerPage } from "./visual-page.ts";
 import { gadgetPage, gadgetForm } from "./lib/gadget-page.ts";
 import { TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT } from "./lib/typescript-course.ts";
+import type { ScheduleRecurrence } from "./runtime/schedules.ts";
 import {
   createGrammarRequest,
   correctedTextFromAi,
@@ -572,6 +573,48 @@ app.post("/api/learning-course", async (c) => {
   }
   const gadget = await stub.createGadget(owner(c), "typescript-course-v1", "TypeScript for AI harnesses · Weeks 1–3", TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT.map((test) => ({ ...test, data: { ...test.data } })));
   return c.json({ sessionId: id, gadgetId: gadget.id, url: `/api/sessions/${id}/gadgets/${gadget.id}` }, 201);
+});
+app.post("/api/sessions/:id/course-upgrade", async (c) => {
+  const id = c.req.param("id");
+  if (!SESSION_ID.test(id)) return c.json({ error: "Not found" }, 404);
+  try { return c.json(await (await ensure(c, id)).upgradeCourseGadget(owner(c))); }
+  catch { return c.json({ error: "Course changed or was customized. Inspect it before upgrading." }, 409); }
+});
+// Settings directory includes private and archived lessons, but never deleted sessions.
+app.get("/api/schedules", async (c) => {
+  const schedules: Array<Record<string, unknown>> = [];
+  let offset: number | undefined = 0, unavailable = 0, pages = 0;
+  while (offset !== undefined && pages++ < 20) {
+    const page = await library(c).list("", "all", offset);
+    const results = await Promise.allSettled(page.items.map(async (item) => (await session(c, item.id).schedules(owner(c))).map((schedule) => ({ ...schedule, sessionId: item.id, sessionTitle: item.title }))));
+    for (const result of results) if (result.status === "fulfilled") schedules.push(...result.value); else unavailable++;
+    offset = page.nextOffset;
+  }
+  return c.json({ schedules: schedules.sort((a, b) => Number(a.runAt) - Number(b.runAt)), unavailable, truncated: offset !== undefined });
+});
+app.post("/api/sessions/:id/schedules", async (c) => {
+  const id = c.req.param("id");
+  if (!SESSION_ID.test(id)) return c.json({ error: "Not found" }, 404);
+  const body = await json<{ instruction?: string; runAt?: number; recurrence?: ScheduleRecurrence }>(c, 6500);
+  if (!body || typeof body.instruction !== "string" || typeof body.runAt !== "number") return c.json({ error: "Invalid schedule" }, 400);
+  try { return c.json(await (await ensure(c, id)).createSchedule(owner(c), body.instruction, body.runAt, body.recurrence), 201); }
+  catch { return c.json({ error: "Schedule input invalid or session unavailable" }, 400); }
+});
+app.patch("/api/sessions/:id/schedules/:schedule", async (c) => {
+  const id = c.req.param("id"), scheduleId = c.req.param("schedule");
+  if (!SESSION_ID.test(id) || !/^schedule:[\w:-]{1,100}$/.test(scheduleId)) return c.json({ error: "Not found" }, 404);
+  const body = await json<{ expectedRevision?: number; instruction?: string; runAt?: number; recurrence?: ScheduleRecurrence }>(c, 6500);
+  if (!body || !Number.isSafeInteger(body.expectedRevision) || typeof body.instruction !== "string" || typeof body.runAt !== "number") return c.json({ error: "Invalid schedule edit" }, 400);
+  try { return c.json(await (await ensure(c, id)).updateSchedule(owner(c), scheduleId, body.expectedRevision!, body.instruction, body.runAt, body.recurrence)); }
+  catch { return c.json({ error: "Schedule changed or input invalid. Refresh before editing." }, 409); }
+});
+app.delete("/api/sessions/:id/schedules/:schedule", async (c) => {
+  const id = c.req.param("id"), scheduleId = c.req.param("schedule");
+  if (!SESSION_ID.test(id) || !/^schedule:[\w:-]{1,100}$/.test(scheduleId)) return c.json({ error: "Not found" }, 404);
+  const body = await json<{ expectedRevision?: number }>(c, 1500);
+  if (!body || !Number.isSafeInteger(body.expectedRevision)) return c.json({ error: "Expected revision required" }, 400);
+  try { return c.json({ cancelled: await (await ensure(c, id)).cancelSchedule(owner(c), scheduleId, body.expectedRevision!) }); }
+  catch { return c.json({ error: "Schedule changed. Refresh before deleting." }, 409); }
 });
 // Page through the owner-scoped Library, then query canonical session registries.
 // No separate gadget index can go stale after a session deletion or a failed preflight.

@@ -24,6 +24,14 @@ import {
   type GadgetDataUpdate,
 } from "./gadgets.ts";
 import { createLearningHarnessOptions } from "./harness.ts";
+import { TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT } from "../lib/typescript-course.ts";
+import {
+  DeliverLearningSchedule,
+  LearningSchedules,
+  validateSchedule,
+  type LearningSchedule,
+  type ScheduleRecurrence,
+} from "./schedules.ts";
 import { ActivityJournal } from "./activity.ts";
 import { routingLabel, type RoutingDecision } from "./routing-label.ts";
 import {
@@ -188,10 +196,12 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   /** Input: none. Output: persisted recovery alarm.
    * What this function does: schedules work within 30 seconds without postponing an earlier alarm.
    */
-  private async wake() {
+  private async wakeAt(at: number) {
     const current = await this.ctx.storage.getAlarm();
-    if (current === null || current > Date.now() + 30_000)
-      await this.ctx.storage.setAlarm(Date.now() + 30_000);
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at);
+  }
+  private wake() {
+    return this.wakeAt(Date.now() + 30_000);
   }
   /** Input: initial session metadata. Output: created or existing session.
    * What this function does: forbids resurrection, persists identity, then synchronizes the Library.
@@ -281,6 +291,9 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
           this.coachMessage(owner, entryId, offset),
         coachToolActivity: (name, taskId, status) =>
           this.activity.childTool(name, taskId, status),
+        schedules: () => this.schedules(this.metadata().owner),
+        cancelSchedule: (id) => this.cancelSchedule(this.metadata().owner, id),
+        scheduleWake: (at) => this.wakeAt(at),
         actions: () =>
           this.rows<Approval>("learning_approvals").map(
             ({ id, tool, status, result, createdAt }) => ({
@@ -357,6 +370,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       if (!(await this.ctx.storage.get("learning:tools:gadget-data:v3"))) {
         await root.configure({ tools: options.learningTools }, background);
         await this.ctx.storage.put("learning:tools:gadget-data:v3", true);
+      }
+      if (!(await this.ctx.storage.get("learning:tools:schedule:v4"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:tools:schedule:v4", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -1297,6 +1314,148 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.gadgets.delete(id, expectedGeneration);
     this.notify();
   }
+  /** Explicit, fingerprint-guarded upgrade of the older bundled course; never overwrite a customized gadget. */
+  async upgradeCourseGadget(owner: string) {
+    this.authorize(owner);
+    const id = "gadget-typescript-course-v1";
+    const current = this.gadgets.source(id);
+    const hash = await sha256(current.code);
+    if (hash === await sha256(TYPESCRIPT_COURSE_SOURCE)) return this.gadgets.list().find((gadget) => gadget.id === id)!;
+    if (!["7ba36532de5c6e3077e5ea5cc13ad96939e6376e9d970ab04b60f6a2243903cb", "c2e42dea287ff447d6bcf98d66fc2cf6fcc2d11a6480e7be9b940d490b16d9c7"].includes(hash)) throw new Error("Course gadget was customized; inspect it before editing");
+    return this.gadgets.update(id, `course-scheduled-cards-v2:${current.generation}`, current.generation, current.title, TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT.map((test) => ({ ...test, data: { ...test.data } })));
+  }
+  /** Active schedules in this owner-checked lesson; the UI directory aggregates retained lessons. */
+  async schedules(owner: string): Promise<LearningSchedule[]> {
+    this.authorize(owner);
+    const doc = await (
+      await this.open()
+    ).snapshot(LearningSchedules, background);
+    return Object.values(doc?.items ?? {})
+      .map(({ conversationId: _conversationId, ...item }) => item)
+      .sort((a, b) => a.runAt - b.runAt);
+  }
+  async createSchedule(
+    owner: string,
+    instruction: string,
+    runAt: number,
+    recurrence?: ScheduleRecurrence,
+  ): Promise<LearningSchedule> {
+    this.authorize(owner);
+    validateSchedule(instruction, runAt, recurrence);
+    const harness = await this.open();
+    const root = await harness.root(background);
+    const created = await root.commit(async (tx) => {
+      const doc = await tx.doc(LearningSchedules);
+      if (Object.keys(doc.items).length >= 50)
+        throw new Error("This session has too many active schedules");
+      const id = `schedule:${crypto.randomUUID()}`;
+      const item = {
+        id,
+        occurrenceId: id,
+        instruction: instruction.trim(),
+        runAt,
+        revision: 1,
+        createdAt: Date.now(),
+        conversationId: root.id,
+        ...(recurrence ? { recurrence } : {}),
+      };
+      doc.items[id] = item;
+      await tx.createTask(DeliverLearningSchedule, item, {
+        ownership: { kind: "conversation" },
+        conversationId: root.id,
+        background: true,
+      });
+      return item;
+    }, background);
+    await this.wakeAt(runAt);
+    const { conversationId: _conversationId, ...summary } = created;
+    return summary;
+  }
+  async cancelSchedule(
+    owner: string,
+    id: string,
+    expectedRevision?: number,
+  ): Promise<boolean> {
+    this.authorize(owner);
+    if (!/^schedule:[\w:-]{1,100}$/.test(id))
+      throw new Error("Invalid schedule ID");
+    const harness = await this.open();
+    const previous = await harness.commit(async (tx) => {
+      const doc = await tx.doc(LearningSchedules);
+      const current = doc.items[id];
+      if (
+        current &&
+        expectedRevision !== undefined &&
+        current.revision !== expectedRevision
+      )
+        throw new Error("Schedule changed. Refresh before deleting.");
+      const previous = current ? { ...current } : undefined;
+      if (current) delete doc.items[id];
+      return previous;
+    }, background);
+    if (previous) {
+      for (const task of (await harness.inspect(background)).tasks) {
+        if (
+          task.record.kind === DeliverLearningSchedule.definition.name &&
+          (task.record.input as { occurrenceId?: string }).occurrenceId ===
+            previous.occurrenceId
+        )
+          await harness.abortTask(task.record.id, background);
+      }
+      await this.reconcile();
+    }
+    return Boolean(previous);
+  }
+  async updateSchedule(
+    owner: string,
+    id: string,
+    expectedRevision: number,
+    instruction: string,
+    runAt: number,
+    recurrence?: ScheduleRecurrence,
+  ): Promise<LearningSchedule> {
+    this.authorize(owner);
+    validateSchedule(instruction, runAt, recurrence);
+    if (!/^schedule:[\w:-]{1,100}$/.test(id))
+      throw new Error("Invalid schedule ID");
+    const harness = await this.open();
+    const root = await harness.root(background);
+    const updated = await root.commit(async (tx) => {
+      const doc = await tx.doc(LearningSchedules);
+      const old = doc.items[id];
+      if (!old || old.revision !== expectedRevision)
+        throw new Error("Schedule changed. Refresh before editing.");
+      const { recurrence: _previousRecurrence, ...base } = old;
+      const next = {
+        ...base,
+        occurrenceId: `schedule:${crypto.randomUUID()}`,
+        instruction: instruction.trim(),
+        runAt,
+        revision: old.revision + 1,
+        ...(recurrence ? { recurrence } : {}),
+      };
+      doc.items[id] = next;
+      await tx.createTask(DeliverLearningSchedule, next, {
+        ownership: { kind: "conversation" },
+        conversationId: old.conversationId,
+        background: true,
+      });
+      return next;
+    }, background);
+    for (const task of (await harness.inspect(background)).tasks) {
+      if (
+        task.record.kind === DeliverLearningSchedule.definition.name &&
+        (task.record.input as { id?: string; occurrenceId?: string }).id ===
+          id &&
+        (task.record.input as { occurrenceId?: string }).occurrenceId !==
+          updated.occurrenceId
+      )
+        await harness.abortTask(task.record.id, background);
+    }
+    await this.wakeAt(runAt);
+    const { conversationId: _conversationId, ...summary } = updated;
+    return summary;
+  }
   /** Input: owner. Output: revoked session and attempted cleanup.
    * What this function does: persists deletion before stopping work, closing sockets and erasing stored copies.
    */
@@ -1385,9 +1544,23 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     }
     const harness = await this.open();
     const inspection = await harness.inspect(background);
-    if (inspection.tasks.length || row.dirty) await this.wake();
+    const now = Date.now();
+    const future = inspection.tasks.filter(
+      (task) =>
+        task.record.kind === DeliverLearningSchedule.definition.name &&
+        (task.record.input as { runAt?: number }).runAt! > now &&
+        task.state.kind !== "blocked",
+    );
+    const active = inspection.tasks.filter((task) => !future.includes(task));
+    const earliest = future.reduce(
+      (at, task) =>
+        Math.min(at, (task.record.input as { runAt: number }).runAt),
+      Infinity,
+    );
+    if (active.length || row.dirty) await this.wake();
+    if (Number.isFinite(earliest)) await this.wakeAt(earliest);
     harness.resume();
-    for (const task of inspection.tasks) {
+    for (const task of active) {
       const key = `task:${task.record.id}`;
       if (!this.watched.has(key) && task.state.kind !== "blocked") {
         this.watched.add(key);
@@ -1403,6 +1576,12 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     await this.syncLibrary();
     if (!inspection.tasks.length && !this.state()?.dirty)
       await this.ctx.storage.deleteAlarm();
+    else if (
+      !active.length &&
+      !this.state()?.dirty &&
+      Number.isFinite(earliest)
+    )
+      await this.ctx.storage.setAlarm(earliest);
   }
   /** Input: Cloudflare alarm delivery. Output: reconciled durable state.
    * What this function does: continues work without requiring an open browser.

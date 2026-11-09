@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { api } from "./api.ts";
 import { GadgetLibrary } from "./gadgets.tsx";
+import { ScheduleDirectory } from "./schedules.tsx";
 import type { Skill, SkillSummary } from "../lib/skills.ts";
 const blank = (): Skill => ({
   slug: "",
@@ -21,7 +22,7 @@ type Props = {
  * What this function does: keeps administration away from chat and uses revision-checked, explicit mutations.
  */
 export function Settings(props: Props) {
-  const [tab, setTab] = useState<"learning" | "gadgets" | "skills" | "computer" | "account">("learning");
+  const [tab, setTab] = useState<"learning" | "gadgets" | "schedules" | "skills" | "computer" | "account">("learning");
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [selected, setSelected] = useState<Skill>();
   const [files, setFiles] = useState<{ path: string; type: string }[]>([]);
@@ -77,7 +78,7 @@ export function Settings(props: Props) {
       )}
       {result && <pre className="computer-output" role="status">{result}</pre>}
       <nav className="settings-tabs" aria-label="Settings sections">
-        {(["learning", "gadgets", "skills", "computer", "account"] as const).map((name) => (
+        {(["learning", "gadgets", "schedules", "skills", "computer", "account"] as const).map((name) => (
           <button key={name} type="button" aria-current={tab === name ? "page" : undefined} onClick={() => setTab(name)}>
             {name === "computer" ? "Computer" : name[0].toUpperCase() + name.slice(1)}
           </button>
@@ -88,6 +89,7 @@ export function Settings(props: Props) {
         <button onClick={props.preferences}>Learning preferences</button>
       </section>}
       {tab === "gadgets" && <GadgetLibrary changed={props.gadgetsChanged} />}
+      {tab === "schedules" && <ScheduleDirectory />}
       {tab === "skills" && <section className="settings-card">
         <h2>Skills</h2>
         <p>

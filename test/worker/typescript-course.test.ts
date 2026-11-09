@@ -5,6 +5,7 @@ import {
   COURSE_LESSON_COUNT,
   COURSE_PRACTICE_COUNT,
   COURSE_ANSWER_KEYS,
+  COURSE_PREFLIGHT,
   TYPESCRIPT_COURSE_SOURCE,
 } from "../../src/lib/typescript-course.ts";
 
@@ -96,6 +97,31 @@ it("creates one owner-scoped gadget, checks feedback, retains progress and rejec
   expect(next).toContain("Day 2: Arrays and tuples");
   expect(next).toContain("1 completed");
   expect(next).toContain("Review from earlier days");
+  const revised = await bindings.LEARNING_SESSIONS.getByName(
+    id,
+  ).updateGadgetData("personal", gadgetId, "add-daily-card", 1, [
+    {
+      action: "add-card",
+      data: {
+        day: "1",
+        title: "Daily extra",
+        body: "Use map to produce a new array without changing roles.",
+      },
+      expectText: "Daily extra",
+      expectFeedback: "Use map to produce a new array",
+    },
+  ]);
+  expect(revised.generation).toBe(2);
+  expect(await (await request(url)).text()).toContain("Daily extra");
+  expect(await (await request(url)).text()).toContain("1 completed");
+  const noOpUpgrade = await request(`/api/sessions/${id}/course-upgrade`, {
+    method: "POST",
+    headers: { Origin: "http://localhost", "Content-Type": "application/json" },
+    body: "{}",
+  });
+  expect(noOpUpgrade.status).toBe(200);
+  expect((await noOpUpgrade.json<{ generation: number }>()).generation).toBe(2);
+  expect(await (await request(url)).text()).toContain("Daily extra");
   const repeat = await request("/api/learning-course", {
     method: "POST",
     headers: { Origin: "http://localhost", "Content-Type": "application/json" },
@@ -108,6 +134,42 @@ it("creates one owner-scoped gadget, checks feedback, retains progress and rejec
   );
   await bindings.LEARNING_SESSIONS.getByName(id).remove("personal");
 }, 65_000);
+
+it("never overwrites a customized course during a scheduled-card upgrade", async () => {
+  const id = crypto.randomUUID();
+  const response = await request("/api/learning-course", {
+    method: "POST",
+    headers: { Origin: "http://localhost", "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId: id }),
+  });
+  expect(response.status).toBe(201);
+  const { gadgetId, url } = await response.json<{
+    gadgetId: string;
+    url: string;
+  }>();
+  const stub = bindings.LEARNING_SESSIONS.getByName(id);
+  await stub.updateGadget(
+    "personal",
+    gadgetId,
+    "customized-course",
+    1,
+    "My course",
+    TYPESCRIPT_COURSE_SOURCE.replace(
+      "<h1>TypeScript for AI harnesses</h1>",
+      "<h1>My own course</h1>",
+    ),
+    COURSE_PREFLIGHT.map((test) => ({ ...test, data: { ...test.data } })),
+  );
+  const upgrade = await request(`/api/sessions/${id}/course-upgrade`, {
+    method: "POST",
+    headers: { Origin: "http://localhost", "Content-Type": "application/json" },
+    body: "{}",
+  });
+  expect(upgrade.status).toBe(409);
+  expect(await (await request(url)).text()).toContain("My own course");
+  expect((await stub.listGadgets("personal"))[0].generation).toBe(2);
+  await stub.remove("personal");
+}, 55_000);
 
 it("has answers and feedback for all 21 lessons and reaches a real final day", async () => {
   const id = crypto.randomUUID();

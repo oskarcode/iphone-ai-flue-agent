@@ -177,6 +177,9 @@ describe("migration and action boundaries", () => {
         updatedAt: "now",
         generation: 2,
       }),
+      schedules: async () => [],
+      cancelSchedule: async () => false,
+      scheduleWake: async () => {},
       actions: () => [],
       proposal: async (id, tool, args) => {
         const proposal: Approval = {
@@ -193,6 +196,8 @@ describe("migration and action boundaries", () => {
     expect(options.learningTools.map((tool) => tool.name)).toContain(
       "run_learning_coach",
     );
+    for (const name of ["schedule", "list_schedules", "cancel_schedule"])
+      expect(options.learningTools.map((tool) => tool.name)).toContain(name);
     expect(options.learningTools.map((tool) => tool.name)).toContain(
       "read_saved_note",
     );

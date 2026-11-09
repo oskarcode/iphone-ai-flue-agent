@@ -12,6 +12,7 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
   const [unavailable, setUnavailable] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [loaded, setLoaded] = useState(false);
   const course = items.find(
     (item) => item.id === "gadget-typescript-course-v1",
@@ -60,6 +61,17 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
       setError(String(cause));
       setBusy(false);
     }
+  }
+  async function enableScheduledCards(item: Item) {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/sessions/${encodeURIComponent(item.sessionId)}/course-upgrade`, { method: "POST", body: "{}" });
+      setMessage("Course is ready for scheduled lesson cards. Existing progress was retained.");
+      await load();
+      changed();
+    } catch (cause) { setError(String(cause)); }
+    finally { setBusy(false); }
   }
   async function remove(item: Item) {
     if (
@@ -125,6 +137,7 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
         and private lessons. Compatible updates keep one link and preserve saved
         data; deleting a gadget removes its saved data but leaves the lesson.
       </p>
+      {message && <p role="status">{message}</p>}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -160,6 +173,7 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
               >
                 Open gadget ↗
               </a>
+              {item.id === "gadget-typescript-course-v1" && <button type="button" disabled={busy} onClick={() => void enableScheduledCards(item)}>Enable scheduled lesson cards</button>}
               <button
                 type="button"
                 className="danger"

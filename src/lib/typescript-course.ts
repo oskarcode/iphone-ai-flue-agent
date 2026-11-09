@@ -121,7 +121,8 @@ const lessons = [
     title: "Classes, methods and composition",
     focus:
       "A class combines constructor-initialized dependencies with methods. extends inherits behavior; composition passes a dependency rather than inheriting it.",
-    source: "Illustrative Counter; compare with src/runtime/session.ts · LearningSession",
+    source:
+      "Illustrative Counter; compare with src/runtime/session.ts · LearningSession",
     code: "class Counter {\n  constructor(private start: number) {}\n  next(): number { this.start += 1; return this.start; }\n}\nconst c = new Counter(0);",
     explain:
       "The constructor sets an instance field. this.start refers to that particular Counter; each instance has its own field.",
@@ -619,6 +620,7 @@ export class Gadget extends DurableObject {
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS course_profile(id INTEGER PRIMARY KEY CHECK(id=1), experience TEXT NOT NULL, goal TEXT NOT NULL)');
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS course_position(id INTEGER PRIMARY KEY CHECK(id=1), day INTEGER NOT NULL)');
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS course_practice(day INTEGER PRIMARY KEY, note TEXT NOT NULL)');
+    ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS course_extra(day INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(day,title))');
   }
   async render() {
     const rows = this.ctx.storage.sql.exec('SELECT day,slot,choice,attempts FROM course_answers').toArray();
@@ -629,18 +631,28 @@ export class Gadget extends DurableObject {
     const current = this.ctx.storage.sql.exec('SELECT day FROM course_position WHERE id=1').toArray()[0]?.day ?? 0;
     const week = Math.floor(current / 7)+1, l = lessons[current];
     const missed = rows.filter(r => r.attempts > 1 && r.day < current).slice(-3);
+    const additions = this.ctx.storage.sql.exec('SELECT title,body FROM course_extra WHERE day=? ORDER BY title',current).toArray();
+    const extra = additions.length ? '<section><h2>New lesson cards</h2>' + additions.map(card => '<article><h3>'+escape(card.title)+'</h3><p>'+escape(card.body)+'</p></article>').join('') + '</section>' : '';
     const review = missed.length ? '<aside><h2>Review from earlier days</h2>' + missed.map(r => '<p>Day '+ (r.day+1) + ': '+ escape(lessons[r.day].title) + ' — revisit its explanation if it still feels unclear.</p>').join('') + '</aside>' : '';
     const questions = l.qs.map((q, j) => {
       const response = answers.get(current+':'+j), chosen = response?.choice;
       return '<section class="question"><h2>' + (j === 0 ? 'Predict' : 'Apply / fix') + ': '+escape(q[0])+'</h2><form method="post"><input type="hidden" name="_action" value="answer"><input type="hidden" name="day" value="'+current+'"><input type="hidden" name="slot" value="'+j+'"><fieldset><legend>Choose one, then check why</legend>' + q[1].map((option,k) => '<label><input type="radio" name="choice" value="'+k+'" required '+(chosen===k?'checked':'')+'> '+escape(option)+'</label>').join('') + '</fieldset><button type="submit">Check answer</button></form>' + (response ? '<p class="feedback '+(chosen===q[2]?'correct':'incorrect')+'">'+(chosen===q[2]?'Correct':'Not yet')+'. '+escape(q[3])+'</p>' : '')+'</section>';
     }).join('');
     const count = completed.filter(Boolean).length;
-    return '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TypeScript · Pi learning course</title><style>body{font:16px/1.55 system-ui,sans-serif;color:#e9eef7;background:#111827;margin:0 auto;padding:20px;max-width:680px}a{color:#a5d8ff}h1{font-size:1.6rem}h2{font-size:1.1rem}.meta{color:#b9c7d7}section,aside{background:#202b3b;border:1px solid #425166;border-radius:12px;padding:16px;margin:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#111827;border-radius:8px;padding:14px;color:#d7ebff}fieldset{border:0;padding:0;margin:8px 0}label{display:block;padding:8px 0}input:not([type=radio]){display:block;box-sizing:border-box;width:100%;padding:10px;font:inherit;border:1px solid #8290a3;border-radius:8px}textarea{font:inherit}progress{width:100%}button{background:#84c7ff;color:#061321;border:0;border-radius:8px;padding:10px 16px;font-weight:700;min-height:44px}.feedback{border-left:4px solid #efb775;padding:8px}.correct{border-color:#69d7ad}.question{background:#182333}</style></head><body><h1>TypeScript for AI harnesses</h1><p class="meta">Week '+week+' · Day '+(current+1)+' of '+lessons.length+' · '+count+' completed</p><progress value="'+count+'" max="'+lessons.length+'" aria-label="Course progress"></progress><p>Week 1: TypeScript basics · Week 2: Pi Durable harness · Week 3: real request flow. Week 4 is intentionally not defined yet.</p>' + (!profile ? '<section><h2>Set your context</h2><p>This shapes the examples you discuss with your tutor; it does not skip the basics.</p><form method="post"><input type="hidden" name="_action" value="profile"><label>My experience <input name="experience" maxlength="180" required></label><label>My goal <input name="goal" maxlength="180" required></label><button>Save context</button></form></section>' : '<p class="meta">Your context: '+escape(profile.experience)+' · Goal: '+escape(profile.goal)+'</p>')+'<section><h2>Day '+(current+1)+': '+escape(l.title)+'</h2><p>'+escape(l.focus)+'</p><p class="meta">Source: '+escape(l.source)+'</p><pre><code>'+escape(l.code)+'</code></pre><p>'+escape(l.explain)+'</p></section>'+questions+'<section><h2>Write it yourself · ungraded</h2><p>'+escape(l.practice[0])+'</p><p>Your answer is saved privately in this gadget and is never executed.</p><form method="post"><input type="hidden" name="_action" value="practice"><textarea name="note" rows="4" maxlength="1200" style="box-sizing:border-box;width:100%;border-radius:8px;padding:8px" required>'+escape(note ?? '')+'</textarea><button type="submit">Save and reveal worked answer</button></form>'+(note ? '<p class="feedback">Worked answer: '+escape(l.practice[1])+'</p>' : '')+'</section>'+review+(completed[current]&&current<lessons.length-1?'<p class="correct">Day complete. Review both explanations, then continue.</p><form method="post"><input type="hidden" name="_action" value="next"><button>Next day</button></form>':'')+(completed[current]&&current===lessons.length-1?'<p>Three-week course complete. Agree the Week 4 goal with your tutor before adding further lessons.</p>':'')+'</body></html>';
+    return '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TypeScript · Pi learning course</title><style>body{font:16px/1.55 system-ui,sans-serif;color:#e9eef7;background:#111827;margin:0 auto;padding:20px;max-width:680px}a{color:#a5d8ff}h1{font-size:1.6rem}h2{font-size:1.1rem}.meta{color:#b9c7d7}section,aside{background:#202b3b;border:1px solid #425166;border-radius:12px;padding:16px;margin:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#111827;border-radius:8px;padding:14px;color:#d7ebff}fieldset{border:0;padding:0;margin:8px 0}label{display:block;padding:8px 0}input:not([type=radio]){display:block;box-sizing:border-box;width:100%;padding:10px;font:inherit;border:1px solid #8290a3;border-radius:8px}textarea{font:inherit}progress{width:100%}button{background:#84c7ff;color:#061321;border:0;border-radius:8px;padding:10px 16px;font-weight:700;min-height:44px}.feedback{border-left:4px solid #efb775;padding:8px}.correct{border-color:#69d7ad}.question{background:#182333}</style></head><body><h1>TypeScript for AI harnesses</h1><p class="meta">Week '+week+' · Day '+(current+1)+' of '+lessons.length+' · '+count+' completed</p><progress value="'+count+'" max="'+lessons.length+'" aria-label="Course progress"></progress><p>Week 1: TypeScript basics · Week 2: Pi Durable harness · Week 3: real request flow. Week 4 is intentionally not defined yet.</p>' + (!profile ? '<section><h2>Set your context</h2><p>This shapes the examples you discuss with your tutor; it does not skip the basics.</p><form method="post"><input type="hidden" name="_action" value="profile"><label>My experience <input name="experience" maxlength="180" required></label><label>My goal <input name="goal" maxlength="180" required></label><button>Save context</button></form></section>' : '<p class="meta">Your context: '+escape(profile.experience)+' · Goal: '+escape(profile.goal)+'</p>')+'<section><h2>Day '+(current+1)+': '+escape(l.title)+'</h2><p>'+escape(l.focus)+'</p><p class="meta">Source: '+escape(l.source)+'</p><pre><code>'+escape(l.code)+'</code></pre><p>'+escape(l.explain)+'</p></section>'+extra+questions+'<section><h2>Write it yourself · ungraded</h2><p>'+escape(l.practice[0])+'</p><p>Your answer is saved privately in this gadget and is never executed.</p><form method="post"><input type="hidden" name="_action" value="practice"><textarea name="note" rows="4" maxlength="1200" style="box-sizing:border-box;width:100%;border-radius:8px;padding:8px" required>'+escape(note ?? '')+'</textarea><button type="submit">Save and reveal worked answer</button></form>'+(note ? '<p class="feedback">Worked answer: '+escape(l.practice[1])+'</p>' : '')+'</section>'+review+(completed[current]&&current<lessons.length-1?'<p class="correct">Day complete. Review both explanations, then continue.</p><form method="post"><input type="hidden" name="_action" value="next"><button>Next day</button></form>':'')+(completed[current]&&current===lessons.length-1?'<p>Three-week course complete. Agree the Week 4 goal with your tutor before adding further lessons.</p>':'')+'</body></html>';
   }
   async handleAction(action, data) {
     if (action === 'profile') {
       if (typeof data.experience !== 'string' || !data.experience.trim() || data.experience.length > 180 || typeof data.goal !== 'string' || !data.goal.trim() || data.goal.length > 180) throw new Error('Invalid profile');
       this.ctx.storage.sql.exec('INSERT INTO course_profile(id,experience,goal) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET experience=excluded.experience,goal=excluded.goal', data.experience.trim(), data.goal.trim());
+      return;
+    }
+    if (action === 'add-card') {
+      const day = Number(data.day);
+      if (typeof data.day !== 'string' || String(day) !== data.day || !Number.isSafeInteger(day) || day < 0 || day >= lessons.length || typeof data.title !== 'string' || !data.title.trim() || data.title.length > 100 || typeof data.body !== 'string' || !data.body.trim() || data.body.length > 1500) throw new Error('Invalid lesson card');
+      const count = this.ctx.storage.sql.exec('SELECT count(*) AS total FROM course_extra WHERE day=?',day).toArray()[0].total;
+      if (count >= 5 && !this.ctx.storage.sql.exec('SELECT title FROM course_extra WHERE day=? AND title=?',day,data.title.trim()).toArray().length) throw new Error('Too many lesson cards');
+      this.ctx.storage.sql.exec('INSERT INTO course_extra(day,title,body) VALUES(?,?,?) ON CONFLICT(day,title) DO UPDATE SET body=excluded.body',day,data.title.trim(),data.body.trim());
       return;
     }
     if (action === 'practice') {
@@ -683,5 +695,15 @@ export const COURSE_PREFLIGHT = [
     data: { day: "0", slot: "1", choice: "2" },
     expectText: "Correct",
     expectFeedback: "count was inferred as number",
+  },
+  {
+    action: "add-card",
+    data: {
+      day: "0",
+      title: "New daily insight",
+      body: "A type annotation is erased before runtime.",
+    },
+    expectText: "New daily insight",
+    expectFeedback: "A type annotation is erased",
   },
 ] as const;
