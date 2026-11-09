@@ -13,6 +13,9 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const course = items.find(
+    (item) => item.id === "gadget-typescript-course-v1",
+  );
   async function load(offset = 0, append = false, signal?: AbortSignal) {
     setBusy(true);
     setError("");
@@ -40,6 +43,24 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
     void load(0, false, controller.signal);
     return () => controller.abort();
   }, []);
+  async function startCourse() {
+    setBusy(true);
+    setError("");
+    const key = "typescript-course-request-id";
+    const requestId = sessionStorage.getItem(key) ?? crypto.randomUUID();
+    sessionStorage.setItem(key, requestId);
+    try {
+      const created = await api<{ url: string }>("/api/learning-course", {
+        method: "POST",
+        body: JSON.stringify({ requestId }),
+      });
+      sessionStorage.removeItem(key);
+      window.location.assign(created.url);
+    } catch (cause) {
+      setError(String(cause));
+      setBusy(false);
+    }
+  }
   async function remove(item: Item) {
     if (
       !window.confirm(
@@ -75,6 +96,30 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
       aria-label="Your gadgets"
     >
       <h2>Gadgets</h2>
+      <p>
+        Start a structured TypeScript course: seven days of fundamentals, seven
+        days reading this Pi Durable harness, then seven days tracing a real
+        request. It includes explanations, two checked questions and an ungraded
+        writing exercise per day, reviews and saved progress. Enter your
+        experience and goal inside the gadget; for evidence-based
+        personalization, request /learning-coach from its lesson. Week 4 awaits
+        your goal.
+      </p>
+      {course ? (
+        <a
+          href={`/api/sessions/${encodeURIComponent(course.sessionId)}/gadgets/${course.id}`}
+        >
+          Open TypeScript course
+        </a>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void startCourse()}
+        >
+          Start TypeScript course
+        </button>
+      )}
       <p>
         Interactive gadgets from all your learning sessions, including archived
         and private lessons. Compatible updates keep one link and preserve saved

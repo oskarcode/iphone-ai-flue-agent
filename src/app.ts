@@ -14,6 +14,7 @@ import { getLearningSessionRecord } from "./lib/learning-session.ts";
 import { getVisualSession } from "./lib/visual-session.ts";
 import { renderVisualExplainerPage } from "./visual-page.ts";
 import { gadgetPage, gadgetForm } from "./lib/gadget-page.ts";
+import { TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT } from "./lib/typescript-course.ts";
 import {
   createGrammarRequest,
   correctedTextFromAi,
@@ -552,6 +553,25 @@ app.post("/api/sessions", async (c) => {
     return c.json({ error: "Invalid session input" }, 400);
   const id = await create(c, body.text, body.id);
   return c.json({ id, url: absolute(c, `/sessions/${id}`) }, 201);
+});
+/** Explicit owner action: start the reviewed three-week course in a new retained session.
+ * A stable request ID allows retries without duplicating the gadget.
+ */
+app.post("/api/learning-course", async (c) => {
+  const body = await json<{ requestId?: unknown }>(c, 2000);
+  if (typeof body?.requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestId))
+    return c.json({ error: "Invalid course request" }, 400);
+  const id = body.requestId;
+  const stub = session(c, id);
+  if (await stub.exists(owner(c))) {
+    const metadata = await stub.getMetadata(owner(c));
+    if (metadata.title !== "TypeScript for AI harnesses") return c.json({ error: "Session ID already in use" }, 409);
+  } else {
+    const now = new Date().toISOString();
+    await stub.create({ id, owner: owner(c), title: "TypeScript for AI harnesses", type: "general", private: false, archived: false, pinned: false, createdAt: now, updatedAt: now });
+  }
+  const gadget = await stub.createGadget(owner(c), "typescript-course-v1", "TypeScript for AI harnesses · Weeks 1–3", TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT.map((test) => ({ ...test, data: { ...test.data } })));
+  return c.json({ sessionId: id, gadgetId: gadget.id, url: `/api/sessions/${id}/gadgets/${gadget.id}` }, 201);
 });
 // Page through the owner-scoped Library, then query canonical session registries.
 // No separate gadget index can go stale after a session deletion or a failed preflight.
