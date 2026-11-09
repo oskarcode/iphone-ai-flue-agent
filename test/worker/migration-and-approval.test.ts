@@ -144,10 +144,39 @@ describe("migration and action boundaries", () => {
       coachMessage: async () => ({}),
       savedSource: () => [],
       savedNote: () => [],
-      createGadget: async () => ({ id: "test-gadget", title: "Example", createdAt: "now", updatedAt: "now", generation: 1 }),
+      createGadget: async () => ({
+        id: "test-gadget",
+        title: "Example",
+        createdAt: "now",
+        updatedAt: "now",
+        generation: 1,
+      }),
       listGadgets: () => [],
-      gadgetSource: () => ({ id: "test-gadget", title: "Example", code: "", generation: 1 }),
-      updateGadget: async () => ({ id: "test-gadget", title: "Example", createdAt: "now", updatedAt: "now", generation: 2 }),
+      gadgetSource: () => ({
+        id: "test-gadget",
+        title: "Example",
+        code: "",
+        generation: 1,
+      }),
+      gadgetPageText: async () => ({
+        gadgetId: "test-gadget",
+        text: "Visible card",
+        truncated: false,
+      }),
+      updateGadget: async () => ({
+        id: "test-gadget",
+        title: "Example",
+        createdAt: "now",
+        updatedAt: "now",
+        generation: 2,
+      }),
+      updateGadgetData: async () => ({
+        id: "test-gadget",
+        title: "Example",
+        createdAt: "now",
+        updatedAt: "now",
+        generation: 2,
+      }),
       actions: () => [],
       proposal: async (id, tool, args) => {
         const proposal: Approval = {
@@ -164,11 +193,27 @@ describe("migration and action boundaries", () => {
     expect(options.learningTools.map((tool) => tool.name)).toContain(
       "run_learning_coach",
     );
-    expect(options.learningTools.map((tool) => tool.name)).toContain("read_saved_note");
+    expect(options.learningTools.map((tool) => tool.name)).toContain(
+      "read_saved_note",
+    );
     for (const name of ["create_gadget", "update_gadget"]) {
-      const schema = options.learningTools.find((tool) => tool.name === name)?.parameters;
+      const schema = options.learningTools.find(
+        (tool) => tool.name === name,
+      )?.parameters;
       expect(JSON.stringify(schema)).toContain('"expectFeedback"');
     }
+    expect(options.learningTools.map((tool) => tool.name)).toContain(
+      "read_gadget_page",
+    );
+    expect(options.learningTools.map((tool) => tool.name)).toContain(
+      "update_gadget_data",
+    );
+    expect(
+      JSON.stringify(
+        options.learningTools.find((tool) => tool.name === "update_gadget")
+          ?.parameters,
+      ),
+    ).toContain('"dataUpdates"');
     expect(options.learningTools.map((tool) => tool.name)).not.toContain(
       "read_learning_session",
     );

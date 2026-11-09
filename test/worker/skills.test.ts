@@ -212,6 +212,7 @@ it("upgrades only the exact shipped gadget default while preserving custom and d
   });
   await runInDurableObject(stub, async (instance) => {
     await instance.storage().delete("skills:seeded:learning-gadget:v2");
+    await instance.storage().delete("skills:seeded:learning-gadget:v3");
   });
   await evictDurableObject(stub);
   expect((await stub.get("personal", "learning-gadget"))?.markdown).toBe(
@@ -224,6 +225,7 @@ it("upgrades only the exact shipped gadget default while preserving custom and d
   });
   await runInDurableObject(stub, async (instance) => {
     await instance.storage().delete("skills:seeded:learning-gadget:v2");
+    await instance.storage().delete("skills:seeded:learning-gadget:v3");
   });
   await evictDurableObject(stub);
   expect(await stub.get("personal", "learning-gadget")).toBeNull();

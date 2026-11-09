@@ -246,6 +246,30 @@ export class LearningSkills extends Base {
       }
       await this.ctx.storage.put("skills:seeded:learning-gadget:v2", true);
     }
+    // Preserve custom/deleted skills. Replace only the exact prior default that
+    // incorrectly claimed code edits must reset the gadget's SQLite state.
+    if (!(await this.ctx.storage.get("skills:seeded:learning-gadget:v3"))) {
+      const path = "/workspace/skills/learning-gadget/SKILL.md";
+      try {
+        const previous = await ws.fs.readFile(path, "utf8");
+        if (
+          (await sha256(previous)) ===
+          "aba170219b4feef365db5c47a1d3938cf75b1cec0c12374703cb610911894abf"
+        ) {
+          const gadget = DEFAULT_SKILLS.find(
+            (skill) => skill.slug === "learning-gadget",
+          )!;
+          await ws.fs.writeFile(path, skillFile(gadget));
+        }
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !/not found|no such (?:file|path)|enoent/i.test(error.message)
+        )
+          throw error;
+      }
+      await this.ctx.storage.put("skills:seeded:learning-gadget:v3", true);
+    }
     return ws;
   }
   private async readSkill(slug: string): Promise<Skill | null> {

@@ -77,7 +77,7 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
       <h2>Gadgets</h2>
       <p>
         Interactive gadgets from all your learning sessions, including archived
-        and private lessons. Updates keep one link but start with fresh gadget
+        and private lessons. Compatible updates keep one link and preserve saved
         data; deleting a gadget removes its saved data but leaves the lesson.
       </p>
       {error && (

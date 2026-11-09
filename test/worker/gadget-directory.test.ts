@@ -146,13 +146,13 @@ it("lists gadgets across archived/private lessons, updates in place with CAS and
     await (
       await app.fetch(new Request(`http://localhost${url}`), bindings)
     ).text(),
-  ).toContain("Total: 0"); // New class has fresh state.
+  ).toContain("Total: 1"); // Cloned Facet retains the learner's value.
   expect((await form()).status).toBe(303);
   expect(
     await (
       await app.fetch(new Request(`http://localhost${url}`), bindings)
     ).text(),
-  ).toContain("Total: 1");
+  ).toContain("Total: 2");
   expect(
     (
       await first.updateGadget(
@@ -239,6 +239,85 @@ it("lists gadgets across archived/private lessons, updates in place with CAS and
   await first.remove("personal");
   await second.remove("personal");
 }, 60_000);
+
+it("updates code and SQLite data together, keeps existing progress, and rolls back failed edits", async () => {
+  const bindings = env as CloudflareBindings;
+  const id = crypto.randomUUID();
+  const session = bindings.LEARNING_SESSIONS.getByName(id);
+  await session.create({
+    id,
+    owner: "personal",
+    title: "Saved quiz progress",
+    type: "general",
+    private: false,
+    archived: false,
+    pinned: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  const created = await session.createGadget(
+    "personal",
+    "combined-create",
+    "Count",
+    source,
+    tests("Count: 1"),
+  );
+  await session.actOnGadget("personal", created.id, "add", {});
+  const replacement = source.replace("Count: ", "Total: ");
+  const changed = await session.updateGadget(
+    "personal",
+    created.id,
+    "combined-edit",
+    1,
+    "Total",
+    replacement,
+    tests("Total: 1"),
+    [{ action: "add", data: {}, expectText: "Total: 2" }],
+  );
+  expect(changed.id).toBe(created.id);
+  expect(changed.generation).toBe(2);
+  expect(await session.renderGadget("personal", created.id)).toContain(
+    "Total: 2",
+  );
+  const preserved = await session.updateGadgetData(
+    "personal",
+    created.id,
+    "data-edit",
+    2,
+    [{ action: "add", data: {}, expectText: "Total: 3" }],
+  );
+  expect(preserved.generation).toBe(3);
+  expect(await session.renderGadget("personal", created.id)).toContain(
+    "Total: 3",
+  );
+  expect(
+    (
+      await session.updateGadgetData("personal", created.id, "data-edit", 2, [
+        { action: "add", data: {}, expectText: "ignored" },
+      ])
+    ).generation,
+  ).toBe(3); // Replay does not run twice.
+  const bad = await runInDurableObject(session, async (instance) => {
+    try {
+      await instance.updateGadgetData(
+        "personal",
+        created.id,
+        "failed-data-edit",
+        3,
+        [{ action: "add", data: {}, expectText: "Total: 999" }],
+      );
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  expect(bad).toBe(true);
+  expect(await session.renderGadget("personal", created.id)).toContain(
+    "Total: 3",
+  );
+  expect(await session.listGadgets("personal")).toHaveLength(1);
+  await session.remove("personal");
+}, 50_000);
 
 it("migrates pre-directory gadget rows without changing their IDs or source", async () => {
   const bindings = env as CloudflareBindings;

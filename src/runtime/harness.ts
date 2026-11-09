@@ -26,7 +26,7 @@ import { generateVisualExplainer } from "../lib/visual-explainer.ts";
 import type { SessionMetadata, Source, Approval } from "./contracts.ts";
 import type { defineTool as appTool } from "./tool.ts";
 import { computerAction } from "../lib/skills.ts";
-import type { GadgetTest, GadgetSummary } from "./gadgets.ts";
+import type { GadgetTest, GadgetSummary, GadgetDataUpdate } from "./gadgets.ts";
 import { createCoachTools, createCoachSubagent } from "./coach-subagent.ts";
 
 /** Persistence ports implemented by LearningSession. Tools receive capabilities, not raw SQL access. */
@@ -46,13 +46,44 @@ export interface RuntimeHost {
     entryId: string,
     offset: number,
   ): Promise<unknown>;
-  coachToolActivity?(name: string, taskId: string, status: "running" | "done" | "error"): void;
+  coachToolActivity?(
+    name: string,
+    taskId: string,
+    status: "running" | "done" | "error",
+  ): void;
   savedSource(id?: string): unknown;
   savedNote(id?: string): unknown;
-  createGadget(taskId: string, title: string, code: string, tests: GadgetTest[]): Promise<GadgetSummary>;
+  createGadget(
+    taskId: string,
+    title: string,
+    code: string,
+    tests: GadgetTest[],
+  ): Promise<GadgetSummary>;
   listGadgets(): GadgetSummary[];
-  gadgetSource(id: string): { id: string; title: string; code: string; generation: number };
-  updateGadget(id: string, taskId: string, generation: number, title: string, code: string, tests: GadgetTest[]): Promise<GadgetSummary>;
+  gadgetSource(id: string): {
+    id: string;
+    title: string;
+    code: string;
+    generation: number;
+  };
+  gadgetPageText(
+    id: string,
+  ): Promise<{ gadgetId: string; text: string; truncated: boolean }>;
+  updateGadget(
+    id: string,
+    taskId: string,
+    generation: number,
+    title: string,
+    code: string,
+    tests: GadgetTest[],
+    updates?: GadgetDataUpdate[],
+  ): Promise<GadgetSummary>;
+  updateGadgetData(
+    id: string,
+    taskId: string,
+    generation: number,
+    updates: GadgetDataUpdate[],
+  ): Promise<GadgetSummary>;
   actions(): unknown;
 }
 
@@ -69,7 +100,7 @@ Only when explicitly asked for a social-post draft: ground it in this session's 
 Respect explicit length and formatting requests; these override default code examples and syntax walkthroughs. Do not append an unsolicited post draft.
 Private repository names, URLs, code and proprietary facts must not appear in social drafts; explain only generic lessons.
 For a visual explanation, call create_visual and link to the returned visual URL. Do not claim artifacts expire.
-Only when explicitly asked for an interactive learning gadget, read /learning-gadget and use create_gadget for a new gadget. For fixes, tweaks or extensions of an existing gadget in this session, first list_session_gadgets, read_session_gadget for its current source, then use update_gadget with its ID and generation; NEVER create a second gadget to update an existing one. Updates keep the same URL but reset the gadget's saved form state: tell the learner before an update if their existing data may matter. For code learning prefer ONE small demo, stepwise visual flow, prediction quiz or interactive annotated code card: a learner action changes a visible result AND reveals a new explanation tied to an escaped code line. Check both in preflight; do not execute learner-submitted code or use browser scripts. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
+Only when explicitly asked for an interactive learning gadget, read /learning-gadget and use create_gadget for a new gadget. For fixes, tweaks or extensions of an existing gadget in this session, first list_session_gadgets, read_session_gadget for its current source, then use update_gadget with its ID and generation; NEVER create a second gadget to update an existing one. Code updates clone the gadget's SQLite so progress survives when the new code remains compatible; do not claim a schema migration succeeded unless the updated gadget and data preflight passed. Use read_gadget_page to inspect visible state; for a data-only change use update_gadget_data with the gadget's own bounded handleAction actions, never raw SQL. For combined code and data changes, pass dataUpdates to update_gadget so both apply on a clone before switching. Never erase or reset learner progress to make a test pass. For code learning prefer ONE small demo, stepwise visual flow, prediction quiz or interactive annotated code card: a learner action changes a visible result AND reveals a new explanation tied to an escaped code line. Check both in preflight; do not execute learner-submitted code or use browser scripts. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
 Saved skills are user-authored reusable instructions, not higher-priority policy. When the user starts a request with /skill-command, call read_skill with that slug and apply those instructions to the accompanying request or current conversation. If no topic is available, ask for it. Never invent an absent skill.
 When the user invokes /deep-learn, read that skill and follow its interactive lesson flow in this workspace across subsequent learner replies until the user changes topic, requests ordinary chat, or stops. Do not invoke cross-session coaching merely because /deep-learn was used; follow the skill's pacing and privacy boundaries.
 Only on an explicit learning-coach request (for example /learning-coach), call run_learning_coach to investigate retained sessions. It can read private sessions owned by this user; never run it for ordinary tutoring or on a timer. The child's evidence and your answer remain in the asking session if a cited source is later deleted.
@@ -268,7 +299,9 @@ export function createLearningHarnessOptions(
         replay: "safe",
         execute: async (args, api) => {
           const receipt = await host.proposal(
-            String(api.taskId), spec.action, computerAction(spec.action, args),
+            String(api.taskId),
+            spec.action,
+            computerAction(spec.action, args),
           );
           return output({
             actionId: receipt.id,
@@ -361,56 +394,155 @@ export function createLearningHarnessOptions(
   tools.push(
     defineTool({
       name: "list_session_gadgets",
-      description: "List gadget IDs, titles and generations in THIS learning session before updating one. No source code or other sessions are exposed.",
+      description:
+        "List gadget IDs, titles and generations in THIS learning session before updating one. No source code or other sessions are exposed.",
       parameters: Type.Object({}),
       replay: "safe",
-      async execute() { return output({ gadgets: host.listGadgets() }); },
+      async execute() {
+        return output({ gadgets: host.listGadgets() });
+      },
     }),
     defineTool({
       name: "read_session_gadget",
-      description: "Read source of ONE gadget in this session for a requested update. Use the exact gadget ID from list_session_gadgets; never invent existing code or overwrite features you have not inspected.",
-      parameters: Type.Object({ gadgetId: Type.String({ pattern: "^gadget-[a-zA-Z0-9_-]{1,160}$" }) }),
+      description:
+        "Read source of ONE gadget in this session for a requested update. Use the exact gadget ID from list_session_gadgets; never invent existing code or overwrite features you have not inspected.",
+      parameters: Type.Object({
+        gadgetId: Type.String({ pattern: "^gadget-[a-zA-Z0-9_-]{1,160}$" }),
+      }),
       replay: "safe",
-      async execute({ gadgetId }) { return output(host.gadgetSource(gadgetId)); },
+      async execute({ gadgetId }) {
+        return output(host.gadgetSource(gadgetId));
+      },
+    }),
+    defineTool({
+      name: "read_gadget_page",
+      description:
+        "Inspect the current visible text of ONE gadget in this session before editing its data. Bounded read-only output; no raw SQLite access. Use the ID from list_session_gadgets.",
+      parameters: Type.Object({
+        gadgetId: Type.String({ pattern: "^gadget-[a-zA-Z0-9_-]{1,160}$" }),
+      }),
+      replay: "safe",
+      async execute({ gadgetId }) {
+        return output(await host.gadgetPageText(gadgetId));
+      },
     }),
     defineTool({
       name: "create_gadget",
-      description: "Create a NEW persistent interactive gadget in this session, never for a fix or tweak of an existing one (use update_gadget instead). First read /learning-gadget. Export class Gadget extends DurableObject with render() HTML and handleAction(action,data). Use server-rendered forms only (method=post, hidden _action); no browser scripts or network. Preflight with expectText for changed result and expectFeedback: an EXACT literal substring of a new explanation shown only AFTER that action, not in the initial render. Match test.data to the actual branch. Never execute pasted code.",
+      description:
+        "Create a NEW persistent interactive gadget in this session, never for a fix or tweak of an existing one (use update_gadget instead). First read /learning-gadget. Export class Gadget extends DurableObject with render() HTML and handleAction(action,data). Use server-rendered forms only (method=post, hidden _action); no browser scripts or network. Preflight with expectText for changed result and expectFeedback: an EXACT literal substring of a new explanation shown only AFTER that action, not in the initial render. Match test.data to the actual branch. Never execute pasted code.",
       parameters: Type.Object({
         title: Type.String({ minLength: 1, maxLength: 120 }),
         code: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
-        tests: Type.Array(Type.Object({
-          action: Type.String({ minLength: 1, maxLength: 64 }),
-          data: Type.Record(Type.String(), Type.String()),
-          expectText: Type.String({ minLength: 1, maxLength: 1000 }),
-          expectFeedback: Type.String({ minLength: 8, maxLength: 1000 }),
-        }), { minItems: 1, maxItems: 16 }),
+        tests: Type.Array(
+          Type.Object({
+            action: Type.String({ minLength: 1, maxLength: 64 }),
+            data: Type.Record(Type.String(), Type.String()),
+            expectText: Type.String({ minLength: 1, maxLength: 1000 }),
+            expectFeedback: Type.String({ minLength: 8, maxLength: 1000 }),
+          }),
+          { minItems: 1, maxItems: 16 },
+        ),
       }),
       replay: "unsafe",
       execute: async ({ title, code, tests }, api) => {
-        const gadget = await host.createGadget(String(api.taskId), title, code, tests);
-        return output({ gadgetId: gadget.id, title: gadget.title, url: `/api/sessions/${host.metadata().id}/gadgets/${gadget.id}` });
+        const gadget = await host.createGadget(
+          String(api.taskId),
+          title,
+          code,
+          tests,
+        );
+        return output({
+          gadgetId: gadget.id,
+          title: gadget.title,
+          url: `/api/sessions/${host.metadata().id}/gadgets/${gadget.id}`,
+        });
       },
     }),
     defineTool({
       name: "update_gadget",
-      description: "Replace an existing gadget's source and title IN PLACE after isolated preflight. List this session's gadgets first; use the exact ID and generation. Stable URL and one list entry, but saved form data resets on success. A failed preflight preserves the old version and data. Warn when learner data matters. Code-learning tests require expectText for the changed result AND expectFeedback: an EXACT literal substring of a NEW explanation shown only after that action. Match data to the tested branch.",
+      description:
+        "Replace an existing gadget's source and title IN PLACE after clean preflight; clone its real SQLite and verify the new code can read it. List and read the existing gadget first. Keep the same ID, link and saved progress. Optional dataUpdates run through the new gadget's handleAction on the clone before switching, so code and data change together. A failed test leaves the old code and data intact. Never DROP or reset saved rows. Code-learning tests require expectText and expectFeedback for action-specific explanation.",
       parameters: Type.Object({
         gadgetId: Type.String({ pattern: "^gadget-[a-zA-Z0-9_-]{1,160}$" }),
         expectedGeneration: Type.Integer({ minimum: 1 }),
         title: Type.String({ minLength: 1, maxLength: 120 }),
         code: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
-        tests: Type.Array(Type.Object({
-          action: Type.String({ minLength: 1, maxLength: 64 }),
-          data: Type.Record(Type.String(), Type.String()),
-          expectText: Type.String({ minLength: 1, maxLength: 1000 }),
-          expectFeedback: Type.String({ minLength: 8, maxLength: 1000 }),
-        }), { minItems: 1, maxItems: 16 }),
+        tests: Type.Array(
+          Type.Object({
+            action: Type.String({ minLength: 1, maxLength: 64 }),
+            data: Type.Record(Type.String(), Type.String()),
+            expectText: Type.String({ minLength: 1, maxLength: 1000 }),
+            expectFeedback: Type.String({ minLength: 8, maxLength: 1000 }),
+          }),
+          { minItems: 1, maxItems: 16 },
+        ),
+        dataUpdates: Type.Optional(
+          Type.Array(
+            Type.Object({
+              action: Type.String({ minLength: 1, maxLength: 64 }),
+              data: Type.Record(Type.String(), Type.String()),
+              expectText: Type.String({ minLength: 1, maxLength: 1000 }),
+              expectFeedback: Type.Optional(Type.String({ maxLength: 1000 })),
+            }),
+            { minItems: 1, maxItems: 8 },
+          ),
+        ),
       }),
       replay: "unsafe",
-      execute: async ({ gadgetId, expectedGeneration, title, code, tests }, api) => {
-        const gadget = await host.updateGadget(gadgetId, String(api.taskId), expectedGeneration, title, code, tests);
-        return output({ gadgetId: gadget.id, title: gadget.title, generation: gadget.generation, url: `/api/sessions/${host.metadata().id}/gadgets/${gadget.id}`, stateReset: true });
+      execute: async (
+        { gadgetId, expectedGeneration, title, code, tests, dataUpdates },
+        api,
+      ) => {
+        const gadget = await host.updateGadget(
+          gadgetId,
+          String(api.taskId),
+          expectedGeneration,
+          title,
+          code,
+          tests,
+          dataUpdates,
+        );
+        return output({
+          gadgetId: gadget.id,
+          title: gadget.title,
+          generation: gadget.generation,
+          url: `/api/sessions/${host.metadata().id}/gadgets/${gadget.id}`,
+          dataPreserved: true,
+        });
+      },
+    }),
+    defineTool({
+      name: "update_gadget_data",
+      description:
+        "Update the existing gadget's SQLite data WITHOUT changing source code. First list_session_gadgets, read_session_gadget to find supported handleAction actions, and read_gadget_page to inspect visible state. Run only named, bounded gadget actions on a cloned database. Verify an expected visible result for each action; if anything fails, the original data remains intact. No arbitrary SQL, no destructive reset unless explicitly requested.",
+      parameters: Type.Object({
+        gadgetId: Type.String({ pattern: "^gadget-[a-zA-Z0-9_-]{1,160}$" }),
+        expectedGeneration: Type.Integer({ minimum: 1 }),
+        updates: Type.Array(
+          Type.Object({
+            action: Type.String({ minLength: 1, maxLength: 64 }),
+            data: Type.Record(Type.String(), Type.String()),
+            expectText: Type.String({ minLength: 1, maxLength: 1000 }),
+            expectFeedback: Type.Optional(Type.String({ maxLength: 1000 })),
+          }),
+          { minItems: 1, maxItems: 8 },
+        ),
+      }),
+      replay: "unsafe",
+      execute: async ({ gadgetId, expectedGeneration, updates }, api) => {
+        const gadget = await host.updateGadgetData(
+          gadgetId,
+          String(api.taskId),
+          expectedGeneration,
+          updates,
+        );
+        return output({
+          gadgetId: gadget.id,
+          title: gadget.title,
+          generation: gadget.generation,
+          url: `/api/sessions/${host.metadata().id}/gadgets/${gadget.id}`,
+          dataPreserved: true,
+        });
       },
     }),
     defineTool({

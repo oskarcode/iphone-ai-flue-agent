@@ -6,6 +6,12 @@ export type GadgetTest = {
   /** New tool calls require this; optional here to preserve older direct callers. */
   expectFeedback?: string;
 };
+export type GadgetDataUpdate = {
+  action: string;
+  data: Record<string, string>;
+  expectText: string;
+  expectFeedback?: string;
+};
 export type GadgetSummary = {
   id: string;
   title: string;
@@ -13,7 +19,11 @@ export type GadgetSummary = {
   updatedAt: string;
   generation: number;
 };
-type GadgetRow = GadgetSummary & { code: string; visible: number };
+type GadgetRow = GadgetSummary & {
+  code: string;
+  visible: number;
+  loaderId: string;
+};
 type GadgetFacet = {
   render(): Promise<string>;
   handleAction(action: string, data: Record<string, string>): Promise<void>;
@@ -53,9 +63,32 @@ export class LearningGadgets {
       ctx.storage.sql.exec(
         "ALTER TABLE learning_gadgets ADD COLUMN visible INTEGER NOT NULL DEFAULT 1",
       );
+    if (!columns.has("loaderId"))
+      ctx.storage.sql.exec(
+        "ALTER TABLE learning_gadgets ADD COLUMN loaderId TEXT NOT NULL DEFAULT ''",
+      );
     ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS learning_gadget_updates (task_id TEXT PRIMARY KEY, gadget_id TEXT NOT NULL)",
     );
+    ctx.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS learning_gadget_facets (name TEXT PRIMARY KEY, stage TEXT NOT NULL)",
+    );
+    // A stopped update never exposes its candidate or leaves a retired copy behind.
+    for (const { name } of ctx.storage.sql
+      .exec<{ name: string }>("SELECT name FROM learning_gadget_facets")
+      .toArray()) {
+      ctx.facets.delete(name);
+      ctx.storage.sql.exec(
+        "DELETE FROM learning_gadget_facets WHERE name=?",
+        name,
+      );
+    }
+    for (const { id } of ctx.storage.sql
+      .exec<{ id: string }>("SELECT id FROM learning_gadgets WHERE visible=0")
+      .toArray()) {
+      ctx.facets.delete(id);
+      ctx.storage.sql.exec("DELETE FROM learning_gadgets WHERE id=?", id);
+    }
   }
   list(): GadgetSummary[] {
     return this.ctx.storage.sql
@@ -67,7 +100,7 @@ export class LearningGadgets {
   private record(id: string): GadgetRow {
     const row = this.ctx.storage.sql
       .exec<GadgetRow>(
-        "SELECT id,title,code,createdAt,CASE WHEN updatedAt='' THEN createdAt ELSE updatedAt END AS updatedAt,generation,visible FROM learning_gadgets WHERE id=?",
+        "SELECT id,title,code,createdAt,CASE WHEN updatedAt='' THEN createdAt ELSE updatedAt END AS updatedAt,generation,visible,loaderId FROM learning_gadgets WHERE id=?",
         id,
       )
       .toArray()[0];
@@ -86,11 +119,27 @@ export class LearningGadgets {
   private facetId(row: GadgetRow): string {
     return row.generation === 1 ? row.id : `${row.id}:v${row.generation}`;
   }
+  private readonly locks = new Map<string, Promise<void>>();
+  private async locked<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const prior = this.locks.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.locks.set(id, next);
+    await prior;
+    try {
+      return await work();
+    } finally {
+      release();
+      if (this.locks.get(id) === next) this.locks.delete(id);
+    }
+  }
   private facet(row: GadgetRow): GadgetFacet {
     const id = this.facetId(row);
     const stub = this.ctx.facets.get(id, () => {
       const worker = this.loader.get(
-        `learning-gadget:${row.id}:v${row.generation}`,
+        row.loaderId || `learning-gadget:${row.id}:v${row.generation}`,
         () => ({
           compatibilityDate: "2026-10-13",
           mainModule: "worker.js",
@@ -103,23 +152,35 @@ export class LearningGadgets {
     return stub as unknown as GadgetFacet;
   }
   async render(id: string): Promise<string> {
-    const row = this.record(id);
-    if (!row.visible) throw new Error("Gadget not found");
+    return this.locked(id, async () => this.renderRow(this.requireVisible(id)));
+  }
+  private async renderRow(row: GadgetRow): Promise<string> {
     const html = await this.facet(row).render();
     if (typeof html !== "string" || html.length > 256 * 1024)
       throw new Error("Invalid gadget page");
     return html;
+  }
+  async pageText(
+    id: string,
+  ): Promise<{ gadgetId: string; text: string; truncated: boolean }> {
+    const text = visibleText(await this.render(id));
+    return {
+      gadgetId: id,
+      text: text.slice(0, 20_000),
+      truncated: text.length > 20_000,
+    };
   }
   async action(
     id: string,
     action: string,
     data: Record<string, string>,
   ): Promise<void> {
-    const row = this.record(id);
-    if (!row.visible) throw new Error("Gadget not found");
-    if (!/^[a-zA-Z][\w-]{0,63}$/.test(action))
-      throw new Error("Invalid gadget action");
-    await this.facet(row).handleAction(action, data);
+    await this.locked(id, async () => {
+      const row = this.requireVisible(id);
+      if (!/^[a-zA-Z][\w-]{0,63}$/.test(action))
+        throw new Error("Invalid gadget action");
+      await this.facet(row).handleAction(action, data);
+    });
   }
   private validate(title: string, code: string, tests: GadgetTest[]) {
     if (
@@ -212,7 +273,7 @@ export class LearningGadgets {
       generation: 1,
     };
   }
-  /** Revision-checked, replay-safe replacement. Same URL/list item; new Facet begins empty. */
+  /** Revision-checked replacement: clone real SQLite, test the new class on the copy, then switch. */
   async update(
     id: string,
     taskId: string,
@@ -220,6 +281,7 @@ export class LearningGadgets {
     title: string,
     code: string,
     tests: GadgetTest[],
+    dataUpdates: GadgetDataUpdate[] = [],
   ): Promise<GadgetSummary> {
     const prior = this.ctx.storage.sql
       .exec<{
@@ -238,34 +300,152 @@ export class LearningGadgets {
       throw new Error("Gadget changed. Reload it before editing.");
     this.validate(title, code, tests);
     await this.preflight(code, tests);
-    const now = this.requireVisible(id); // Another mutation can interleave during preflight.
-    if (now.generation !== expectedGeneration)
-      throw new Error("Gadget changed. Reload it before editing.");
-    const updatedAt = new Date().toISOString();
-    this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec(
-        "UPDATE learning_gadgets SET title=?,code=?,updatedAt=?,generation=? WHERE id=? AND generation=? AND visible=1",
+    return this.locked(id, () =>
+      this.replace(
+        id,
+        taskId,
+        expectedGeneration,
         title.trim(),
         code,
-        updatedAt,
-        expectedGeneration + 1,
+        dataUpdates,
+      ),
+    );
+  }
+  /** Assistant data edit: use only the gadget's own validated handleAction, never raw SQL. */
+  async updateData(
+    id: string,
+    taskId: string,
+    expectedGeneration: number,
+    updates: GadgetDataUpdate[],
+  ): Promise<GadgetSummary> {
+    if (updates.length < 1 || updates.length > 8)
+      throw new Error("Invalid gadget data update");
+    return this.locked(id, async () => {
+      const row = this.requireVisible(id);
+      return this.replace(
         id,
-        expectedGeneration,
-      );
-      this.ctx.storage.sql.exec(
-        "INSERT INTO learning_gadget_updates(task_id,gadget_id) VALUES(?,?)",
         taskId,
-        id,
+        expectedGeneration,
+        row.title,
+        row.code,
+        updates,
       );
     });
-    this.ctx.facets.delete(this.facetId(now));
-    return {
-      id,
-      title: title.trim(),
-      createdAt: now.createdAt,
-      updatedAt,
-      generation: expectedGeneration + 1,
+  }
+  private async replace(
+    id: string,
+    taskId: string,
+    expectedGeneration: number,
+    title: string,
+    code: string,
+    dataUpdates: GadgetDataUpdate[],
+  ): Promise<GadgetSummary> {
+    const prior = this.ctx.storage.sql
+      .exec<{
+        gadget_id: string;
+      }>(
+        "SELECT gadget_id FROM learning_gadget_updates WHERE task_id=?",
+        taskId,
+      )
+      .toArray()[0];
+    if (prior) {
+      if (prior.gadget_id !== id) throw new Error("Gadget update task reused");
+      return this.summary(this.requireVisible(id));
+    }
+    const current = this.requireVisible(id);
+    if (current.generation !== expectedGeneration)
+      throw new Error("Gadget changed. Reload it before editing.");
+    if (dataUpdates.length > 8) throw new Error("Too many gadget data updates");
+    const oldName = this.facetId(current);
+    const candidate = {
+      ...current,
+      title,
+      code,
+      generation: current.generation + 1,
+      loaderId: `learning-gadget:${id}:${crypto.randomUUID()}`,
     };
+    const candidateName = this.facetId(candidate);
+    await this.renderRow(current); // Ensure even a never-opened gadget has a source database.
+    this.ctx.storage.sql.exec(
+      "INSERT INTO learning_gadget_facets(name,stage) VALUES(?,'candidate')",
+      candidateName,
+    );
+    let committed = false;
+    try {
+      this.ctx.facets.clone(oldName, candidateName);
+      await this.renderRow(candidate); // Verify the new class can read the learner's existing SQLite state.
+      for (const update of dataUpdates) {
+        if (
+          !/^[a-zA-Z][\w-]{0,63}$/.test(update.action) ||
+          !update.data ||
+          typeof update.data !== "object" ||
+          JSON.stringify(update.data).length > 16_384 ||
+          !update.expectText?.trim() ||
+          update.expectText.length > 1000 ||
+          (update.expectFeedback !== undefined &&
+            (typeof update.expectFeedback !== "string" ||
+              update.expectFeedback.length > 1000))
+        )
+          throw new Error("Invalid gadget data update");
+        const before = await this.renderRow(candidate);
+        await this.facet(candidate).handleAction(update.action, update.data);
+        const after = await this.renderRow(candidate);
+        const text = visibleText(after);
+        if (
+          after === before ||
+          !text.includes(update.expectText) ||
+          (update.expectFeedback && !text.includes(update.expectFeedback))
+        )
+          throw new Error(
+            "Gadget data update did not produce the expected visible result",
+          );
+      }
+      const updatedAt = new Date().toISOString();
+      this.ctx.storage.transactionSync(() => {
+        this.ctx.storage.sql.exec(
+          "UPDATE learning_gadgets SET title=?,code=?,updatedAt=?,generation=?,loaderId=? WHERE id=? AND generation=? AND visible=1",
+          title,
+          code,
+          updatedAt,
+          candidate.generation,
+          candidate.loaderId,
+          id,
+          expectedGeneration,
+        );
+        this.ctx.storage.sql.exec(
+          "INSERT INTO learning_gadget_updates(task_id,gadget_id) VALUES(?,?)",
+          taskId,
+          id,
+        );
+        this.ctx.storage.sql.exec(
+          "UPDATE learning_gadget_facets SET name=?,stage='retired' WHERE name=?",
+          oldName,
+          candidateName,
+        );
+      });
+      committed = true;
+      this.ctx.facets.delete(oldName);
+      this.ctx.storage.sql.exec(
+        "DELETE FROM learning_gadget_facets WHERE name=?",
+        oldName,
+      );
+      return {
+        id,
+        title,
+        createdAt: current.createdAt,
+        updatedAt,
+        generation: candidate.generation,
+      };
+    } catch (error) {
+      if (!committed) {
+        this.ctx.facets.delete(candidateName);
+        this.ctx.storage.sql.exec(
+          "DELETE FROM learning_gadget_facets WHERE name=?",
+          candidateName,
+        );
+      }
+      throw error;
+    }
   }
   private summary({
     id,
@@ -282,12 +462,14 @@ export class LearningGadgets {
     return row;
   }
   /** Remove the source and active state; a deleted gadget cannot be reopened from an old chat link. */
-  delete(id: string, expectedGeneration: number): void {
-    const row = this.requireVisible(id);
-    if (row.generation !== expectedGeneration)
-      throw new Error("Gadget changed. Reload it before deleting.");
-    this.ctx.storage.sql.exec("DELETE FROM learning_gadgets WHERE id=?", id);
-    this.ctx.facets.delete(this.facetId(row));
+  async delete(id: string, expectedGeneration: number): Promise<void> {
+    await this.locked(id, async () => {
+      const row = this.requireVisible(id);
+      if (row.generation !== expectedGeneration)
+        throw new Error("Gadget changed. Reload it before deleting.");
+      this.ctx.storage.sql.exec("DELETE FROM learning_gadgets WHERE id=?", id);
+      this.ctx.facets.delete(this.facetId(row));
+    });
   }
   deleteAll(): void {
     for (const row of this.ctx.storage.sql
@@ -295,6 +477,11 @@ export class LearningGadgets {
       .toArray())
       this.ctx.facets.delete(this.facetId(row));
     this.ctx.storage.sql.exec("DELETE FROM learning_gadgets");
+    for (const { name } of this.ctx.storage.sql
+      .exec<{ name: string }>("SELECT name FROM learning_gadget_facets")
+      .toArray())
+      this.ctx.facets.delete(name);
+    this.ctx.storage.sql.exec("DELETE FROM learning_gadget_facets");
     this.ctx.storage.sql.exec("DELETE FROM learning_gadget_updates");
   }
 }

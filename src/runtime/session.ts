@@ -13,8 +13,16 @@ import {
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 // Application contracts, tool schemas and the harness adapter connect persisted state to model work.
 import * as v from "valibot";
-import { COMPUTER_ACTIONS, computerAction, isAutoComputerAction } from "../lib/skills.ts";
-import { LearningGadgets, type GadgetTest } from "./gadgets.ts";
+import {
+  COMPUTER_ACTIONS,
+  computerAction,
+  isAutoComputerAction,
+} from "../lib/skills.ts";
+import {
+  LearningGadgets,
+  type GadgetTest,
+  type GadgetDataUpdate,
+} from "./gadgets.ts";
 import { createLearningHarnessOptions } from "./harness.ts";
 import { ActivityJournal } from "./activity.ts";
 import { routingLabel, type RoutingDecision } from "./routing-label.ts";
@@ -265,7 +273,8 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
           this.store("learning_sources", id, source);
           await this.wake();
         },
-        proposal: (id, tool, args) => this.proposeAction(this.metadata().owner, id, tool, args),
+        proposal: (id, tool, args) =>
+          this.proposeAction(this.metadata().owner, id, tool, args),
         preferences: async () => (await this.library().preferences()).text,
         coachHistory: (owner, cursor) => this.coachHistory(owner, cursor),
         coachMessage: (owner, entryId, offset) =>
@@ -294,8 +303,19 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
           this.gadgets.create(`gadget-${taskId}`, title, code, tests),
         listGadgets: () => this.gadgets.list(),
         gadgetSource: (id) => this.gadgets.source(id),
-        updateGadget: (id, taskId, generation, title, code, tests) =>
-          this.gadgets.update(id, taskId, generation, title, code, tests),
+        gadgetPageText: (id) => this.gadgets.pageText(id),
+        updateGadget: (id, taskId, generation, title, code, tests, updates) =>
+          this.gadgets.update(
+            id,
+            taskId,
+            generation,
+            title,
+            code,
+            tests,
+            updates,
+          ),
+        updateGadgetData: (id, taskId, generation, updates) =>
+          this.gadgets.updateData(id, taskId, generation, updates),
         savedNote: (id) =>
           id
             ? (this.rows<Note>("learning_notes").find(
@@ -303,7 +323,11 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
               ) ?? { error: "Note not found" })
             : this.rows<Note>("learning_notes")
                 .slice(-30)
-                .map(({ id, entryId, createdAt }) => ({ id, entryId, createdAt })),
+                .map(({ id, entryId, createdAt }) => ({
+                  id,
+                  entryId,
+                  createdAt,
+                })),
       });
       const harness = await Harness.open(
         await openDurableObjectSqliteStorage(this.ctx.storage),
@@ -329,6 +353,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       if (!(await this.ctx.storage.get("learning:tools:gadget-edit:v2"))) {
         await root.configure({ tools: options.learningTools }, background);
         await this.ctx.storage.put("learning:tools:gadget-edit:v2", true);
+      }
+      if (!(await this.ctx.storage.get("learning:tools:gadget-data:v3"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:tools:gadget-data:v3", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -512,9 +540,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     // Resolve explicit /skill commands from the shared owner-scoped Computer.
     // This is a visible lookup, not a claim that the model called read_skill.
     const slug = /^\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\s|$)/.exec(text)?.[1];
-    const skill = slug && slug.length <= 60
-      ? await this.env.LEARNING_SKILLS.getByName(owner).get(owner, slug)
-      : null;
+    const skill =
+      slug && slug.length <= 60
+        ? await this.env.LEARNING_SKILLS.getByName(owner).get(owner, slug)
+        : null;
     const hash = await sha256(text);
     const previous = this.ctx.storage.sql
       .exec<{
@@ -702,8 +731,14 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       gadgets: this.gadgets.list(),
       approvals: this.rows<Approval>("learning_approvals").map((action) =>
         action.automatic
-          ? { id: action.id, tool: action.tool, args: {}, status: action.status,
-              createdAt: action.createdAt, automatic: true }
+          ? {
+              id: action.id,
+              tool: action.tool,
+              args: {},
+              status: action.status,
+              createdAt: action.createdAt,
+              automatic: true,
+            }
           : action,
       ),
       nextCursor: page.next ? JSON.stringify(page.next) : undefined,
@@ -956,19 +991,33 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
    * What this function does: immediately applies only skill edits and Computer file writes;
    * GitHub, file deletion and shell execution still require exact UI approval.
    */
-  async proposeAction(owner: string, id: string, tool: string, args: Record<string, unknown>): Promise<Approval> {
+  async proposeAction(
+    owner: string,
+    id: string,
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<Approval> {
     this.authorize(owner);
     const automatic = isAutoComputerAction(tool);
     if (automatic) computerAction(tool, args);
-    const existing = this.rows<Approval>("learning_approvals").find((a) => a.id === id);
+    const existing = this.rows<Approval>("learning_approvals").find(
+      (a) => a.id === id,
+    );
     if (existing) {
-      if (existing.tool !== tool || JSON.stringify(existing.args) !== JSON.stringify(args))
+      if (
+        existing.tool !== tool ||
+        JSON.stringify(existing.args) !== JSON.stringify(args)
+      )
         throw new Error("Action ID reused with different arguments");
       return existing;
     }
     const proposal: Approval & { repository?: GithubRepository } = {
-      id, tool, args,
-      ...(automatic ? { automatic: true } : { repository: this.metadata().repository! }),
+      id,
+      tool,
+      args,
+      ...(automatic
+        ? { automatic: true }
+        : { repository: this.metadata().repository! }),
       status: automatic ? "executing" : "pending",
       createdAt: new Date().toISOString(),
     };
@@ -978,12 +1027,16 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     if (!automatic) return proposal;
     try {
       proposal.result = await this.env.LEARNING_SKILLS.getByName(owner).apply(
-        owner, `${this.metadata().id}:${id}`, tool, args,
+        owner,
+        `${this.metadata().id}:${id}`,
+        tool,
+        args,
       );
       proposal.status = "done";
     } catch {
       proposal.status = "uncertain";
-      proposal.result = "Computer change was not confirmed. Inspect Skills/Computer in Settings before another attempt; it will not be repeated automatically.";
+      proposal.result =
+        "Computer change was not confirmed. Inspect Skills/Computer in Settings before another attempt; it will not be repeated automatically.";
     }
     this.store("learning_approvals", id, proposal);
     this.notify();
@@ -998,7 +1051,8 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       "learning_approvals",
     ).find((a) => a.id === id);
     if (!proposal) throw new Error("Approval not found");
-    if (proposal.automatic || proposal.status !== "pending") return Response.json(proposal);
+    if (proposal.automatic || proposal.status !== "pending")
+      return Response.json(proposal);
     // Synchronous persisted claim prevents concurrent or replayed requests performing two writes.
     proposal.status = accept ? "executing" : "rejected";
     this.store("learning_approvals", id, proposal);
@@ -1177,11 +1231,22 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     this.authorize(owner);
     return this.gadgets.render(gadgetId);
   }
-  async actOnGadget(owner: string, gadgetId: string, action: string, data: Record<string, string>): Promise<void> {
+  async actOnGadget(
+    owner: string,
+    gadgetId: string,
+    action: string,
+    data: Record<string, string>,
+  ): Promise<void> {
     this.authorize(owner);
     await this.gadgets.action(gadgetId, action, data);
   }
-  async createGadget(owner: string, taskId: string, title: string, code: string, tests: GadgetTest[]) {
+  async createGadget(
+    owner: string,
+    taskId: string,
+    title: string,
+    code: string,
+    tests: GadgetTest[],
+  ) {
     this.authorize(owner);
     return this.gadgets.create(`gadget-${taskId}`, title, code, tests);
   }
@@ -1192,13 +1257,44 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     this.authorize(owner);
     return this.gadgets.list();
   }
-  async updateGadget(owner: string, id: string, taskId: string, expectedGeneration: number, title: string, code: string, tests: GadgetTest[]) {
+  async updateGadget(
+    owner: string,
+    id: string,
+    taskId: string,
+    expectedGeneration: number,
+    title: string,
+    code: string,
+    tests: GadgetTest[],
+    updates: GadgetDataUpdate[] = [],
+  ) {
     this.authorize(owner);
-    return this.gadgets.update(id, taskId, expectedGeneration, title, code, tests);
+    return this.gadgets.update(
+      id,
+      taskId,
+      expectedGeneration,
+      title,
+      code,
+      tests,
+      updates,
+    );
   }
-  deleteGadget(owner: string, id: string, expectedGeneration: number): void {
+  async updateGadgetData(
+    owner: string,
+    id: string,
+    taskId: string,
+    expectedGeneration: number,
+    updates: GadgetDataUpdate[],
+  ) {
     this.authorize(owner);
-    this.gadgets.delete(id, expectedGeneration);
+    return this.gadgets.updateData(id, taskId, expectedGeneration, updates);
+  }
+  async deleteGadget(
+    owner: string,
+    id: string,
+    expectedGeneration: number,
+  ): Promise<void> {
+    this.authorize(owner);
+    await this.gadgets.delete(id, expectedGeneration);
     this.notify();
   }
   /** Input: owner. Output: revoked session and attempted cleanup.
