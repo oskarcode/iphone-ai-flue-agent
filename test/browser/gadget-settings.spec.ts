@@ -33,6 +33,11 @@ test("explicitly upgrades only the existing course gadget for scheduled content"
   await page.getByRole("button", { name: "Open library" }).click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Gadgets", exact: true }).click();
+  const list = page.getByRole("region", { name: "Your gadgets" });
+  await expect(list.getByRole("link", { name: "Open TypeScript course" })).toHaveCount(0);
+  await expect(list.getByText("TypeScript for AI harnesses", { exact: true })).toHaveCount(1);
+  await expect(list.getByRole("link", { name: "Lesson", exact: true })).toHaveAttribute("href", `/sessions/${id}`);
+  await expect(list.getByRole("button", { name: "Delete TypeScript for AI harnesses" })).toBeVisible();
   await page
     .getByRole("button", { name: "Enable scheduled lesson cards" })
     .click();

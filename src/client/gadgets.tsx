@@ -117,13 +117,7 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
         personalization, request /learning-coach from its lesson. Week 4 awaits
         your goal.
       </p>
-      {course ? (
-        <a
-          href={`/api/sessions/${encodeURIComponent(course.sessionId)}/gadgets/${course.id}`}
-        >
-          Open TypeScript course
-        </a>
-      ) : (
+      {!course && (
         <button
           type="button"
           disabled={busy}
