@@ -1,18 +1,14 @@
 import type { Approval } from "../runtime/contracts.ts";
 
-/** Only actions that actually need approval or inspection use the full approval card. */
+/** Only unresolved actions requiring a decision or currently executing appear in the transcript. */
 export function showApprovalCard(approval: Pick<Approval, "status" | "automatic">): boolean {
-  return !approval.automatic && approval.status !== "done" && approval.status !== "rejected";
+  return !approval.automatic && (approval.status === "pending" || approval.status === "executing");
 }
 
-/** New auto-applied changes have compact persisted notifications, without arguments or file contents. */
-export function automaticActionNotice(approval: Pick<Approval, "tool" | "status" | "automatic">): string | undefined {
-  if (!approval.automatic) return undefined;
-  const label = approval.tool === "skill.save" ? "Skill saved"
-    : approval.tool === "skill.delete" ? "Skill removed"
-    : approval.tool === "computer.write" ? "Computer file saved" : undefined;
-  if (!label) return undefined;
-  if (approval.status === "done") return `${label}.`;
-  if (approval.status === "uncertain") return `${label.replace(/ saved| removed/, " change")} could not be confirmed. Check Settings before trying again.`;
-  return `${label} in progress…`;
+/** Ambiguous external writes need a warning, never a replay or a raw payload in the chat. */
+export function uncertainActionNotice(approval: Pick<Approval, "tool" | "status">): string | undefined {
+  if (approval.status !== "uncertain") return undefined;
+  const target = approval.tool.startsWith("skill.") || approval.tool.startsWith("computer.")
+    ? "Skills/Computer in Settings" : "GitHub";
+  return `Action could not be confirmed. Check ${target} before trying again; it will not be repeated automatically.`;
 }

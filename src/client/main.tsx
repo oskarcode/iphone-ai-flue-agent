@@ -7,7 +7,7 @@ import { TurnActivityPanel } from "./turn-activity.tsx";
 import { Settings } from "./settings.tsx";
 import { api, post } from "./api.ts";
 import type { SkillSummary } from "../lib/skills.ts";
-import { showApprovalCard, automaticActionNotice } from "../lib/approval-display.ts";
+import { showApprovalCard, uncertainActionNotice } from "../lib/approval-display.ts";
 import type {
   DirectoryItem,
   SessionSnapshot,
@@ -108,6 +108,7 @@ function App() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [connection, setConnection] = useState("");
+  const [dismissedActions, setDismissedActions] = useState<string[]>([]);
   const [prefs, setPrefs] = useState<{ text: string }>();
   const [older, setOlder] = useState<SessionSnapshot["messages"]>([]);
   const [olderActivity, setOlderActivity] = useState<
@@ -641,6 +642,20 @@ function App() {
           </div>
         )}
         {snapshot?.error && <div className="error">{snapshot.error}</div>}
+        {snapshot?.approvals.filter((approval) =>
+          approval.status === "uncertain" &&
+          !dismissedActions.includes(`${id}:${approval.id}`) &&
+          !readStored(`${PREFIX}dismissed-action:${id}:${approval.id}`),
+        ).map((approval) => (
+          <div className="error action-warning" role="alert" key={approval.id}>
+            {uncertainActionNotice(approval)}
+            <button type="button" onClick={() => {
+              const key = `${id}:${approval.id}`;
+              store(`${PREFIX}dismissed-action:${key}`, "1");
+              setDismissedActions((current) => [...current, key]);
+            }}>Dismiss</button>
+          </div>
+        ))}
         {/* Visible committed messages, partial generation and explicit approval controls. */}
         <div
           className="conversation"
@@ -749,12 +764,6 @@ function App() {
               ))}
             </section>
           )}
-          {snapshot?.approvals.slice(-10).map((approval) => {
-            const notice = automaticActionNotice(approval);
-            return notice && (
-              <p className="action-notice" role="status" key={approval.id}>{notice}</p>
-            );
-          })}
           {snapshot?.approvals.filter(showApprovalCard).map((approval) => (
             <section className="approval" key={approval.id}>
               <h3>
@@ -795,7 +804,7 @@ function App() {
                   </button>
                 </>
               ) : (
-                <pre>{JSON.stringify(approval.result, null, 2)}</pre>
+                <p role="status">Action in progress. Wait for confirmation before trying again.</p>
               )}
             </section>
           ))}

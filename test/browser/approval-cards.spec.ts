@@ -39,16 +39,18 @@ test("resolved skill approvals disappear after acceptance and stay hidden on rel
   });
   await page.goto(`/sessions/${id}`);
   const cards = page.locator(".approval");
-  await expect(cards).toHaveCount(2);
+  await expect(cards).toHaveCount(1);
   await expect(cards.filter({ hasText: "save-fixture" })).toBeVisible();
-  await expect(cards.filter({ hasText: "uncertain-fixture" })).toBeVisible();
-  await expect(page.getByText("Computer file saved.")).toBeVisible();
-  await expect(page.getByText("Skill change could not be confirmed. Check Settings before trying again.")).toBeVisible();
+  await expect(page.locator(".conversation").getByText("Computer file saved.")).toHaveCount(0);
+  await expect(page.locator(".conversation").getByText("uncertain-fixture")).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "Check Skills/Computer in Settings" })).toHaveCount(2);
   await expect(page.getByText("never shown")).toHaveCount(0);
-  await cards.filter({ hasText: "save-fixture" }).getByRole("button", { name: "Approve this exact action" }).click();
-  await expect(cards).toHaveCount(1);
-  await expect(cards.filter({ hasText: "uncertain-fixture" })).toBeVisible();
+  await cards.getByRole("button", { name: "Approve this exact action" }).click();
+  await expect(cards).toHaveCount(0);
+  for (let i = 0; i < 2; i++)
+    await page.getByRole("alert").filter({ hasText: "Check Skills/Computer in Settings" }).first().getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Check Skills/Computer in Settings" })).toHaveCount(0);
   await page.reload();
-  await expect(cards).toHaveCount(1);
-  await expect(cards.filter({ hasText: "uncertain-fixture" })).toBeVisible();
+  await expect(cards).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "Check Skills/Computer in Settings" })).toHaveCount(0);
 });

@@ -11,13 +11,14 @@ test("a requested skill save runs without an approval click and informs the lear
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page).toHaveURL(/\/sessions\//);
     sessionPath = new URL(page.url()).pathname.replace("/sessions/", "/api/sessions/");
-    await expect(page.getByText("Skill saved.", { exact: true })).toBeVisible({ timeout: 110_000 });
+    await expect(page.getByRole("button", { name: `/${slug}`, exact: true })).toBeAttached({ timeout: 110_000 });
     await expect(page.locator(".approval")).toHaveCount(0);
+    await expect(page.locator(".conversation .action-notice")).toHaveCount(0);
     await expect(page.getByRole("button", { name: `/${slug}`, exact: true })).toBeAttached({ timeout: 30_000 });
     const saved = await request.get(`/api/skills/${slug}`);
     expect(saved.status()).toBe(200);
     await page.reload();
-    await expect(page.getByText("Skill saved.", { exact: true })).toBeVisible();
+    await expect(page.locator(".conversation .action-notice")).toHaveCount(0);
   } finally {
     const saved = await request.get(`/api/skills/${slug}`);
     if (saved.status() === 200) {
@@ -41,8 +42,9 @@ test("a requested Computer file write runs without approval and remains readable
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page).toHaveURL(/\/sessions\//);
     sessionPath = new URL(page.url()).pathname.replace("/sessions/", "/api/sessions/");
-    await expect(page.getByText("Computer file saved.", { exact: true })).toBeVisible({ timeout: 110_000 });
+    await expect.poll(async () => (await request.get(`/api/computer/file?path=${encodeURIComponent(path)}`)).status(), { timeout: 110_000 }).toBe(200);
     await expect(page.locator(".approval")).toHaveCount(0);
+    await expect(page.locator(".conversation .action-notice")).toHaveCount(0);
     const file = await request.get(`/api/computer/file?path=${encodeURIComponent(path)}`);
     expect(file.status()).toBe(200);
     expect((await file.json()).content).toBe("Learning notes smoke test");
