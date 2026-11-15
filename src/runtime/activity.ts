@@ -20,6 +20,7 @@ const TOOL_LABELS: Record<string, string> = {
   run_computer_command: "Preparing a Computer command for approval",
   get_action_status: "Checking approved action results",
   web_research: "Research the web",
+  web_render: "Render a web page",
   open_repository: "Open repository",
   list_repository_files: "List repository files",
   read_repository_file: "Read repository file",

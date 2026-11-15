@@ -109,7 +109,7 @@ export const WEB_RESEARCH_PROMPT = `Use the returned web evidence to answer clea
 - Check each page extraction metadata before answering. When truncated is true, say that only partial page evidence was available and name only the recorded omittedRegion (for example, middle or end).
 - Never guess which topics or sections were omitted, why the extraction was long, or whether navigation and tag listings caused truncation. Do not offer a detailed inventory of missing content unless it is directly present in the retrieved evidence.
 - When extraction is full_page, separate likely article content from navigation, menus, related links, and footer text.
-- Rendering is a bounded direct fetch followed by origin Markdown negotiation or Workers AI conversion. It does not execute page JavaScript. A false truncated value only means the local evidence limit was not reached; it does not prove every dynamic section was available.
+- web_research uses bounded direct fetch, origin Markdown negotiation or Workers AI conversion; it does not execute page JavaScript. When its page evidence is empty, incomplete or clearly lacks client-rendered content, use web_render for the requested public URL. web_render runs JavaScript in isolated Kitesurf; it shares no login or session state. A false truncated value only means the local evidence limit was not reached; it does not prove every dynamic section was available.
 - Never fill missing page details from general knowledge while presenting them as facts retrieved from the page.
 
 Return only the useful answer without a generic preamble or conclusion.`;
@@ -120,7 +120,7 @@ export const DIRECT_ANSWER_ROUTE_PROMPT = `Do not use tools.
 - Otherwise, answer an explicit user question or conversational follow-up using the conversation context.
 - Treat explanation intent as part of the visible user prompt, not hidden request metadata.`;
 
-export const WEB_RESEARCH_ROUTE_PROMPT = `Call web_research exactly once before answering.
+export const WEB_RESEARCH_ROUTE_PROMPT = `Call web_research exactly once before answering. If direct page evidence is empty, incomplete or clearly lacks client-rendered content, then call web_render for the public URL before answering. Do not use web_render for pages that web_research already read successfully.
 - Pass the requested URL when one is present.
 - Set searchWeb to true for current, recent, live, broader, or externally verified information.
 - Set searchWeb to false when the user only wants the supplied page read or explained.
