@@ -198,6 +198,35 @@ export class LearningSkills extends Base {
         true,
       );
     }
+    // Add topic-first portfolio handoff metadata only when the owner still has
+    // the exact v2 starter. Preserve customized or deleted skill files.
+    if (
+      !(await this.ctx.storage.get("skills:seeded:technical-blog-content:v3"))
+    ) {
+      const path = "/workspace/skills/technical-blog-content/SKILL.md";
+      try {
+        const previous = await ws.fs.readFile(path, "utf8");
+        if (
+          (await sha256(previous)) ===
+          "1e347e02affc2c8dfbefbf49c048a42a49c8ca296c2e60761faf9d856cd14915"
+        ) {
+          const blog = DEFAULT_SKILLS.find(
+            (skill) => skill.slug === "technical-blog-content",
+          )!;
+          await ws.fs.writeFile(path, skillFile(blog));
+        }
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !/not found|no such (?:file|path)|enoent/i.test(error.message)
+        )
+          throw error;
+      }
+      await this.ctx.storage.put(
+        "skills:seeded:technical-blog-content:v3",
+        true,
+      );
+    }
     if (!(await this.ctx.storage.get("skills:seeded:learning-gadget:v1"))) {
       const gadget = DEFAULT_SKILLS.find(
         (skill) => skill.slug === "learning-gadget",

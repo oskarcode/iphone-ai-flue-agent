@@ -97,8 +97,9 @@ describe("Computer boundaries", () => {
       "end-to-end workflow", "distinctive technical behaviors",
       "admin and guest/user", "security and product boundaries",
       "verified resources", "short conclusion", "flowchart", "sequenceDiagram",
-      "Full Markdown article", "proposed title", "slug suggestion", "excerpt",
-      "audience", "tags", "verified resource links", "important caveats",
+      "Full Markdown article", "proposed title", "child-anchor suggestion", "likely topic family",
+      "existing topic", "new expandable topic", "excerpt", "audience", "tags",
+      "verified resource links", "important caveats",
       "planned", "mocked", "unverified", "private", "publish anything",
     ]) expect(instructions.toLowerCase()).toContain(requirement.toLowerCase());
     expect(instructions).toContain("Do not automatically reopen or rescan");
