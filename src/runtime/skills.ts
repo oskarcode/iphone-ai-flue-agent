@@ -299,6 +299,20 @@ export class LearningSkills extends Base {
       }
       await this.ctx.storage.put("skills:seeded:learning-gadget:v3", true);
     }
+    // Teach the optional live RPC path without overwriting a personalized or removed skill.
+    if (!(await this.ctx.storage.get("skills:seeded:learning-gadget:v4"))) {
+      const path = "/workspace/skills/learning-gadget/SKILL.md";
+      try {
+        const previous = await ws.fs.readFile(path, "utf8");
+        if ((await sha256(previous)) === "2e9ccc47b11f63aa44d0cf0665520285c92657114cbdf7178851e5ce61c4619f") {
+          const gadget = DEFAULT_SKILLS.find((skill) => skill.slug === "learning-gadget")!;
+          await ws.fs.writeFile(path, skillFile(gadget));
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || !/not found|no such (?:file|path)|enoent/i.test(error.message)) throw error;
+      }
+      await this.ctx.storage.put("skills:seeded:learning-gadget:v4", true);
+    }
     return ws;
   }
   private async readSkill(slug: string): Promise<Skill | null> {

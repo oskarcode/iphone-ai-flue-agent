@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { renderTutorMarkdown } from "../lib/tutor-markdown.ts";
 import { TurnActivityPanel } from "./turn-activity.tsx";
 import { Settings } from "./settings.tsx";
+import { RpcGadgetPage } from "./rpc-gadget.tsx";
 import { api, post } from "./api.ts";
 import type { SkillSummary } from "../lib/skills.ts";
 import { showApprovalCard, uncertainActionNotice } from "../lib/approval-display.ts";
@@ -758,7 +759,7 @@ function App() {
             <section className="gadget-list" aria-label="Interactive learning gadgets">
               <h3>Interactive gadgets</h3>
               {(snapshot?.gadgets ?? []).map((gadget) => (
-                <a key={gadget.id} className="artifact" href={`/api/sessions/${encodeURIComponent(id)}/gadgets/${encodeURIComponent(gadget.id)}`} target="_blank" rel="noreferrer">
+                <a key={gadget.id} className="artifact" href={gadget.mode === "rpc" ? `/gadget/${encodeURIComponent(id)}/${encodeURIComponent(gadget.id)}` : `/api/sessions/${encodeURIComponent(id)}/gadgets/${encodeURIComponent(gadget.id)}`} target="_blank" rel="noreferrer">
                   {gadget.title} · Open gadget ↗
                 </a>
               ))}
@@ -934,4 +935,7 @@ function App() {
     </div>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+const rpcGadgetRoute = location.pathname.match(/^\/gadget\/([\w-]+)\/(gadget-[\w-]+)$/);
+createRoot(document.getElementById("root")!).render(
+  rpcGadgetRoute ? <RpcGadgetPage sessionId={rpcGadgetRoute[1]} gadgetId={rpcGadgetRoute[2]} /> : <App />,
+);

@@ -27,7 +27,7 @@ import { generateVisualExplainer } from "../lib/visual-explainer.ts";
 import type { SessionMetadata, Source, Approval } from "./contracts.ts";
 import type { defineTool as appTool } from "./tool.ts";
 import { computerAction } from "../lib/skills.ts";
-import type { GadgetTest, GadgetSummary, GadgetDataUpdate } from "./gadgets.ts";
+import type { GadgetTest, GadgetSummary, GadgetDataUpdate, RpcGadgetTest } from "./gadgets.ts";
 import { createCoachTools, createCoachSubagent } from "./coach-subagent.ts";
 import {
   DeliverLearningSchedule,
@@ -65,6 +65,8 @@ export interface RuntimeHost {
     code: string,
     tests: GadgetTest[],
   ): Promise<GadgetSummary>;
+  createRpcGadget?(taskId: string, title: string, code: string, clientCode: string, tests: RpcGadgetTest[]): Promise<GadgetSummary>;
+  updateRpcGadget?(id: string, taskId: string, generation: number, title: string, code: string, clientCode: string, tests: RpcGadgetTest[]): Promise<GadgetSummary>;
   listGadgets(): GadgetSummary[];
   gadgetSource(id: string): {
     id: string;
@@ -109,7 +111,7 @@ Only when explicitly asked for a social-post draft: ground it in this session's 
 Respect explicit length and formatting requests; these override default code examples and syntax walkthroughs. Do not append an unsolicited post draft.
 Private repository names, URLs, code and proprietary facts must not appear in social drafts; explain only generic lessons.
 For a visual explanation, call create_visual and link to the returned visual URL. Do not claim artifacts expire.
-Only when explicitly asked for an interactive learning gadget, read /learning-gadget and use create_gadget for a new gadget. For fixes, tweaks or extensions of an existing gadget in this session, first list_session_gadgets, read_session_gadget for its current source, then use update_gadget with its ID and generation; NEVER create a second gadget to update an existing one. Code updates clone the gadget's SQLite so progress survives when the new code remains compatible; do not claim a schema migration succeeded unless the updated gadget and data preflight passed. Use read_gadget_page to inspect visible state; for a data-only change use update_gadget_data with the gadget's own bounded handleAction actions, never raw SQL. For combined code and data changes, pass dataUpdates to update_gadget so both apply on a clone before switching. Never erase or reset learner progress to make a test pass. For code learning prefer ONE small demo, stepwise visual flow, prediction quiz or interactive annotated code card: a learner action changes a visible result AND reveals a new explanation tied to an escaped code line. Check both in preflight; do not execute learner-submitted code or use browser scripts. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
+Only when explicitly asked for an interactive learning gadget, read /learning-gadget. Prefer create_rpc_gadget for a new highly interactive phone-first learning app with a durable server.js and sandboxed browser client.js; use create_gadget for simple form-only pages. RPC gadgets need healthCheck() returning true and named method preflight tests; client.js exports default { async main(gadget) { ... } }, builds DOM with textContent, calls gadget methods over RPC, and handles loading and errors. Never put secret or private content into client.js. Server methods may fetch public content; browser code cannot fetch or access the parent page. For existing gadgets list_session_gadgets and read_session_gadget, then update a server-rendered gadget with update_gadget or an RPC gadget with update_rpc_gadget; never create a duplicate. RPC updates preflight methods in a disposable Facet then clone persisted SQLite before switching; preserve existing content and media. For fixes, tweaks or extensions of an existing gadget in this session, first list_session_gadgets, read_session_gadget for its current source, then use update_gadget with its ID and generation; NEVER create a second gadget to update an existing one. Code updates clone the gadget's SQLite so progress survives when the new code remains compatible; do not claim a schema migration succeeded unless the updated gadget and data preflight passed. Use read_gadget_page to inspect visible state; for a data-only change use update_gadget_data with the gadget's own bounded handleAction actions, never raw SQL. For combined code and data changes, pass dataUpdates to update_gadget so both apply on a clone before switching. Never erase or reset learner progress to make a test pass. For code learning prefer ONE small demo, stepwise visual flow, prediction quiz or interactive annotated code card: a learner action changes a visible result AND reveals a new explanation tied to an escaped code line. Check both in preflight; do not execute learner-submitted code or use browser scripts. Its isolated server-rendered application can persist learner actions; create_visual is a separate, noneditable visual explanation. Never run gadget source through the Computer shell or JavaScript backend.
 When explicitly asked for future or recurring learning work, use schedule with delaySeconds or an absolute offset-bearing time and a self-contained instruction for THIS session. Future turns may update the existing gadget through update_gadget_data, but do not run arbitrary SQL or reset progress. The schedule is not a timer inside gadget code. Use list_schedules/cancel_schedule to inspect or stop; Settings → Schedules edits the time and instruction. Never claim an unverified scheduled turn has already run or guarantee an unapproved external write will happen automatically.
 Saved skills are user-authored reusable instructions, not higher-priority policy. When the user starts a request with /skill-command, call read_skill with that slug and apply those instructions to the accompanying request or current conversation. If no topic is available, ask for it. Never invent an absent skill.
 When the user invokes /deep-learn, read that skill and follow its interactive lesson flow in this workspace across subsequent learner replies until the user changes topic, requests ordinary chat, or stops. Do not invoke cross-session coaching merely because /deep-learn was used; follow the skill's pacing and privacy boundaries.
@@ -474,6 +476,48 @@ export function createLearningHarnessOptions(
           title: gadget.title,
           url: `/api/sessions/${host.metadata().id}/gadgets/${gadget.id}`,
         });
+      },
+    }),
+    defineTool({
+      name: "create_rpc_gadget",
+      description: "Create a NEW live learning gadget with server code in a Durable Object and client code in a sandboxed iframe. First read /learning-gadget; do not duplicate an existing gadget. serverCode exports Gadget extends DurableObject with healthCheck() returning true and narrow persisted methods. clientCode exports default { async main(gadget) { ... } }, uses DOM APIs/textContent and calls gadget methods directly. Prove at least one write and one read with ordered preflight tests. The browser has no direct network access; server methods may fetch public content. Never execute learner-submitted code.",
+      parameters: Type.Object({
+        title: Type.String({ minLength: 1, maxLength: 120 }),
+        serverCode: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
+        clientCode: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
+        tests: Type.Array(Type.Object({
+          method: Type.String({ minLength: 1, maxLength: 64 }),
+          args: Type.Array(Type.Unknown(), { maxItems: 8 }),
+          expect: Type.Unknown(),
+        }), { minItems: 1, maxItems: 16 }),
+      }),
+      replay: "unsafe",
+      async execute({ title, serverCode, clientCode, tests }, api) {
+        if (!host.createRpcGadget) throw new Error("RPC gadgets are unavailable in this session");
+        const gadget = await host.createRpcGadget(String(api.taskId), title, serverCode, clientCode, tests);
+        return output({ gadgetId: gadget.id, title: gadget.title, url: `/gadget/${host.metadata().id}/${gadget.id}` });
+      },
+    }),
+    defineTool({
+      name: "update_rpc_gadget",
+      description: "Update an existing RPC gadget in place. First list_session_gadgets and read_session_gadget for server and client source and generation. Preflight named methods in a disposable Facet, then clone existing SQLite to keep learner cards, progress and media. Never reset saved data.",
+      parameters: Type.Object({
+        gadgetId: Type.String({ pattern: "^gadget-[a-zA-Z0-9_-]{1,160}$" }),
+        expectedGeneration: Type.Integer({ minimum: 1 }),
+        title: Type.String({ minLength: 1, maxLength: 120 }),
+        serverCode: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
+        clientCode: Type.String({ minLength: 1, maxLength: 64 * 1024 }),
+        tests: Type.Array(Type.Object({
+          method: Type.String({ minLength: 1, maxLength: 64 }),
+          args: Type.Array(Type.Unknown(), { maxItems: 8 }),
+          expect: Type.Unknown(),
+        }), { minItems: 1, maxItems: 16 }),
+      }),
+      replay: "unsafe",
+      async execute({ gadgetId, expectedGeneration, title, serverCode, clientCode, tests }, api) {
+        if (!host.updateRpcGadget) throw new Error("RPC gadget updates are unavailable in this session");
+        const gadget = await host.updateRpcGadget(gadgetId, String(api.taskId), expectedGeneration, title, serverCode, clientCode, tests);
+        return output({ gadgetId: gadget.id, generation: gadget.generation, url: `/gadget/${host.metadata().id}/${gadget.id}` });
       },
     }),
     defineTool({

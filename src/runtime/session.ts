@@ -22,7 +22,9 @@ import {
   LearningGadgets,
   type GadgetTest,
   type GadgetDataUpdate,
+  type RpcGadgetTest,
 } from "./gadgets.ts";
+import { RpcTarget, newWorkersRpcResponse } from "capnweb";
 import { createLearningHarnessOptions } from "./harness.ts";
 import { TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT } from "../lib/typescript-course.ts";
 import {
@@ -102,7 +104,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
     this.activity = new ActivityJournal(ctx.storage.sql);
-    this.gadgets = new LearningGadgets(ctx, env.SKILL_LOADER);
+    this.gadgets = new LearningGadgets(ctx, env.SKILL_LOADER, env.GADGET_MEDIA);
     ctx.storage.sql
       .exec(`CREATE TABLE IF NOT EXISTS learning_state (id INTEGER PRIMARY KEY CHECK(id=1), metadata TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, dirty INTEGER NOT NULL DEFAULT 1, deleted INTEGER NOT NULL DEFAULT 0, error TEXT);
       CREATE TABLE IF NOT EXISTS learning_sources (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -314,6 +316,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
                 .map(({ id, title }) => ({ id, title })),
         createGadget: (taskId, title, code, tests) =>
           this.gadgets.create(`gadget-${taskId}`, title, code, tests),
+        createRpcGadget: (taskId, title, code, clientCode, tests) =>
+          this.gadgets.createRpc(`gadget-${taskId}`, title, code, clientCode, tests),
+        updateRpcGadget: (id, taskId, generation, title, code, clientCode, tests) =>
+          this.gadgets.updateRpc(id, taskId, generation, title, code, clientCode, tests),
         listGadgets: () => this.gadgets.list(),
         gadgetSource: (id) => this.gadgets.source(id),
         gadgetPageText: (id) => this.gadgets.pageText(id),
@@ -374,6 +380,10 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       if (!(await this.ctx.storage.get("learning:tools:schedule:v4"))) {
         await root.configure({ tools: options.learningTools }, background);
         await this.ctx.storage.put("learning:tools:schedule:v4", true);
+      }
+      if (!(await this.ctx.storage.get("learning:tools:gadget-rpc:v5"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:tools:gadget-rpc:v5", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -1595,7 +1605,33 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
   override async fetch(request: Request) {
     if (request.headers.get("Upgrade") !== "websocket")
       return new Response("WebSocket required", { status: 426 });
-    return this.connectBrowser(request.headers.get("X-Learning-Owner") ?? "");
+    const owner = request.headers.get("X-Learning-Owner") ?? "";
+    this.authorize(owner);
+    const match = new URL(request.url).pathname.match(/^\/rpc\/([\w-]+)$/);
+    if (match) {
+      const gadgets = this.gadgets;
+      const gadgetId = match[1];
+      // The Worker admits the owner before forwarding the socket; the sandbox receives only this gadget.
+      class GadgetApi extends RpcTarget {
+        getUiBundle() { return { code: gadgets.rpcSource(gadgetId) }; }
+        connectToGadget() { return gadgets.rpcFacet(gadgetId); }
+      }
+      gadgets.rpcSource(gadgetId);
+      return newWorkersRpcResponse(request, new GadgetApi());
+    }
+    return this.connectBrowser(owner);
+  }
+  async updateRpcGadget(owner: string, gadgetId: string, taskId: string, generation: number, title: string, code: string, clientCode: string, tests: RpcGadgetTest[]) {
+    this.authorize(owner);
+    return this.gadgets.updateRpc(gadgetId, taskId, generation, title, code, clientCode, tests);
+  }
+  rpcGadgetClient(owner: string, gadgetId: string): string {
+    this.authorize(owner);
+    return this.gadgets.rpcSource(gadgetId);
+  }
+  async createRpcGadget(owner: string, taskId: string, title: string, code: string, clientCode: string, tests: RpcGadgetTest[]) {
+    this.authorize(owner);
+    return this.gadgets.createRpc(`gadget-${taskId}`, title, code, clientCode, tests);
   }
   /** Input: owner injected by the authenticated Worker. Output: 101 WebSocket upgrade.
    * What this function does: accepts a hibernatable socket, invalidates once and resumes pending work.

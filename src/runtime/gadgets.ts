@@ -1,3 +1,5 @@
+import { deleteGadgetMedia, type LearningGadgetMedia } from "./gadget-media.ts";
+
 export const MAX_GADGET_SOURCE = 64 * 1024;
 export type GadgetTest = {
   action: string;
@@ -12,7 +14,10 @@ export type GadgetDataUpdate = {
   expectText: string;
   expectFeedback?: string;
 };
+export type RpcGadgetTest = { method: string; args: unknown[]; expect: unknown };
 export type GadgetSummary = {
+  /** Existing server-rendered gadgets omit this field. */
+  mode?: "rpc";
   id: string;
   title: string;
   createdAt: string;
@@ -21,12 +26,15 @@ export type GadgetSummary = {
 };
 type GadgetRow = GadgetSummary & {
   code: string;
+  clientCode: string;
   visible: number;
   loaderId: string;
 };
 type GadgetFacet = {
   render(): Promise<string>;
   handleAction(action: string, data: Record<string, string>): Promise<void>;
+  healthCheck(): Promise<boolean>;
+  [method: string]: unknown;
 };
 
 function visibleText(html: string): string {
@@ -41,6 +49,7 @@ export class LearningGadgets {
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly loader: WorkerLoader,
+    private readonly media: R2Bucket,
   ) {
     ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS learning_gadgets (id TEXT PRIMARY KEY, title TEXT NOT NULL, code TEXT NOT NULL, createdAt TEXT NOT NULL)",
@@ -66,6 +75,10 @@ export class LearningGadgets {
     if (!columns.has("loaderId"))
       ctx.storage.sql.exec(
         "ALTER TABLE learning_gadgets ADD COLUMN loaderId TEXT NOT NULL DEFAULT ''",
+      );
+    if (!columns.has("clientCode"))
+      ctx.storage.sql.exec(
+        "ALTER TABLE learning_gadgets ADD COLUMN clientCode TEXT NOT NULL DEFAULT ''",
       );
     ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS learning_gadget_updates (task_id TEXT PRIMARY KEY, gadget_id TEXT NOT NULL)",
@@ -93,14 +106,15 @@ export class LearningGadgets {
   list(): GadgetSummary[] {
     return this.ctx.storage.sql
       .exec<GadgetSummary>(
-        "SELECT id,title,createdAt,CASE WHEN updatedAt='' THEN createdAt ELSE updatedAt END AS updatedAt,generation FROM learning_gadgets WHERE visible=1 ORDER BY updatedAt DESC,createdAt DESC",
+        "SELECT id,title,createdAt,CASE WHEN updatedAt='' THEN createdAt ELSE updatedAt END AS updatedAt,generation,CASE WHEN clientCode='' THEN NULL ELSE 'rpc' END AS mode FROM learning_gadgets WHERE visible=1 ORDER BY updatedAt DESC,createdAt DESC",
       )
-      .toArray();
+      .toArray()
+      .map(({ mode, ...row }) => mode === "rpc" ? { ...row, mode } : row);
   }
   private record(id: string): GadgetRow {
     const row = this.ctx.storage.sql
       .exec<GadgetRow>(
-        "SELECT id,title,code,createdAt,CASE WHEN updatedAt='' THEN createdAt ELSE updatedAt END AS updatedAt,generation,visible,loaderId FROM learning_gadgets WHERE id=?",
+        "SELECT id,title,code,clientCode,createdAt,CASE WHEN updatedAt='' THEN createdAt ELSE updatedAt END AS updatedAt,generation,visible,loaderId,CASE WHEN clientCode='' THEN NULL ELSE 'rpc' END AS mode FROM learning_gadgets WHERE id=?",
         id,
       )
       .toArray()[0];
@@ -111,10 +125,11 @@ export class LearningGadgets {
     id: string;
     title: string;
     code: string;
+    clientCode?: string;
     generation: number;
   } {
-    const { title, code, generation } = this.requireVisible(id);
-    return { id, title, code, generation };
+    const { title, code, clientCode, generation } = this.requireVisible(id);
+    return { id, title, code, ...(clientCode ? { clientCode } : {}), generation };
   }
   private facetId(row: GadgetRow): string {
     return row.generation === 1 ? row.id : `${row.id}:v${row.generation}`;
@@ -141,10 +156,13 @@ export class LearningGadgets {
       const worker = this.loader.get(
         row.loaderId || `learning-gadget:${row.id}:v${row.generation}`,
         () => ({
+          ...(row.clientCode ? {
+            env: { MEDIA: this.ctx.exports.LearningGadgetMedia({ props: { sessionId: this.ctx.id.toString(), gadgetId: row.id } }) as Service<LearningGadgetMedia> },
+          } : {}),
           compatibilityDate: "2026-10-13",
           mainModule: "worker.js",
           modules: { "worker.js": row.code },
-          globalOutbound: null,
+          ...(row.clientCode ? {} : { globalOutbound: null }),
         }),
       );
       return { class: worker.getDurableObjectClass("Gadget"), id };
@@ -154,7 +172,18 @@ export class LearningGadgets {
   async render(id: string): Promise<string> {
     return this.locked(id, async () => this.renderRow(this.requireVisible(id)));
   }
+  rpcSource(id: string): string {
+    const row = this.requireVisible(id);
+    if (!row.clientCode) throw new Error("RPC gadget not found");
+    return row.clientCode;
+  }
+  rpcFacet(id: string): GadgetFacet {
+    const row = this.requireVisible(id);
+    if (!row.clientCode) throw new Error("RPC gadget not found");
+    return this.facet(row);
+  }
   private async renderRow(row: GadgetRow): Promise<string> {
+    if (row.clientCode) throw new Error("RPC gadgets do not render HTML");
     const html = await this.facet(row).render();
     if (typeof html !== "string" || html.length > 256 * 1024)
       throw new Error("Invalid gadget page");
@@ -245,6 +274,94 @@ export class LearningGadgets {
       this.ctx.facets.delete(id);
       this.ctx.storage.sql.exec("DELETE FROM learning_gadgets WHERE id=?", id);
     }
+  }
+  private validateRpc(title: string, code: string, clientCode: string, tests: RpcGadgetTest[]): void {
+    if (!title.trim() || title.length > 120 || !code.trim() || code.length > MAX_GADGET_SOURCE ||
+      !clientCode.trim() || clientCode.length > MAX_GADGET_SOURCE || tests.length < 1 || tests.length > 16)
+      throw new Error("Invalid RPC gadget specification");
+  }
+  /** Exercise real RPC methods in a disposable Facet, including media, before publishing. */
+  private async preflightRpc(code: string, clientCode: string, tests: RpcGadgetTest[]): Promise<void> {
+    const candidate = `gadget-${crypto.randomUUID()}`;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO learning_gadgets(id,title,code,clientCode,createdAt,updatedAt,generation,visible) VALUES(?,?,?,?,?,?,1,0)",
+      candidate, "Preflight", code, clientCode, new Date().toISOString(), "",
+    );
+    try {
+      const facet = this.facet(this.record(candidate));
+      if (await facet.healthCheck() !== true) throw new Error("RPC gadget healthCheck() must return true");
+      for (const test of tests) {
+        if (!/^[a-zA-Z][\w-]{0,63}$/.test(test.method) || test.method === "constructor" ||
+          JSON.stringify(test.args).length > 16_384 || JSON.stringify(test.expect).length > 16_384)
+          throw new Error("Invalid RPC gadget test");
+        const method = facet[test.method];
+        if (typeof method !== "function") throw new Error("RPC gadget test method missing");
+        const actual: unknown = await (method as (...args: unknown[]) => Promise<unknown>)(...test.args);
+        if (JSON.stringify(actual) !== JSON.stringify(test.expect))
+          throw new Error("RPC gadget preflight returned an unexpected result");
+      }
+    } finally {
+      this.ctx.facets.delete(candidate);
+      await deleteGadgetMedia(this.media, { sessionId: this.ctx.id.toString(), gadgetId: candidate });
+      this.ctx.storage.sql.exec("DELETE FROM learning_gadgets WHERE id=?", candidate);
+    }
+  }
+  async createRpc(id: string, title: string, code: string, clientCode: string, tests: RpcGadgetTest[]): Promise<GadgetSummary> {
+    const existing = this.list().find((row) => row.id === id);
+    if (existing) return existing;
+    this.validateRpc(title, code, clientCode, tests);
+    await this.preflightRpc(code, clientCode, tests);
+    const createdAt = new Date().toISOString();
+    this.ctx.storage.sql.exec(
+      "INSERT INTO learning_gadgets(id,title,code,clientCode,createdAt,updatedAt,generation,visible) VALUES(?,?,?,?,?,?,1,1)",
+      id, title.trim(), code, clientCode, createdAt, createdAt,
+    );
+    return { id, title: title.trim(), createdAt, updatedAt: createdAt, generation: 1, mode: "rpc" };
+  }
+  /** Replace a live gadget's code on a clone; preserve its ID, saved cards and media scope. */
+  async updateRpc(id: string, taskId: string, expectedGeneration: number, title: string, code: string, clientCode: string, tests: RpcGadgetTest[]): Promise<GadgetSummary> {
+    return this.locked(id, async () => {
+      const prior = this.ctx.storage.sql.exec<{ gadget_id: string }>("SELECT gadget_id FROM learning_gadget_updates WHERE task_id=?", taskId).toArray()[0];
+      if (prior) {
+        if (prior.gadget_id !== id) throw new Error("Gadget update task reused");
+        return this.summary(this.requireVisible(id));
+      }
+      const current = this.requireVisible(id);
+      if (!current.clientCode || current.generation !== expectedGeneration)
+        throw new Error("Gadget changed. Reload it before editing.");
+      this.validateRpc(title, code, clientCode, tests);
+      await this.preflightRpc(code, clientCode, tests);
+      await this.facet(current).healthCheck();
+      const oldName = this.facetId(current);
+      const candidate: GadgetRow = { ...current, title, code, clientCode, generation: current.generation + 1,
+        loaderId: `learning-gadget:${id}:${crypto.randomUUID()}` };
+      const candidateName = this.facetId(candidate);
+      this.ctx.storage.sql.exec("INSERT INTO learning_gadget_facets(name,stage) VALUES(?,'candidate')", candidateName);
+      let committed = false;
+      try {
+        this.ctx.facets.clone(oldName, candidateName);
+        if (await this.facet(candidate).healthCheck() !== true) throw new Error("RPC gadget cannot read saved state");
+        const updatedAt = new Date().toISOString();
+        this.ctx.storage.transactionSync(() => {
+          this.ctx.storage.sql.exec(
+            "UPDATE learning_gadgets SET title=?,code=?,clientCode=?,updatedAt=?,generation=?,loaderId=? WHERE id=? AND generation=? AND visible=1",
+            title.trim(), code, clientCode, updatedAt, candidate.generation, candidate.loaderId, id, expectedGeneration,
+          );
+          this.ctx.storage.sql.exec("INSERT INTO learning_gadget_updates(task_id,gadget_id) VALUES(?,?)", taskId, id);
+          this.ctx.storage.sql.exec("UPDATE learning_gadget_facets SET name=?,stage='retired' WHERE name=?", oldName, candidateName);
+        });
+        committed = true;
+        this.ctx.facets.delete(oldName);
+        this.ctx.storage.sql.exec("DELETE FROM learning_gadget_facets WHERE name=?", oldName);
+        return { id, title: title.trim(), createdAt: current.createdAt, updatedAt, generation: candidate.generation, mode: "rpc" };
+      } catch (error) {
+        if (!committed) {
+          this.ctx.facets.delete(candidateName);
+          this.ctx.storage.sql.exec("DELETE FROM learning_gadget_facets WHERE name=?", candidateName);
+        }
+        throw error;
+      }
+    });
   }
   async create(
     id: string,
@@ -469,13 +586,16 @@ export class LearningGadgets {
         throw new Error("Gadget changed. Reload it before deleting.");
       this.ctx.storage.sql.exec("DELETE FROM learning_gadgets WHERE id=?", id);
       this.ctx.facets.delete(this.facetId(row));
+      this.ctx.waitUntil(deleteGadgetMedia(this.media, { sessionId: this.ctx.id.toString(), gadgetId: id }));
     });
   }
   deleteAll(): void {
     for (const row of this.ctx.storage.sql
       .exec<GadgetRow>("SELECT id,generation FROM learning_gadgets")
-      .toArray())
+      .toArray()) {
       this.ctx.facets.delete(this.facetId(row));
+      this.ctx.waitUntil(deleteGadgetMedia(this.media, { sessionId: this.ctx.id.toString(), gadgetId: row.id }));
+    }
     this.ctx.storage.sql.exec("DELETE FROM learning_gadgets");
     for (const { name } of this.ctx.storage.sql
       .exec<{ name: string }>("SELECT name FROM learning_gadget_facets")

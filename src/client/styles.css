@@ -449,6 +449,9 @@ blockquote {
 .settings-card textarea {
   min-height: 120px;
 }
+.rpc-gadget-page { max-width: 980px; margin: 0 auto; padding: 16px; min-height: 100dvh; }
+.rpc-gadget-page nav { padding: 10px 0 16px; }
+.rpc-gadget-page iframe { width: 100%; min-height: calc(100dvh - 84px); border: 0; border-radius: 12px; background: #fff; }
 .gadget-directory ul { list-style: none; padding: 0; }
 .gadget-directory li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #e5e9df; }
 .gadget-directory li strong, .gadget-directory li small { display: block; overflow-wrap: anywhere; }

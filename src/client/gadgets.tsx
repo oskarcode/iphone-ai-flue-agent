@@ -17,6 +17,7 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
   const course = items.find(
     (item) => item.id === "gadget-typescript-course-v1",
   );
+  const lab = items.some((item) => item.id === "gadget-rpc-learning-lab-v1");
   async function load(offset = 0, append = false, signal?: AbortSignal) {
     setBusy(true);
     setError("");
@@ -61,6 +62,20 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
       setError(String(cause));
       setBusy(false);
     }
+  }
+  async function startLab() {
+    setBusy(true);
+    setError("");
+    const key = "learning-lab-request-id";
+    const requestId = sessionStorage.getItem(key) ?? crypto.randomUUID();
+    sessionStorage.setItem(key, requestId);
+    try {
+      const created = await api<{ url: string }>("/api/learning-lab", {
+        method: "POST", body: JSON.stringify({ requestId }),
+      });
+      sessionStorage.removeItem(key);
+      window.location.assign(created.url);
+    } catch (cause) { setError(String(cause)); setBusy(false); }
   }
   async function enableScheduledCards(item: Item) {
     setBusy(true);
@@ -126,6 +141,8 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
           Start TypeScript course
         </button>
       )}
+      <p>Want a more responsive learning space? Create an interactive lab to edit cards, check answers instantly, attach media, and keep your progress.</p>
+      {!lab && <button type="button" disabled={busy} onClick={() => void startLab()}>Start interactive learning lab</button>}
       <p>
         Interactive gadgets from all your learning sessions, including archived
         and private lessons. Compatible updates keep one link and preserve saved
@@ -161,7 +178,7 @@ export function GadgetLibrary({ changed }: { changed(): void }) {
                 Lesson
               </a>
               <a
-                href={`/api/sessions/${encodeURIComponent(item.sessionId)}/gadgets/${encodeURIComponent(item.id)}`}
+                href={item.mode === "rpc" ? `/gadget/${encodeURIComponent(item.sessionId)}/${encodeURIComponent(item.id)}` : `/api/sessions/${encodeURIComponent(item.sessionId)}/gadgets/${encodeURIComponent(item.id)}`}
                 target="_blank"
                 rel="noreferrer"
               >

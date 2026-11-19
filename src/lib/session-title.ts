@@ -25,7 +25,7 @@ export function parseSessionTitle(value: unknown): string {
 
 /** Generate a title before creating a new session; failure never stores a guessed fallback. */
 export async function generateSessionTitle(
-  env: Pick<CloudflareBindings, "AI" | "MODEL" | "AI_GATEWAY_ID">,
+  env: Pick<CloudflareBindings, "AI" | "AI_GATEWAY_ID"> & { MODEL: string },
   prompt: string,
   signal: AbortSignal,
 ): Promise<string> {

@@ -16,13 +16,13 @@ describe("generated session titles", () => {
     const run = vi.fn(async () => ({ response: "  TypeScript Generics  ", finish_reason: "stop" }));
     const signal = new AbortController().signal;
     const title = await generateSessionTitle(
-      { AI: { run } as never, MODEL: "cloudflare/@cf/zai-org/glm-5.2", AI_GATEWAY_ID: "iphone-flue-shortcut" },
+      { AI: { run } as never, MODEL: "cloudflare/@cf/zai-org/glm-5.3-flash", AI_GATEWAY_ID: "iphone-flue-shortcut" },
       "How do generics work?",
       signal,
     );
     expect(title).toBe("TypeScript Generics");
     expect(run).toHaveBeenCalledWith(
-      "@cf/zai-org/glm-5.2",
+      "@cf/zai-org/glm-5.3-flash",
       expect.objectContaining({
         reasoning_effort: "none",
         chat_template_kwargs: { enable_thinking: false },

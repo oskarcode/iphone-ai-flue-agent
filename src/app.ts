@@ -14,7 +14,9 @@ import { getLearningSessionRecord } from "./lib/learning-session.ts";
 import { getVisualSession } from "./lib/visual-session.ts";
 import { renderVisualExplainerPage } from "./visual-page.ts";
 import { gadgetPage, gadgetForm } from "./lib/gadget-page.ts";
+import { rpcGadgetDocument } from "./lib/rpc-gadget-document.ts";
 import { TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT } from "./lib/typescript-course.ts";
+import { RPC_LEARNING_LAB_SERVER, RPC_LEARNING_LAB_CLIENT, RPC_LEARNING_LAB_TESTS } from "./lib/rpc-learning-lab.ts";
 import type { ScheduleRecurrence } from "./runtime/schedules.ts";
 import {
   createGrammarRequest,
@@ -53,7 +55,7 @@ app.use("*", async (c, next) => {
   c.header("Referrer-Policy", /^\/api\/sessions\/[^/]+\/gadgets\/[^/]+$/.test(c.req.path) ? "same-origin" : "no-referrer");
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   if (!c.req.path.startsWith("/assets/")) c.header("Cache-Control", "no-store");
-  if (/^\/api\/sessions\/[^/]+\/gadgets\/[^/]+$/.test(c.req.path)) return;
+  if (/^\/api\/sessions\/[^/]+\/gadgets\/[^/]+(?:\/ui)?$/.test(c.req.path)) return;
   if (c.res.headers.get("Content-Type")?.includes("text/html")) {
     // Nonce application scripts; the hostname-scoped Configuration Rule separately
     // disables Zaraz injection and Rocket Loader (the edge can add trusted nonces).
@@ -209,7 +211,7 @@ async function create(
   const stub = session(c, id);
   if (await stub.exists(owner(c))) return id;
   if (await stub.isDeleted(owner(c))) throw new Error("Session not found");
-  const title = await generateSessionTitle(c.env, text, c.req.raw.signal);
+  const title = await generateSessionTitle({ ...c.env, MODEL: c.env.SHORTCUT_MODEL }, text, c.req.raw.signal);
   const now = new Date().toISOString();
   const metadata: SessionMetadata = {
     id,
@@ -364,7 +366,7 @@ app.post("/v1/correct", async (c) => {
       400,
     );
   const inference = Date.now();
-  const model = grammarModelFromConfiguredModel(c.env.MODEL);
+  const model = grammarModelFromConfiguredModel(c.env.SHORTCUT_MODEL);
   const result = await c.env.AI.run(
     model as Parameters<Ai["run"]>[0],
     createGrammarRequest(text) as never,
@@ -402,7 +404,7 @@ app.post("/v1/ask", async (c) => {
     return c.json({ error: "Send JSON with a non-empty text field of at most 30000 characters" }, 400);
   const inference = Date.now();
   const result = await c.env.AI.run(
-    c.env.MODEL.replace(/^cloudflare\//, "") as Parameters<Ai["run"]>[0],
+    c.env.SHORTCUT_MODEL.replace(/^cloudflare\//, "") as Parameters<Ai["run"]>[0],
     createQuickExplanationRequest(text) as never,
     {
       signal: c.req.raw.signal,
@@ -574,6 +576,21 @@ app.post("/api/learning-course", async (c) => {
   const gadget = await stub.createGadget(owner(c), "typescript-course-v1", "TypeScript for AI harnesses · Weeks 1–3", TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT.map((test) => ({ ...test, data: { ...test.data } })));
   return c.json({ sessionId: id, gadgetId: gadget.id, url: `/api/sessions/${id}/gadgets/${gadget.id}` }, 201);
 });
+app.post("/api/learning-lab", async (c) => {
+  const body = await json<{ requestId?: unknown }>(c, 2000);
+  if (typeof body?.requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestId))
+    return c.json({ error: "Invalid learning lab request" }, 400);
+  const id = body.requestId;
+  const stub = session(c, id);
+  if (await stub.exists(owner(c))) {
+    if ((await stub.getMetadata(owner(c))).title !== "Interactive learning lab") return c.json({ error: "Session ID already in use" }, 409);
+  } else {
+    const now = new Date().toISOString();
+    await stub.create({ id, owner: owner(c), title: "Interactive learning lab", type: "general", private: false, archived: false, pinned: false, createdAt: now, updatedAt: now });
+  }
+  const gadget = await stub.createRpcGadget(owner(c), "rpc-learning-lab-v1", "Interactive learning lab", RPC_LEARNING_LAB_SERVER, RPC_LEARNING_LAB_CLIENT, RPC_LEARNING_LAB_TESTS);
+  return c.json({ sessionId: id, gadgetId: gadget.id, url: `/gadget/${id}/${gadget.id}` }, 201);
+});
 app.post("/api/sessions/:id/course-upgrade", async (c) => {
   const id = c.req.param("id");
   if (!SESSION_ID.test(id)) return c.json({ error: "Not found" }, 404);
@@ -632,6 +649,24 @@ app.get("/api/gadgets", async (c) => {
     unavailable: results.filter((result) => result.status === "rejected").length,
     nextOffset: page.nextOffset,
   });
+});
+app.get("/api/sessions/:id/gadgets/:gadget/ui", async (c) => {
+  const id = c.req.param("id"), gadget = c.req.param("gadget");
+  if (!SESSION_ID.test(id) || !/^gadget-[\w-]{1,160}$/.test(gadget)) return c.json({ error: "Not found" }, 404);
+  try { return rpcGadgetDocument(await (await ensure(c, id)).rpcGadgetClient(owner(c), gadget)); }
+  catch { return c.json({ error: "Gadget not found" }, 404); }
+});
+app.get("/api/sessions/:id/gadgets/:gadget/rpc", async (c) => {
+  const id = c.req.param("id"), gadget = c.req.param("gadget");
+  if (!SESSION_ID.test(id) || !/^gadget-[\w-]{1,160}$/.test(gadget)) return c.json({ error: "Not found" }, 404);
+  if (c.req.header("Upgrade") !== "websocket") return c.json({ error: "WebSocket required" }, 426);
+  if (c.req.header("Origin") !== new URL(c.req.url).origin) return c.json({ error: "Origin not allowed" }, 403);
+  const stub = await ensure(c, id);
+  if (!(await stub.listGadgets(owner(c))).some((entry) => entry.id === gadget && entry.mode === "rpc"))
+    return c.json({ error: "Gadget not found" }, 404);
+  return stub.fetch(new Request(`https://session.internal/rpc/${gadget}`, {
+    headers: { Upgrade: "websocket", "X-Learning-Owner": owner(c) },
+  }));
 });
 app.get("/api/sessions/:id/gadgets/:gadget", async (c) => {
   const id = c.req.param("id");
@@ -962,6 +997,14 @@ app.get("/learn/:id", async (c) => {
  */
 app.get("/sessions/:id", async (c) => {
   await ensure(c, c.req.param("id"));
+  return shell(c);
+});
+app.get("/gadget/:id/:gadget", async (c) => {
+  const id = c.req.param("id"), gadget = c.req.param("gadget");
+  if (!SESSION_ID.test(id) || !/^gadget-[\w-]{1,160}$/.test(gadget)) return c.json({ error: "Not found" }, 404);
+  const stub = await ensure(c, id);
+  if (!(await stub.listGadgets(owner(c))).some((entry) => entry.id === gadget && entry.mode === "rpc"))
+    return c.json({ error: "Gadget not found" }, 404);
   return shell(c);
 });
 app.get("/chat", shell);
