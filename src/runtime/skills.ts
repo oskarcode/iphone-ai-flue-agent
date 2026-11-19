@@ -313,6 +313,20 @@ export class LearningSkills extends Base {
       }
       await this.ctx.storage.put("skills:seeded:learning-gadget:v4", true);
     }
+    // A brief v4 default still carried form-only guidance; correct only that exact default.
+    if (!(await this.ctx.storage.get("skills:seeded:learning-gadget:v5"))) {
+      const path = "/workspace/skills/learning-gadget/SKILL.md";
+      try {
+        const previous = await ws.fs.readFile(path, "utf8");
+        if ((await sha256(previous)) === "4ad883dc6a5ed7f68d18e5101e7d665e7802ebfc4776fc50462468d34f5e78fe") {
+          const gadget = DEFAULT_SKILLS.find((skill) => skill.slug === "learning-gadget")!;
+          await ws.fs.writeFile(path, skillFile(gadget));
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || !/not found|no such (?:file|path)|enoent/i.test(error.message)) throw error;
+      }
+      await this.ctx.storage.put("skills:seeded:learning-gadget:v5", true);
+    }
     return ws;
   }
   private async readSkill(slug: string): Promise<Skill | null> {
