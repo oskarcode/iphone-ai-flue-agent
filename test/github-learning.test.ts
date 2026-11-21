@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderReviewDetailPage, renderReviewIndexPage } from '../src/review-page.ts';
 import {
   getLearningGuide,
@@ -14,7 +14,7 @@ import {
   type LearningGuide,
   type LearningSessionMetadata,
 } from '../src/lib/learning-session.ts';
-import { isReadableRepositoryPath, parseGithubRepositoryRequest } from '../src/tools/github-repository.ts';
+import { isReadableRepositoryPath, parseGithubRepositoryRequest, readRepositoryCommit, resolveGithubRepository } from '../src/tools/github-repository.ts';
 
 const metadata: LearningSessionMetadata = {
   id: '7df74d60-cb1b-4b31-a5ae-f28608efdab5',
@@ -85,8 +85,56 @@ describe('GitHub learning sessions', () => {
     expect(parseGithubRepositoryRequest('Explain this pasted text in plain English:\n\nhttps://github.com/huggingface/tau.git')).toEqual({ owner: 'huggingface', repo: 'tau', url: 'https://github.com/huggingface/tau' });
   });
 
+  it('selects the SHA from a pasted commit URL, rather than silently reusing a session pin', () => {
+    expect(parseGithubRepositoryRequest('https://github.com/oskarcode/family-agent/commit/8a006bb7f6ca25cfb066300e6795530f9bf07ded')).toEqual({
+      owner: 'oskarcode', repo: 'family-agent', url: 'https://github.com/oskarcode/family-agent',
+      commitRef: '8a006bb7f6ca25cfb066300e6795530f9bf07ded',
+    });
+  });
+
+  it('fetches an authenticated private revision, its new file tree, and bounded commit diff', async () => {
+    vi.stubEnv('GITHUB_TOKEN', 'test-only-token');
+    const oldSha = 'f5362e1' + '0'.repeat(33);
+    const newSha = '8a006bb7f6ca25cfb066300e6795530f9bf07ded';
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      expect(url).toMatch(/^https:\/\/api\.github\.com\/repos\/oskarcode\/family-agent(?:\/|$)/);
+      expect(new Headers(init?.headers).get('authorization')).toBe(process.env.GITHUB_TOKEN ? 'Bearer test-only-token' : null);
+      if (url.endsWith('/family-agent')) return Response.json({ full_name: 'oskarcode/family-agent', default_branch: 'main', private: true });
+      if (url.endsWith('/commits/main')) return Response.json({ sha: oldSha });
+      if (url.endsWith('/commits/8a006bb') || url.endsWith(`/commits/${newSha}`)) return Response.json({ sha: newSha });
+      if (url.endsWith(`/git/trees/${oldSha}?recursive=1`)) return Response.json({ tree: [{ type: 'blob', path: 'README.md' }] });
+      if (url.endsWith(`/git/trees/${newSha}?recursive=1`)) return Response.json({ tree: [{ type: 'blob', path: 'README.md' }, { type: 'blob', path: 'src/new.ts' }] });
+      if (url.endsWith(`/commits/${newSha}?per_page=100&page=1`)) return Response.json({
+        sha: newSha, commit: { message: 'Add fresh lesson content', author: { name: 'A developer', date: '2026-01-01T00:00:00Z' } },
+        files: [{ filename: 'src/new.ts', status: 'added', additions: 1, deletions: 0, patch: '+new code' }],
+      });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const original = await resolveGithubRepository('https://github.com/oskarcode/family-agent');
+      expect(original).toMatchObject({ commitSha: oldSha, files: ['README.md'] });
+      vi.stubEnv('GITHUB_TOKEN', '');
+      await expect(resolveGithubRepository('https://github.com/oskarcode/family-agent', undefined, '8a006bb')).rejects.toThrow('Private GitHub repositories require GITHUB_TOKEN');
+      expect(original.commitSha).toBe(oldSha);
+      vi.stubEnv('GITHUB_TOKEN', 'test-only-token');
+      const repository = await resolveGithubRepository('https://github.com/oskarcode/family-agent', undefined, '8a006bb');
+      expect(repository).toMatchObject({ commitSha: newSha, files: ['README.md', 'src/new.ts'], private: true });
+      expect(await resolveGithubRepository(`https://github.com/oskarcode/family-agent/commit/${newSha}`)).toMatchObject({ commitSha: newSha });
+      expect(await readRepositoryCommit(repository)).toMatchObject({
+        commitSha: newSha, message: 'Add fresh lesson content',
+        files: [{ path: 'src/new.ts', patch: '+new code' }],
+      });
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/commits/main'))).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('rejects requests without a GitHub repository URL', () => {
-    expect(() => parseGithubRepositoryRequest('Teach me this project')).toThrow('public GitHub repository URL');
+    expect(() => parseGithubRepositoryRequest('Teach me this project')).toThrow('GitHub repository URL');
   });
 
   it.each([

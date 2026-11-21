@@ -1,6 +1,7 @@
 // A Pi Durable child can reason over sessions only through owner-checked live RPCs;
 // unlike the reference app, each learning workspace is a separate Durable Object.
 import { Type } from "@earendil-works/pi-ai";
+import { learningModelReference } from "../lib/learning-models.ts";
 import {
   configure,
   defineTool,
@@ -149,10 +150,7 @@ export function createCoachSubagent(
           ownership: { kind: "task", taskId: api.taskId },
         });
         await configure(tx, child.id, {
-          model: {
-            provider: "cloudflare",
-            modelId: env.MODEL.replace(/^cloudflare\//, ""),
-          },
+          model: learningModelReference(env.MODEL),
           thinkingLevel: "off",
           tools: [...tools],
         });

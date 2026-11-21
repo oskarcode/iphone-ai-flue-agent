@@ -272,7 +272,7 @@ export class LearningCoach extends DurableObject<CloudflareBindings> {
     let answer = "";
     for (let attempt = 0; attempt < 2; attempt++) {
       const result = await this.env.AI.run(
-        grammarModelFromConfiguredModel(this.env.MODEL),
+        grammarModelFromConfiguredModel(this.env.SHORTCUT_MODEL),
         {
           messages: [
             {
@@ -295,7 +295,6 @@ export class LearningCoach extends DurableObject<CloudflareBindings> {
             },
           ],
           max_completion_tokens: 3000,
-          chat_template_kwargs: { enable_thinking: false },
           reasoning_effort: "none",
         },
         {

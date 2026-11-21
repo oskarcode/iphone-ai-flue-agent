@@ -26,6 +26,7 @@ import {
 } from "./gadgets.ts";
 import { RpcTarget, newWorkersRpcResponse } from "capnweb";
 import { createLearningHarnessOptions } from "./harness.ts";
+import { learningModelReference, learningModel } from "../lib/learning-models.ts";
 import { TYPESCRIPT_COURSE_SOURCE, COURSE_PREFLIGHT } from "../lib/typescript-course.ts";
 import {
   DeliverLearningSchedule,
@@ -384,6 +385,15 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
       if (!(await this.ctx.storage.get("learning:tools:gadget-rpc:v5"))) {
         await root.configure({ tools: options.learningTools }, background);
         await this.ctx.storage.put("learning:tools:gadget-rpc:v5", true);
+      }
+      if (!(await this.ctx.storage.get("learning:tools:repository-refresh:v6"))) {
+        await root.configure({ tools: options.learningTools }, background);
+        await this.ctx.storage.put("learning:tools:repository-refresh:v6", true);
+      }
+      // Root configuration is durable: old conversations must not keep a retired GLM model.
+      if (!(await this.ctx.storage.get("learning:model-registry:v1"))) {
+        await root.configure({ model: learningModelReference(this.metadata().modelId ?? this.env.MODEL) }, background);
+        await this.ctx.storage.put("learning:model-registry:v1", true);
       }
       this.activityStream = await watchEvents(harness, root.id, background);
       /** Input: live snapshot after attachment/overflow. Output: exact input-to-entry associations.
@@ -951,7 +961,7 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
    */
   async edit(
     owner: string,
-    patch: { title?: string; archived?: boolean; pinned?: boolean },
+    patch: { title?: string; archived?: boolean; pinned?: boolean; modelId?: string },
   ) {
     this.authorize(owner);
     const safe: Partial<SessionMetadata> = {};
@@ -962,6 +972,13 @@ export class LearningSession extends DurableObject<CloudflareBindings> {
     }
     if (typeof patch.archived === "boolean") safe.archived = patch.archived;
     if (typeof patch.pinned === "boolean") safe.pinned = patch.pinned;
+    if (patch.modelId !== undefined) {
+      safe.modelId = learningModel(patch.modelId).id;
+      const root = await (await this.open()).root(background);
+      const live = this.activityStream?.snapshot;
+      if (live?.run || live?.inbox.length) throw new Error("Wait for the current answer before switching models");
+      await root.configure({ model: learningModelReference(safe.modelId) }, background);
+    }
     await this.update(safe);
     await this.syncLibrary();
   }

@@ -17,7 +17,6 @@ export function createQuickExplanationRequest(text: string) {
     temperature: 0,
     max_completion_tokens: quickExplanationBudget(text),
     reasoning_effort: "none" as const,
-    chat_template_kwargs: { enable_thinking: false },
   };
 }
 

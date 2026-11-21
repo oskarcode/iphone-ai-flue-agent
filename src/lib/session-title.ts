@@ -37,9 +37,8 @@ export async function generateSessionTitle(
         { role: "user", content: prompt },
       ],
       temperature: 0,
-      max_completion_tokens: 96,
+      max_completion_tokens: 256,
       reasoning_effort: "none",
-      chat_template_kwargs: { enable_thinking: false },
     } as never,
     {
       signal,

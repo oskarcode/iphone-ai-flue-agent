@@ -21,7 +21,6 @@ it("uses a bounded, no-thinking budget and a one-shot plain-language prompt", ()
   expect(request).toMatchObject({
     temperature: 0,
     reasoning_effort: "none",
-    chat_template_kwargs: { enable_thinking: false },
   });
   expect(quickExplanationBudget("a")).toBe(1500);
   expect(quickExplanationBudget("x".repeat(30000))).toBe(2400);

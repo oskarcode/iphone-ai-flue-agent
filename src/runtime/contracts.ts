@@ -2,6 +2,7 @@
 import type { GithubRepository } from "../tools/github-repository.ts";
 import type { VisualExplainer } from "../lib/visual-session.ts";
 import type { GadgetSummary } from "./gadgets.ts";
+import type { LearningModelId } from "../lib/learning-models.ts";
 
 // Access admission is the boundary for this single workspace; IDs are locators, never bearer credentials.
 export const PERSONAL_OWNER = "personal";
@@ -17,6 +18,8 @@ export type SessionMetadata = {
   archived: boolean;
   pinned: boolean;
   private: boolean;
+  /** The selected model for this retained conversation; old sessions fall back to the current default. */
+  modelId?: LearningModelId;
   repository?: GithubRepository;
   visual?: VisualExplainer;
   legacy?: {

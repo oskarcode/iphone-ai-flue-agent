@@ -45,7 +45,6 @@ it("preserves the stateless Shortcut grammar response, no-thinking settings and 
   expect(run).toHaveBeenCalledOnce();
   expect(run.mock.calls[0][1]).toMatchObject({
     reasoning_effort: "none",
-    chat_template_kwargs: { enable_thinking: false },
   });
   expect(run.mock.calls[0][2]).toMatchObject({ gateway: { skipCache: true } });
   expect(JSON.stringify(log.mock.calls)).not.toContain("She ");

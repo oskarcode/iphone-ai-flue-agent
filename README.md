@@ -78,7 +78,7 @@ The Library is a versioned projection, not a second authoritative transcript. De
 | SQLite-backed Durable Objects | Canonical session state, rebuildable Library, shared Computer and owner-scoped learning coach |
 | Cloudflare Computer 0.5.1 + Worker Loader | Persistent skill files and approved worker-shell execution |
 | Workers KV | Retained historical records; no new learning handoff envelopes |
-| Workers AI + AI Gateway | GLM 5.3 Flash for learning turns; GLM 5.2 for stateless Shortcuts and title generation |
+| Workers AI + AI Gateway | Kimi K3 for learning turns (third-party Unified Billing); DeepSeek V4.1 Flash for stateless Shortcuts and titles; four selectable learning alternatives |
 | Cap’n Web + R2 | RPC gadget interaction and gadget-scoped learning media |
 | `jose` + Cloudflare Access | Signed JWT verification for browser/service callers |
 | Valibot | Runtime validation of model tool arguments |
@@ -142,6 +142,8 @@ All private interfaces require verified Access admission. Keep the existing Shor
 
 Retired handoff and legacy chat POST routes (`/handoff`, `/v1/chat-session`, `/chat/api`, `/chat/stream`, `/learn/:id/chat`, `/v1/learning-sessions/:id`) and the handoff-consumption GET route (`/chat/session/:id`) now return 404. Old session, review and visual GET links remain; previously issued temporary `/chat?session=…` links no longer auto-submit.
 
+In an existing GitHub learning workspace, ask for “the latest repository commit” or paste a GitHub commit URL. The tutor can use `refresh_repository` (default-branch HEAD, branch, short/full SHA or same-repository commit URL) without creating a new session, then `read_repository_commit` for the message, changed files and bounded diff and `list_repository_files`/`read_repository_file` for source at the new SHA. `open_repository` also honors an explicit commit URL; a plain URL keeps the existing pin. Previously saved source evidence and conversation remain intact, and GitHub access to private repositories still requires the server-side `GITHUB_TOKEN`. Failed refreshes leave the existing pin in place.
+
 Text admission is limited to 30,000 characters. Invalid bodies normally return 400, missing authentication 401, cross-origin writes 403, missing sessions 404 and uncaught dependency failures a redacted 502. Some validation inside a Durable Object currently reaches the generic 502 handler; do not assume every validation failure is 400.
 
 ## Run It Locally
@@ -158,7 +160,7 @@ npm run check       # typecheck + pure tests + workerd tests + production build
 npm audit
 ```
 
-`DEV_AUTH=local` works only on localhost/127.0.0.1. Optional `GITHUB_TOKEN` enables private reads. Never commit actual environment values. Deterministic tests disable remote bindings; browser/real-model checks can incur inference costs.
+`DEV_AUTH=local` works only on localhost/127.0.0.1. The model picker in each retained workspace saves its selection; existing conversations move off deprecated GLM without losing messages. The five reviewed models are Kimi K3 (default), DeepSeek V4.1 Flash, Gemma 4 26B, Qwen 3.8 27B and GPT-OSS 120B. Kimi is a third-party AI Gateway model and requires Unified Billing credits or a gateway-managed provider key; it costs substantially more than the previous Flash model. Shortcuts and titles use DeepSeek V4.1 Flash independently of the chat selector. See [Cloudflare's November 20 deprecation notice](https://developers.cloudflare.com/changelog/post/2026-11-05-planned-model-deprecations/) and the [Kimi K3 model page](https://developers.cloudflare.com/ai/models/moonshotai/kimi-k3/). Optional `GITHUB_TOKEN` enables private reads. Never commit actual environment values. Deterministic tests disable remote bindings; browser/real-model checks can incur inference costs.
 
 For mobile browser tests against the built app:
 

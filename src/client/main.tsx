@@ -95,6 +95,7 @@ function App() {
   // State values cause re-renders; refs below keep mutable connection/scroll state without re-rendering.
   const [id, setId] = useState(initialId);
   const [snapshot, setSnapshot] = useState<SessionSnapshot>();
+  const [modelCatalog, setModelCatalog] = useState<{ models: { id: string; name: string; description: string }[]; defaultModelId: string }>();
   const [items, setItems] = useState<DirectoryItem[]>([]);
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState<number>();
@@ -212,6 +213,10 @@ function App() {
       setDeleting(false);
     }
   }
+  useEffect(() => {
+    void api<{ models: { id: string; name: string; description: string }[]; defaultModelId: string }>("/api/models")
+      .then(setModelCatalog).catch((e) => setError(String(e)));
+  }, []);
   /** Input: query/archive changes. Output: debounced Library refresh.
    * What this function does: cancels the pending timer when filters change again.
    */
@@ -629,6 +634,21 @@ function App() {
             </>
           )}
         </header>
+        {snapshot && modelCatalog && (
+          <div className="model-picker">
+            <label htmlFor="learning-model">Learning model</label>
+            <select
+              id="learning-model"
+              aria-label="Learning model"
+              value={snapshot.metadata.modelId ?? modelCatalog.defaultModelId}
+              disabled={snapshot.busy || sending || deleting}
+              onChange={(event) => void mutate({ modelId: event.currentTarget.value })}
+            >
+              {modelCatalog.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+            </select>
+            <small>{modelCatalog.models.find((model) => model.id === (snapshot.metadata.modelId ?? modelCatalog.defaultModelId))?.description}</small>
+          </div>
+        )}
         {error && (
           <div className="error" role="alert">
             {error}

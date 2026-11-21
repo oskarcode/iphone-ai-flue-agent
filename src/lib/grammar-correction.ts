@@ -1,9 +1,10 @@
 // Keep grammar independent of Pi tools, session storage and intent routing.
 import { GRAMMAR_CORRECTION_PROMPT } from '../prompts.ts';
+import { SHORTCUT_LEARNING_MODEL } from './learning-models.ts';
 
 type JsonRecord = Record<string, unknown>;
 
-export const DEFAULT_GRAMMAR_MODEL = '@cf/zai-org/glm-5.2';
+export const DEFAULT_GRAMMAR_MODEL = SHORTCUT_LEARNING_MODEL;
 export const GRAMMAR_MAX_COMPLETION_TOKENS = 32_768;
 
 /** Input: configured provider/model selector. Output: Workers AI model ID.
@@ -37,9 +38,6 @@ export function createGrammarRequest(text: string) {
     temperature: 0,
     max_completion_tokens: grammarCompletionBudget(text),
     reasoning_effort: 'none' as const,
-    // Live GLM-5.2 responses still contained reasoning with reasoning_effort alone.
-    // Explicitly disabling it in the chat template removed that work in A/B tests.
-    chat_template_kwargs: { enable_thinking: false },
   };
 }
 

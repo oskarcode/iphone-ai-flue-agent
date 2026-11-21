@@ -12,8 +12,8 @@ import { GRAMMAR_CORRECTION_PROMPT } from '../src/prompts.ts';
 
 describe('grammar correction', () => {
   it('builds a deterministic stateless request', () => {
-    expect(DEFAULT_GRAMMAR_MODEL).toBe('@cf/zai-org/glm-5.2');
-    expect(grammarModelFromConfiguredModel('cloudflare/@cf/zai-org/glm-5.2')).toBe('@cf/zai-org/glm-5.2');
+    expect(DEFAULT_GRAMMAR_MODEL).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
+    expect(grammarModelFromConfiguredModel('cloudflare/@cf/deepseek-ai/deepseek-v4.1-flash-1017')).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
     expect(GRAMMAR_CORRECTION_PROMPT).toBe('Correct spelling and grammar in the provided text.\nKeep the original tone and structure.\nReturn only the corrected text.');
     expect(createGrammarRequest('this are a test')).toEqual({
       messages: [
@@ -23,7 +23,6 @@ describe('grammar correction', () => {
       temperature: 0,
       max_completion_tokens: 256,
       reasoning_effort: 'none',
-      chat_template_kwargs: { enable_thinking: false },
     });
   });
 

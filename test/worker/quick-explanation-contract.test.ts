@@ -35,7 +35,6 @@ it("returns an answer without creating a workspace or logging selected text", as
   expect(run.mock.calls[0][1]).toMatchObject({
     messages: [{ role: "system" }, { role: "user", content: "Durable Object" }],
     reasoning_effort: "none",
-    chat_template_kwargs: { enable_thinking: false },
   });
   expect(run.mock.calls[0][2]).toMatchObject({
     gateway: { skipCache: true, metadata: { component: "quick-explanation" } },

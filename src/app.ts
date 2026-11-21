@@ -26,6 +26,7 @@ import {
 import { gatewayMetadata } from "./lib/gateway-metadata.ts";
 import { createQuickExplanationRequest, quickExplanationFromAi, plainExplanation } from "./lib/quick-explanation.ts";
 import { generateSessionTitle } from "./lib/session-title.ts";
+import { LEARNING_MODELS, DEFAULT_LEARNING_MODEL } from "./lib/learning-models.ts";
 import { learningArchiveStub } from "./lib/learning-archive.ts";
 import { renderReviewDetailPage } from "./review-page.ts";
 
@@ -223,6 +224,7 @@ async function create(
     updatedAt: now,
     archived: false,
     pinned: false,
+    modelId: DEFAULT_LEARNING_MODEL,
   };
   await stub.create(metadata);
   await stub.retainInput(owner(c), text);
@@ -529,6 +531,7 @@ app.post("/api/computer/actions", async (c) => {
   );
 });
 
+app.get("/api/models", (c) => c.json({ models: LEARNING_MODELS, defaultModelId: DEFAULT_LEARNING_MODEL }));
 app.get("/api/sessions", (c) =>
   library(c)
     .list(
@@ -761,8 +764,10 @@ app.patch("/api/sessions/:id", async (c) => {
     title?: string;
     pinned?: boolean;
     archived?: boolean;
+    modelId?: string;
   }>(c, 4000);
-  if (!body) return c.json({ error: "Invalid metadata" }, 400);
+  if (!body || (body.modelId !== undefined && !LEARNING_MODELS.some((model) => model.id === body.modelId)))
+    return c.json({ error: "Invalid metadata or model" }, 400);
   await (await ensure(c, c.req.param("id"))).edit(owner(c), body);
   return c.json({ ok: true });
 });
