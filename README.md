@@ -78,7 +78,7 @@ The Library is a versioned projection, not a second authoritative transcript. De
 | SQLite-backed Durable Objects | Canonical session state, rebuildable Library, shared Computer and owner-scoped learning coach |
 | Cloudflare Computer 0.5.1 + Worker Loader | Persistent skill files and approved worker-shell execution |
 | Workers KV | Retained historical records; no new learning handoff envelopes |
-| Workers AI + AI Gateway | Kimi K3 for learning turns (third-party Unified Billing); DeepSeek V4.1 Flash for stateless Shortcuts and titles; four selectable learning alternatives |
+| Workers AI + AI Gateway | GLM-5.3 for new learning turns; Kimi K3 and four other selectable alternatives; DeepSeek V4.1 Flash for stateless Shortcuts and titles |
 | Cap’n Web + R2 | RPC gadget interaction and gadget-scoped learning media |
 | `jose` + Cloudflare Access | Signed JWT verification for browser/service callers |
 | Valibot | Runtime validation of model tool arguments |
@@ -160,7 +160,7 @@ npm run check       # typecheck + pure tests + workerd tests + production build
 npm audit
 ```
 
-`DEV_AUTH=local` works only on localhost/127.0.0.1. The model picker in each retained workspace saves its selection; existing conversations move off deprecated GLM without losing messages. The five reviewed models are Kimi K3 (default), DeepSeek V4.1 Flash, Gemma 4 26B, Qwen 3.8 27B and GPT-OSS 120B. Kimi is a third-party AI Gateway model and requires Unified Billing credits or a gateway-managed provider key; it costs substantially more than the previous Flash model. Shortcuts and titles use DeepSeek V4.1 Flash independently of the chat selector. See [Cloudflare's November 20 deprecation notice](https://developers.cloudflare.com/changelog/post/2026-11-05-planned-model-deprecations/) and the [Kimi K3 model page](https://developers.cloudflare.com/ai/models/moonshotai/kimi-k3/). Optional `GITHUB_TOKEN` enables private reads. Never commit actual environment values. Deterministic tests disable remote bindings; browser/real-model checks can incur inference costs.
+`DEV_AUTH=local` works only on localhost/127.0.0.1. The model picker in each retained workspace saves its selection; existing conversations move off deprecated GLM without losing messages. The six reviewed models are GLM-5.3 (default), Kimi K3, DeepSeek V4.1 Flash, Gemma 4 26B, Qwen 3.8 27B and GPT-OSS 120B. Existing explicit model selections stay selected; older sessions without a choice move to GLM-5.3. The composer starts blank after a reload or session change instead of restoring pasted text; an interrupted send is retained for an explicit Retry rather than automatically submitted. Kimi is a third-party AI Gateway model and requires Unified Billing credits or a gateway-managed provider key; it costs substantially more than the previous Flash model. Shortcuts and titles use DeepSeek V4.1 Flash independently of the chat selector. See [Cloudflare's November 20 deprecation notice](https://developers.cloudflare.com/changelog/post/2026-11-05-planned-model-deprecations/) and the [Kimi K3 model page](https://developers.cloudflare.com/ai/models/moonshotai/kimi-k3/). Optional `GITHUB_TOKEN` enables private reads. Never commit actual environment values. Deterministic tests disable remote bindings; browser/real-model checks can incur inference costs.
 
 For mobile browser tests against the built app:
 

@@ -88,7 +88,7 @@ const Markdown = memo(({ text }: { text: string }) => (
   />
 ));
 
-/** Input: browser URL and device drafts. Output: the learning workspace React tree.
+/** Input: browser URL and pending delivery state. Output: the learning workspace React tree.
  * What this function does: coordinates Library navigation, HTTP snapshots, invalidation sockets and durable sends.
  */
 function App() {
@@ -103,9 +103,9 @@ function App() {
   const [settings, setSettings] = useState(false);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [skillError, setSkillError] = useState("");
-  const [draft, setDraft] = useState(
-    readStored(PREFIX + "draft:" + initialId) ?? "",
-  );
+  // Start with an empty composer. Old pasted text must not reappear on reload or navigation.
+  const [draft, setDraft] = useState("");
+  const [unsent, setUnsent] = useState<Pending | undefined>(pending);
   const [sending, setSending] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
@@ -162,12 +162,11 @@ function App() {
       if (active.current === target) setError(String(e));
     }
   }
-  /** Input: next session ID and whether to retain the previous draft. Output: selected view and URL.
-   * What this function does: resets pagination without deleting server state; confirmed deletion skips draft retention.
+  /** Input: next session ID. Output: selected view and URL.
+   * What this function does: resets pagination and clears the composer without deleting server state.
    */
-  function select(next: string, retainDraft = true) {
+  function select(next: string) {
     setSettings(false);
-    if (retainDraft) store(PREFIX + "draft:" + id, draft);
     active.current = next;
     setId(next);
     setSnapshot(undefined);
@@ -175,7 +174,7 @@ function App() {
     setOlderActivity([]);
     setCursor(undefined);
     loadedId.current = "";
-    setDraft(readStored(PREFIX + "draft:" + next) ?? "");
+    setDraft("");
     setError("");
     setDrawer(false);
     history.pushState({}, "", next ? `/sessions/${next}` : "/chat");
@@ -199,10 +198,13 @@ function App() {
     try {
       await api(`/api/sessions/${target}`, { method: "DELETE" });
       store(PREFIX + "draft:" + target, null);
-      if (pending()?.sessionId === target) store(PREFIX + "pending", null);
+      if (unsent?.sessionId === target) {
+        store(PREFIX + "pending", null);
+        setUnsent(undefined);
+      }
       setItems((old) => old.filter((item) => item.id !== target));
       if (active.current === target) {
-        select("", false);
+        select("");
       }
       await loadLibrary();
     } catch (e) {
@@ -233,12 +235,6 @@ function App() {
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, []);
-  /** Input: draft/session changes. Output: device-local draft.
-   * What this function does: persists text independently of server message submission.
-   */
-  useEffect(() => {
-    store(PREFIX + "draft:" + id, draft || null);
-  }, [draft, id]);
   /** Input: selected session. Output: reconnecting invalidation subscription.
    * What this function does: fetches snapshots, backs off reconnects and cleans up listeners/timers on navigation.
    */
@@ -331,9 +327,12 @@ function App() {
         text: work.text,
         requestId: work.requestId,
       });
-      if (pending()?.requestId === work.requestId)
+      if (pending()?.requestId === work.requestId) {
         store(PREFIX + "pending", null);
+        setUnsent(undefined);
+      }
       if (active.current === work.sessionId) setDraft("");
+      // Remove old device drafts created by earlier versions after a successful send.
       store(PREFIX + "draft:" + work.sessionId, null);
       await refresh(work.sessionId);
       await loadLibrary();
@@ -348,8 +347,7 @@ function App() {
    */
   async function send() {
     if (!draft.trim() || sending || deleting) return;
-    const existing = pending();
-    if (existing) {
+    if (unsent) {
       setError("Retry the pending message before sending another.");
       return;
     }
@@ -359,10 +357,11 @@ function App() {
       text: draft.trim(),
     };
     store(PREFIX + "pending", JSON.stringify(work));
+    setUnsent(work);
     await deliver(work);
   }
-  /** Input: initial URL and pending device state. Output: resumed page or retry of a saved send.
-   * What this function does: preserves historical page redirects and resumes interrupted workspace sends.
+  /** Input: initial URL. Output: resumed page without submitting old pasted text.
+   * What this function does: preserves historical redirects; pending sends require an explicit Retry.
    */
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -376,8 +375,6 @@ function App() {
     }
     if (params.has("resume") && /^[a-zA-Z0-9_-]{8,100}$/.test(initialId))
       history.replaceState({}, "", `/sessions/${initialId}`);
-    const work = pending();
-    if (work) void deliver(work);
   }, []);
   /** Input: title/pin patch. Output: refreshed snapshot and Library.
    * What this function does: leaves field validation and persistence to the Worker/session.
@@ -435,6 +432,7 @@ function App() {
       /* Storage may be disabled; sign-out must still work. */
     }
     setDraft("");
+    setUnsent(undefined);
   }
   // Latest snapshots override paged copies, including retained historical routing events.
   const activities = [
@@ -652,14 +650,17 @@ function App() {
         {error && (
           <div className="error" role="alert">
             {error}
-            {pending() && (
-              <button
-                disabled={sending || deleting}
-                onClick={() => void deliver(pending()!)}
-              >
-                Retry
-              </button>
-            )}
+          </div>
+        )}
+        {unsent && (
+          <div className="error" role="status">
+            An interrupted message is saved on this device, not pasted into the composer.
+            <button disabled={sending || deleting} onClick={() => void deliver(unsent)}>Retry</button>
+            <button disabled={sending || deleting} onClick={() => {
+              store(PREFIX + "pending", null);
+              setUnsent(undefined);
+              setError("");
+            }}>Discard unsent message</button>
           </div>
         )}
         {snapshot?.error && <div className="error">{snapshot.error}</div>}
@@ -831,7 +832,7 @@ function App() {
           ))}
           <div ref={bottom} />
         </div>
-        {/* Sticky composer and editable presets; pending sends survive reload. */}
+        {/* Sticky composer starts empty; interrupted sends require an explicit Retry. */}
         <section className="composer">
           <div className="presets">
             {skills.map((skill) => (

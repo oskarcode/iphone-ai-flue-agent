@@ -19,7 +19,7 @@
   "r2_buckets": [{ "binding": "GADGET_MEDIA", "bucket_name": "iphoneai-gadget-media" }],
   // Non-secret model and gateway selectors are visible to the Worker through process.env.
   "vars": {
-    "MODEL": "moonshotai/kimi-k3",
+    "MODEL": "@cf/zai-org/glm-5.3",
     "SHORTCUT_MODEL": "cloudflare/@cf/deepseek-ai/deepseek-v4.1-flash-1017",
     "AI_GATEWAY_ID": "iphone-flue-shortcut",
     "ACCESS_ISSUER": "https://oskarman.cloudflareaccess.com",

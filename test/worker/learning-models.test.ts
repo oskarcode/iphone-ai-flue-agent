@@ -21,6 +21,8 @@ describe("owner-scoped learning model selection", () => {
     await stub.create(metadata);
     const path = `/api/sessions/${id}`;
     const patch = (modelId: string) => request(path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modelId }) });
+    expect((await patch(DEFAULT_LEARNING_MODEL)).status).toBe(200);
+    expect((await patch("moonshotai/kimi-k3")).status).toBe(200);
     expect((await patch("@cf/qwen/qwen3.8-27b")).status).toBe(200);
     await evictDurableObject(stub);
     const saved = await request(path);

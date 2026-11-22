@@ -1,6 +1,6 @@
 // Pi registers model/tool behavior; the Agents adapter sends inference through the existing Gateway.
 import { Type } from "@earendil-works/pi-ai";
-import { createLearningModels, learningModelReference } from "../lib/learning-models.ts";
+import { createLearningModels, learningModelReference, learningThinkingLevel } from "../lib/learning-models.ts";
 import {
   configure,
   createRegistry,
@@ -779,7 +779,7 @@ export function createLearningHarnessOptions(
     conversationCreated: (tx, conversation) =>
       configure(tx, conversation.id, {
         model: learningModelReference(host.metadata().modelId ?? env.MODEL),
-        thinkingLevel: "off",
+        thinkingLevel: learningThinkingLevel(host.metadata().modelId ?? env.MODEL),
         tools,
       }),
   };
