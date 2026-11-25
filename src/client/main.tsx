@@ -6,7 +6,7 @@ import { renderTutorMarkdown } from "../lib/tutor-markdown.ts";
 import { TurnActivityPanel } from "./turn-activity.tsx";
 import { Settings } from "./settings.tsx";
 import { RpcGadgetPage } from "./rpc-gadget.tsx";
-import { api, post } from "./api.ts";
+import { api, post, ApiRequestError } from "./api.ts";
 import type { SkillSummary } from "../lib/skills.ts";
 import { showApprovalCard, uncertainActionNotice } from "../lib/approval-display.ts";
 import type {
@@ -40,6 +40,18 @@ const store = (key: string, value: string | null) => {
 const PREFIX = "pi-learning:";
 // Persist before network delivery; retries must reuse both IDs and the exact text.
 type Pending = { sessionId: string; requestId: string; text: string };
+/** Retry one transient failure within a deliberate send; never replay on page load.
+ * Both endpoints deduplicate by session ID or request ID, so a lost response cannot duplicate input.
+ */
+async function postWithTransientRetry(path: string, body: unknown) {
+  try {
+    return await post(path, body);
+  } catch (error) {
+    if (!(error instanceof TypeError || (error instanceof ApiRequestError && (error.status === 429 || error.status >= 500)))) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return post(path, body);
+  }
+}
 /** Input: stored pending JSON. Output: pending delivery or undefined.
  * What this function does: recovers a reload-interrupted send without inventing a new retry key.
  */
@@ -319,11 +331,11 @@ function App() {
     setSending(true);
     setError("");
     try {
-      await post("/api/sessions", { id: work.sessionId, text: work.text });
+      await postWithTransientRetry("/api/sessions", { id: work.sessionId, text: work.text });
       // Do not publish a reloadable URL until the durable session exists.
       if (active.current === startedIn && active.current !== work.sessionId)
         select(work.sessionId);
-      await post(`/api/sessions/${work.sessionId}/messages`, {
+      await postWithTransientRetry(`/api/sessions/${work.sessionId}/messages`, {
         text: work.text,
         requestId: work.requestId,
       });
@@ -652,7 +664,7 @@ function App() {
             {error}
           </div>
         )}
-        {unsent && (
+        {unsent && !sending && (
           <div className="error" role="status">
             An interrupted message is saved on this device, not pasted into the composer.
             <button disabled={sending || deleting} onClick={() => void deliver(unsent)}>Retry</button>
