@@ -24,6 +24,36 @@ test("a transient send failure retries once without alarming the learner or past
   }
 });
 
+test("a pending send never displays an interrupted-message warning while it is in flight", async ({ page, request }) => {
+  const created = await request.post("/api/sessions", { data: { text: "In-flight banner fixture" } });
+  expect(created.status()).toBe(201);
+  const { id } = await created.json() as { id: string };
+  let release: (() => void) | undefined;
+  let reached: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => { reached = resolve; });
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  try {
+    await page.route(`**/api/sessions/${id}/messages`, async (route) => {
+      reached?.();
+      await held;
+      await route.fulfill({ status: 202, json: {} });
+    });
+    await page.goto(`/sessions/${id}`);
+    await page.getByLabel("Question").fill("https://example.com/new-url");
+    await page.getByRole("button", { name: "Send" }).click();
+    await started;
+    expect(await page.evaluate(() => localStorage.getItem("pi-learning:pending"))).not.toBeNull();
+    await expect(page.getByRole("button", { name: "Saving…" })).toBeVisible();
+    await expect(page.getByText("An interrupted message is saved")).toHaveCount(0);
+    release?.();
+    await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+    await expect(page.getByText("An interrupted message is saved")).toHaveCount(0);
+  } finally {
+    release?.();
+    await request.delete(`/api/sessions/${id}`);
+  }
+});
+
 test("old pasted drafts do not refill the composer or auto-send after a reload", async ({ page, request }) => {
   const created = await request.post("/api/sessions", { data: { text: "Composer regression fixture" } });
   expect(created.status()).toBe(201);

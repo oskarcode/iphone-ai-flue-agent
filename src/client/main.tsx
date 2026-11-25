@@ -118,6 +118,8 @@ function App() {
   // Start with an empty composer. Old pasted text must not reappear on reload or navigation.
   const [draft, setDraft] = useState("");
   const [unsent, setUnsent] = useState<Pending | undefined>(pending);
+  // Persisting before fetch is normal; only a restored or failed send needs an alert.
+  const [needsRetry, setNeedsRetry] = useState(() => Boolean(pending()));
   const [sending, setSending] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
@@ -213,6 +215,7 @@ function App() {
       if (unsent?.sessionId === target) {
         store(PREFIX + "pending", null);
         setUnsent(undefined);
+        setNeedsRetry(false);
       }
       setItems((old) => old.filter((item) => item.id !== target));
       if (active.current === target) {
@@ -329,6 +332,7 @@ function App() {
   async function deliver(work: Pending) {
     const startedIn = active.current;
     setSending(true);
+    setNeedsRetry(false);
     setError("");
     try {
       await postWithTransientRetry("/api/sessions", { id: work.sessionId, text: work.text });
@@ -339,16 +343,15 @@ function App() {
         text: work.text,
         requestId: work.requestId,
       });
-      if (pending()?.requestId === work.requestId) {
-        store(PREFIX + "pending", null);
-        setUnsent(undefined);
-      }
+      if (pending()?.requestId === work.requestId) store(PREFIX + "pending", null);
+      setUnsent(undefined);
       if (active.current === work.sessionId) setDraft("");
       // Remove old device drafts created by earlier versions after a successful send.
       store(PREFIX + "draft:" + work.sessionId, null);
       await refresh(work.sessionId);
       await loadLibrary();
     } catch (e) {
+      setNeedsRetry(true);
       setError(`${String(e)} Your message is saved on this device. Use Retry.`);
     } finally {
       setSending(false);
@@ -370,6 +373,7 @@ function App() {
     };
     store(PREFIX + "pending", JSON.stringify(work));
     setUnsent(work);
+    setNeedsRetry(false);
     await deliver(work);
   }
   /** Input: initial URL. Output: resumed page without submitting old pasted text.
@@ -445,6 +449,7 @@ function App() {
     }
     setDraft("");
     setUnsent(undefined);
+    setNeedsRetry(false);
   }
   // Latest snapshots override paged copies, including retained historical routing events.
   const activities = [
@@ -664,13 +669,14 @@ function App() {
             {error}
           </div>
         )}
-        {unsent && !sending && (
+        {unsent && needsRetry && !sending && (
           <div className="error" role="status">
             An interrupted message is saved on this device, not pasted into the composer.
             <button disabled={sending || deleting} onClick={() => void deliver(unsent)}>Retry</button>
             <button disabled={sending || deleting} onClick={() => {
               store(PREFIX + "pending", null);
               setUnsent(undefined);
+              setNeedsRetry(false);
               setError("");
             }}>Discard unsent message</button>
           </div>
